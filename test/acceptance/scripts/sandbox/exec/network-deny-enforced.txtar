@@ -1,0 +1,37 @@
+# guarantee: under `pmg sandbox exec --network-mode enforce`, a --network-deny
+# rule makes the proxy refuse the CONNECT with a 403 while an allowed
+# destination goes through. The stderr report names the destination, the
+# rule and the proposal command. `pmg sandbox explain --last` suggests the
+# net-connect override. --network-allow for the same destination lets it
+# through, and the run writes no report.
+
+[windows] skip 'pmg sandbox exec is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+cd $WORK/proj
+
+exec pmg sandbox exec --network-mode enforce --network-deny pastebin.com:443 -- sh probe.sh
+stdout 'registry 200'
+stdout 'connect 403'
+stderr 'Network policy denied 1 destination'
+stderr 'pastebin.com:443  rule pastebin.com:443'
+stderr 'pmg sandbox profile propose --run [0-9a-f]{12}'
+
+exec pmg sandbox explain --last --json
+stdout 'net-connect=pastebin.com:443'
+stdout 'denied by the network policy \(rule pastebin.com:443\)'
+
+exec pmg sandbox exec --network-mode enforce --network-deny pastebin.com:443 --network-allow pastebin.com:443 -- sh probe.sh
+stdout 'connect 200'
+! stderr 'Network policy'
+
+-- proj/probe.sh --
+set -eu
+status=$(curl --silent --show-error --max-time 30 --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad)
+echo "registry $status"
+# curl drops the body of a refused CONNECT, so the CONNECT status is the check.
+status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
+echo "connect $status"

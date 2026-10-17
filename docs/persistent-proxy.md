@@ -252,6 +252,12 @@ pmg proxy start --daemon --profile .pmg/profiles/ci.yml --network-mode enforce \
   --network-deny pastebin.com:443
 ```
 
+A profile with `deny_ip_literals: true` denies a destination that is an
+address and not a name, unless an allow rule names that exact address. The
+report names the rule `ip_literal`. A redirected TLS connection with no
+server name is decided on its original destination address. See
+[Network rules](./sandbox.md#network-rules).
+
 Under `audit`, the default, the proxy records a match on a deny rule and lets
 the connection through. Under `enforce` the proxy refuses it: a proxy-aware
 client gets a 403 that names the destination and the rule, and a redirected

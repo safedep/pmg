@@ -21,6 +21,7 @@ import (
 	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/sandbox"
 	sandboxplatform "github.com/safedep/pmg/sandbox/platform"
 	"github.com/stretchr/testify/require"
 )
@@ -112,6 +113,8 @@ func TestAcceptance(t *testing.T) {
 						return exec.Command("unshare", "-U", "true").Run() == nil, nil
 					case "enforce":
 						return hostCanEnforce(), nil
+					case "bubblewrap":
+						return os.Getenv("PMG_SANDBOX_DRIVER") == string(sandbox.DriverBubblewrap), nil
 					case "docker":
 						return exec.Command("docker", "info").Run() == nil, nil
 					case "truststore":

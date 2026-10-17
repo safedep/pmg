@@ -1,0 +1,44 @@
+# guarantee: with a profile that sets network_via_proxy_only, `pmg sandbox
+# exec` on Landlock or Seatbelt lets a connection through the proxy reach an
+# allowed host, refuses a direct connection that goes around the proxy, and
+# refuses a denied host at the proxy. Under Bubblewrap the run exits
+# non-zero with a clear error before the program runs.
+
+[windows] skip 'pmg sandbox exec is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+cd $WORK/proj
+
+[bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/lockdown.yml -- sh -c 'echo ran > ran.txt'
+[bubblewrap] stderr 'network_via_proxy_only is not yet supported on this platform'
+[bubblewrap] ! exists ran.txt
+[bubblewrap] stop 'Bubblewrap refuses the profile'
+
+exec pmg sandbox exec --sandbox-profile $WORK/lockdown.yml --network-mode enforce -- sh probe.sh
+stdout 'via proxy 200'
+stdout 'direct refused'
+stdout 'connect 403'
+stderr 'pastebin.com:443  rule pastebin.com:443'
+
+-- proj/probe.sh --
+set -u
+status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad || echo fail)
+echo "via proxy $status"
+if curl --silent --max-time 30 --noproxy '*' --output /dev/null https://registry.npmjs.org/left-pad; then
+  echo "direct ok"
+else
+  echo "direct refused"
+fi
+status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
+echo "connect $status"
+-- lockdown.yml --
+name: exec-lockdown
+description: the exec profile with outbound confined to the PMG proxy
+inherits: exec
+network_via_proxy_only: true
+network:
+  deny_outbound:
+    - pastebin.com:443

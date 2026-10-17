@@ -1,0 +1,40 @@
+# guarantee: a `pmg sandbox exec` run observes every destination.
+# `pmg sandbox profile propose --last` proposes one allow rule per
+# destination, and --new writes a profile that inherits exec, denies IP
+# literals and lints. Under that profile in enforce, `pmg sandbox exec` lets
+# the observed destination through and refuses one the run did not reach.
+
+[windows] skip 'pmg sandbox exec is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+cd $WORK/proj
+
+exec pmg sandbox exec -- curl --silent --show-error --max-time 30 --output /dev/null https://registry.npmjs.org/left-pad
+! stderr .
+
+exec pmg sandbox profile propose --last
+stdout 'add registry.npmjs.org:443'
+stdout 'Proposal: 1 new allow rule'
+
+exec pmg sandbox profile propose --last --new $WORK/agent.yml
+exists $WORK/agent.yml
+grep 'inherits: exec' $WORK/agent.yml
+grep 'deny_ip_literals: true' $WORK/agent.yml
+grep '    - registry.npmjs.org:443' $WORK/agent.yml
+grep '    - "\*:\*"' $WORK/agent.yml
+exec pmg sandbox profile lint $WORK/agent.yml
+
+exec pmg sandbox exec --sandbox-profile $WORK/agent.yml --network-mode enforce -- sh probe.sh
+stdout 'registry 200'
+stdout 'connect 403'
+stderr 'pastebin.com:443  rule \*:\*'
+
+-- proj/probe.sh --
+set -eu
+status=$(curl --silent --show-error --max-time 30 --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad)
+echo "registry $status"
+status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
+echo "connect $status"

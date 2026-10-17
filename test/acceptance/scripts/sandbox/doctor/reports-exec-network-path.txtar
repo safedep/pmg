@@ -1,0 +1,15 @@
+# guarantee: `pmg sandbox doctor --json` has a network.exec-path probe that
+# names how `pmg sandbox exec` applies a network policy on this host. The
+# probe is ok or warn, never fail, on a host that has a sandbox driver.
+
+[windows] skip 'the sandbox is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+
+# Another probe can fail on this host, so the exit status is not the check.
+exec sh -c 'pmg sandbox doctor --json || true'
+stdout '"name": *"network.exec-path"'
+stdout '"summary": *"proxy by environment'

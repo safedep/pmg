@@ -293,12 +293,36 @@
   tier: P0
   guarantee: "On Linux, `unshare -U` fails under `pmg sandbox exec` with EPERM."
   labels: [sandbox, exec, block, offline]
-- id: sandbox/exec/refuses-network-lockdown
-  title: "sandbox exec refuses a profile with network lockdown"
+- id: sandbox/exec/network-deny-enforced
+  title: "sandbox exec refuses a destination a deny rule covers under enforce"
+  category: sandbox
+  tier: P0
+  guarantee: "Under `pmg sandbox exec --network-mode enforce`, a `--network-deny` rule makes the proxy refuse the CONNECT with a 403 while an allowed destination goes through, the stderr report names the destination, the rule and the proposal command, `pmg sandbox explain --last` suggests the net-connect override, and `--network-allow` for the same destination lets it through with no report."
+  labels: [sandbox, exec, network, block]
+- id: sandbox/exec/network-deny-audited
+  title: "sandbox exec records a deny match under audit and stays silent on a clean run"
   category: sandbox
   tier: P1
-  guarantee: "With a profile that sets network_via_proxy_only, `pmg sandbox exec` exits non-zero with a clear error before running the program."
-  labels: [sandbox, exec, block, offline]
+  guarantee: "Under `pmg sandbox exec` in the default audit mode, a `--network-deny` match goes through and the stderr report lists what the rule would deny. A run with no match writes nothing to stderr."
+  labels: [sandbox, exec, network, clean]
+- id: sandbox/exec/network-lockdown-via-proxy
+  title: "sandbox exec confines outbound to the proxy under network_via_proxy_only"
+  category: sandbox
+  tier: P0
+  guarantee: "With a profile that sets network_via_proxy_only, `pmg sandbox exec` on Landlock or Seatbelt lets a connection through the proxy reach an allowed host, refuses a direct connection that goes around the proxy, and refuses a denied host at the proxy. Under Bubblewrap the run exits non-zero with a clear error before the program runs."
+  labels: [sandbox, exec, network, block]
+- id: sandbox/exec/network-run-proposes
+  title: "a sandbox exec run proposes the profile that enforces it"
+  category: sandbox
+  tier: P1
+  guarantee: "A `pmg sandbox exec` run observes every destination. `pmg sandbox profile propose --last` proposes one allow rule per destination, and `--new` writes a profile that inherits exec, denies IP literals and lints. Under that profile in enforce, `pmg sandbox exec` lets the observed destination through and refuses one the run did not reach."
+  labels: [sandbox, exec, network, propose]
+- id: sandbox/doctor/reports-exec-network-path
+  title: "sandbox doctor reports the exec network path"
+  category: sandbox
+  tier: P2
+  guarantee: "`pmg sandbox doctor --json` has a network.exec-path probe that names how `pmg sandbox exec` applies a network policy on this host."
+  labels: [sandbox, exec, doctor, offline]
 
 - id: sandbox/observe/env-scrub-recorded
   title: "sandbox records env scrubs to the violation cache"
@@ -638,8 +662,14 @@
   title: "a run under audit proposes the profile that enforces it"
   category: proxy
   tier: P1
-  guarantee: "A daemon run under audit with no profile observes every destination, `pmg proxy env` exports the run id as PMG_PROXY_RUN, and the stop report names the proposal command. `pmg sandbox profile propose --dry-run` shows the profile and does not write it. Without it the command writes a profile with one allow rule per observed destination and the catch-all deny, and the profile lints. A daemon under that profile in enforce lets the observed destination through and refuses one the run did not reach."
+  guarantee: "A daemon run under audit with no profile observes every destination, `pmg proxy env` exports the run id as PMG_PROXY_RUN, and the stop report names the proposal command. `pmg sandbox profile propose --dry-run` shows the profile and does not write it. Without it the command writes a profile with one allow rule per observed destination, deny_ip_literals and the catch-all deny, and the profile lints. A daemon under that profile in enforce lets the observed destination through and refuses one the run did not reach."
   labels: [proxy, network, propose]
+- id: proxy/network/deny-ip-literals
+  title: "the proxy denies a destination that is an address under deny_ip_literals"
+  category: proxy
+  tier: P0
+  guarantee: "A daemon under a profile with deny_ip_literals and a catch-all allow, in enforce, refuses a plain HTTP request to an IP literal with a 403, lets a request to a name through, and the stop report names the destination and the rule ip_literal."
+  labels: [proxy, network, block]
 - id: proxy/network/propose/hint-needs-log
   title: "a run without an event log does not name the proposal command"
   category: proxy

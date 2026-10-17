@@ -1,0 +1,27 @@
+# guarantee: under `pmg sandbox exec` in the default audit mode, a
+# --network-deny match goes through and the stderr report lists what the
+# rule would deny. A run with no match writes nothing to stderr, so the
+# program's own output stays the whole output.
+
+[windows] skip 'pmg sandbox exec is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+cd $WORK/proj
+
+exec pmg sandbox exec --network-deny pastebin.com:443 -- sh probe.sh
+stdout 'connect 200'
+stderr 'Network policy would deny 1 destination'
+stderr 'pastebin.com:443  rule pastebin.com:443'
+stderr 'Set sandbox.network_mode: enforce to deny them'
+
+exec pmg sandbox exec -- sh probe.sh
+stdout 'connect 200'
+! stderr .
+
+-- proj/probe.sh --
+set -eu
+status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
+echo "connect $status"
