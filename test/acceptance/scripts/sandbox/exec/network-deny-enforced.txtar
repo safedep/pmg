@@ -2,8 +2,8 @@
 # rule makes the proxy refuse the CONNECT with a 403 while an allowed
 # destination goes through. The stderr report names the destination, the
 # rule and the proposal command. `pmg sandbox explain --last` suggests the
-# net-connect override. --network-allow for the same destination lets it
-# through, and the run writes no report.
+# net-connect override. --network-allow removes a deny rule of the profile
+# for the same destination, so it goes through and the run writes no report.
 
 [windows] skip 'pmg sandbox exec is not supported on Windows'
 
@@ -24,7 +24,7 @@ exec pmg sandbox explain --last --json
 stdout 'net-connect=pastebin.com:443'
 stdout 'denied by the network policy \(rule pastebin.com:443\)'
 
-exec pmg sandbox exec --network-mode enforce --network-deny pastebin.com:443 --network-allow pastebin.com:443 -- sh probe.sh
+exec pmg sandbox exec --sandbox-profile $WORK/deny.yml --network-mode enforce --network-allow pastebin.com:443 -- sh probe.sh
 stdout 'connect 200'
 ! stderr 'Network policy'
 
@@ -35,3 +35,10 @@ echo "registry $status"
 # curl drops the body of a refused CONNECT, so the CONNECT status is the check.
 status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
 echo "connect $status"
+-- deny.yml --
+name: exec-deny-pastebin
+description: the exec profile with one deny rule
+inherits: exec
+network:
+  deny_outbound:
+    - pastebin.com:443
