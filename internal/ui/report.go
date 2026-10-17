@@ -2,9 +2,12 @@ package ui
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
 	"github.com/safedep/pmg/proxy/netpolicy"
@@ -374,21 +377,34 @@ func reportVerbose(data *ReportData) {
 	fmt.Println()
 }
 
-// printNetworkObservation points at the proposal command when the run
-// reached a destination and the run has an id in the event log.
 func printNetworkObservation(data *ReportData) {
-	if data.ObservedDestinations == 0 || data.NetworkRunID == "" {
-		return
+	if err := PrintNetworkObservation(os.Stdout, data.ObservedDestinations, data.NetworkRunID); err != nil {
+		log.Warnf("failed to write the network observation: %v", err)
 	}
-	fmt.Println()
-	fmt.Printf("  %s\n", Colors.Dim(fmt.Sprintf("Network: %d destination(s) observed. Propose a profile with: pmg sandbox profile propose --run %s", data.ObservedDestinations, data.NetworkRunID)))
 }
 
-// printNetworkPolicy lists the destinations a deny rule matched. Under
-// enforce the proxy refused them. Under audit they went through.
+// PrintNetworkObservation points at the proposal command when the run
+// reached a destination and the run has an id in the event log.
+func PrintNetworkObservation(w io.Writer, observed int, runID string) error {
+	if observed == 0 || runID == "" {
+		return nil
+	}
+	_, err := fmt.Fprintf(w, "\n  %s\n", Colors.Dim(fmt.Sprintf("Network: %d destination(s) observed. Propose a profile with: pmg sandbox profile propose --run %s", observed, runID)))
+	return err
+}
+
 func printNetworkPolicy(report *netpolicy.Report) {
+	if err := PrintNetworkPolicy(os.Stdout, report); err != nil {
+		log.Warnf("failed to write the network policy report: %v", err)
+	}
+}
+
+// PrintNetworkPolicy lists the destinations a deny rule matched. Under
+// enforce the proxy refused them. Under audit they went through. A report
+// with no denial writes nothing.
+func PrintNetworkPolicy(w io.Writer, report *netpolicy.Report) error {
 	if report == nil || len(report.Denials) == 0 {
-		return
+		return nil
 	}
 
 	verb := "would deny"
@@ -396,8 +412,9 @@ func printNetworkPolicy(report *netpolicy.Report) {
 		verb = "denied"
 	}
 
-	fmt.Println()
-	fmt.Printf("%s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("Network policy %s %d destination(s):", verb, len(report.Denials))))
+	var b strings.Builder
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("Network policy %s %d destination(s):", verb, len(report.Denials))))
 	for _, d := range report.Denials {
 		line := fmt.Sprintf("%s  rule %s", d.Destination, d.Rule)
 		if d.Client != "" {
@@ -406,13 +423,15 @@ func printNetworkPolicy(report *netpolicy.Report) {
 		if d.Count > 1 {
 			line += fmt.Sprintf("  (%d)", d.Count)
 		}
-		fmt.Printf("    %s\n", Colors.Yellow(line))
+		fmt.Fprintf(&b, "    %s\n", Colors.Yellow(line))
 	}
 	if report.Enforced {
-		fmt.Printf("  %s\n", Colors.Dim("Allow one for this run with --sandbox-allow net-connect=<host>:<port>, or keep it with pmg sandbox allow net-connect=<host>:<port>."))
+		fmt.Fprintf(&b, "  %s\n", Colors.Dim("Allow one for this run with --sandbox-allow net-connect=<host>:<port>, or keep it with pmg sandbox allow net-connect=<host>:<port>."))
 	} else {
-		fmt.Printf("  %s\n", Colors.Dim("Set sandbox.network_mode: enforce to deny them."))
+		fmt.Fprintf(&b, "  %s\n", Colors.Dim("Set sandbox.network_mode: enforce to deny them."))
 	}
+	_, err := io.WriteString(w, b.String())
+	return err
 }
 
 // cooldownWithheldHintMaxVersions bounds how many withheld versions are listed

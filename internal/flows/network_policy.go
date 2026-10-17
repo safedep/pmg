@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -150,6 +152,56 @@ func (l *NetworkDecisionLog) sorted() []netpolicy.Destination {
 		return a.PID < b.PID
 	})
 	return out
+}
+
+// NetworkOutcome is what a run's report shows about the network policy:
+// the denials, and the run id and destination count that point at the
+// proposal command. RunID is empty when the run has no event log.
+type NetworkOutcome struct {
+	Report   *netpolicy.Report
+	RunID    string
+	Observed int
+}
+
+// networkRun is the network side of one proxied run: the decision log and
+// the run id, from the first decision to the record at the end. The
+// package manager proxy and the exec proxy share it.
+type networkRun struct {
+	log   *networkDecisionLog
+	runID string
+	res   *executor.Resolution
+}
+
+func newNetworkRun(res *executor.Resolution) *networkRun {
+	return &networkRun{log: newNetworkDecisionLog(res), runID: netpolicy.NewRunID(), res: res}
+}
+
+func (r *networkRun) record(d proxy.NetworkDecision) { r.log.Record(d) }
+
+// finish records the refused destinations as violations and the run's
+// observation in the event log. Call it after the proxy stopped, so a
+// decision made while the child exits is in the record.
+func (r *networkRun) finish() NetworkOutcome {
+	r.log.observeViolations()
+	observation := r.log.observation(r.runID, r.res)
+	audit.LogNetworkObservation(observation)
+
+	out := NetworkOutcome{Report: r.log.Report(), Observed: len(observation.Destinations)}
+	if eventlog.Dir() != "" {
+		out.RunID = r.runID
+	}
+	return out
+}
+
+// applyNetworkPolicy gives the proxy the network block of the resolution.
+// A run with no sandbox has no policy, and the proxy then allows every
+// destination and still reports each one.
+func applyNetworkPolicy(cfg *proxy.ProxyConfig, res *executor.Resolution) {
+	if res == nil || res.Network == nil {
+		return
+	}
+	cfg.NetworkPolicy = res.Network
+	cfg.NetworkEnforce = res.NetworkMode == config.SandboxNetworkModeEnforce
 }
 
 // networkDecisionLog is the one-shot proxy's log. It knows the policy and

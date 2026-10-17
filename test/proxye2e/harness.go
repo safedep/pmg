@@ -58,6 +58,7 @@ type options struct {
 	redirectOnlyIP string
 	network        *netpolicy.Policy
 	networkEnforce bool
+	noInterceptors bool
 }
 
 type Option func(*options)
@@ -88,6 +89,13 @@ func WithTransparent(resolver proxy.OriginalDestinationResolver) Option {
 // listens for containers.
 func WithRedirectOnlyListener(ip string) Option {
 	return func(o *options) { o.redirectOnlyIP = ip }
+}
+
+// WithoutInterceptors builds the proxy pmg sandbox exec runs: no
+// interceptors and no TLS termination, so the proxy reads no traffic and
+// only decides each destination by the network policy.
+func WithoutInterceptors() Option {
+	return func(o *options) { o.noInterceptors = true }
 }
 
 // WithNetworkPolicy makes the proxy decide every destination by p, as the
@@ -205,6 +213,11 @@ func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *
 	cfg := proxy.DefaultProxyConfig()
 	cfg.CertManager = certMgr
 	cfg.Interceptors = interceptorList
+	if o.noInterceptors {
+		cfg.CertManager = nil
+		cfg.Interceptors = nil
+		cfg.EnableMITM = false
+	}
 	cfg.Transparent = o.transparent
 	cfg.OriginalDestination = o.origDst
 	cfg.NetworkPolicy = o.network

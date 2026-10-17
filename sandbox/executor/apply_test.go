@@ -739,11 +739,11 @@ func TestApplySandboxRequireSandboxFailsClosedOnDisabledPolicy(t *testing.T) {
 	assert.Equal(t, errcodes.SandboxPolicyDisabled, usefulErr.Code())
 }
 
-func TestApplySandboxExecRejectsNetworkLockdown(t *testing.T) {
+func TestApplySandboxExecConfinesOutboundToTheProxyUnderNetworkLockdown(t *testing.T) {
 	tests := []struct {
-		name    string
-		profile string
-		wantErr bool
+		name         string
+		profile      string
+		wantLockdown bool
 	}{
 		{
 			name: "direct lockdown",
@@ -754,7 +754,7 @@ filesystem:
   allow_read: ["/tmp"]
 network_via_proxy_only: true
 `,
-			wantErr: true,
+			wantLockdown: true,
 		},
 		{
 			name: "inherited lockdown",
@@ -763,7 +763,7 @@ name: exec-inherits-go
 inherits: go
 package_managers: ["exec"]
 `,
-			wantErr: true,
+			wantLockdown: true,
 		},
 		{
 			name: "inherited lockdown turned off",
@@ -791,22 +791,16 @@ network_via_proxy_only: false
 			require.NoError(t, os.WriteFile(profile, []byte(tt.profile), 0o600))
 			cfg.SandboxProfileOverride = profile
 
+			res, err := ResolvePolicy(sandbox.WorkloadExec, true)
+			require.NoError(t, err, "pmg sandbox exec runs a proxy, so a profile may ask for network lockdown")
+			assert.Equal(t, tt.wantLockdown, utils.SafelyGetValue(res.Policy.NetworkViaProxyOnly))
+
 			fake := &fakeApplySandbox{}
-			result, err := resolveAndApply(exec.Command("sh"), sandbox.WorkloadExec, true,
-				WithSandbox(fake))
-
-			if !tt.wantErr {
-				require.NoError(t, err)
-				assert.True(t, result.ShouldRun())
-				return
-			}
-
-			var usefulErr usefulerror.UsefulError
-			require.ErrorAs(t, err, &usefulErr)
-			assert.Equal(t, errcodes.SandboxRequiresProxy, usefulErr.Code())
-			assert.Contains(t, err.Error(), "pmg sandbox exec does not support network_via_proxy_only")
-			assert.Contains(t, usefulErr.Help(), "network_via_proxy_only: false")
-			assert.Nil(t, fake.rt)
+			rt := &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:4242"}
+			result, err := ApplySandbox(context.Background(), exec.Command("sh"), res, WithSandbox(fake), WithExecutionContext(rt))
+			require.NoError(t, err)
+			assert.True(t, result.ShouldRun())
+			assert.Same(t, rt, fake.rt, "the driver gets the proxy address to confine outbound to")
 		})
 	}
 }

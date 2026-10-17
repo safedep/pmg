@@ -199,16 +199,6 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 		return nil, fmt.Errorf("sandbox policy %s does not apply to %s", policy.Name, pmName)
 	}
 
-	if pmName == sandbox.WorkloadExec && utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
-		msg := fmt.Sprintf("pmg sandbox exec does not support network_via_proxy_only (policy %s)", policy.Name)
-		return nil, usefulerror.NewUsefulError().
-			WithCode(errcodes.SandboxRequiresProxy).
-			WithHumanError(msg).
-			WithHelp("pmg sandbox exec does not start the PMG proxy. Set network_via_proxy_only: false in the profile. Removing the key keeps the value from a parent profile.").
-			WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox-exec.md").
-			Wrap(errors.New(msg))
-	}
-
 	if err := applyNetworkFlagRules(policy, cfg); err != nil {
 		return nil, err
 	}

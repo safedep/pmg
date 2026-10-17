@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -8,9 +9,12 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/packagemanager"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,20 +25,52 @@ type execCapture struct {
 	opts           runner.ExecuteOptions
 	sandboxEnabled bool
 	err            error
+
+	resolveErr error
+	proxyErr   error
+	proxy      *fakeNetworkProxy
+}
+
+type fakeNetworkProxy struct {
+	stopped int
+	outcome flows.NetworkOutcome
+}
+
+func (p *fakeNetworkProxy) Addr() string  { return "127.0.0.1:4242" }
+func (p *fakeNetworkProxy) Env() []string { return packagemanager.ProxyEnv(p.Addr()) }
+func (p *fakeNetworkProxy) Stop() flows.NetworkOutcome {
+	p.stopped++
+	return p.outcome
 }
 
 func runExecCommand(t *testing.T, cfg *config.RuntimeConfig, capture *execCapture, args ...string) error {
 	t.Helper()
 
-	run := func(_ context.Context, pc *packagemanager.ParsedCommand, opts runner.ExecuteOptions) error {
-		capture.calls++
-		capture.pc = pc
-		capture.opts = opts
-		capture.sandboxEnabled = cfg.Config.Sandbox.Enabled
-		return capture.err
+	if capture.proxy == nil {
+		capture.proxy = &fakeNetworkProxy{}
+	}
+	resolution := &executor.Resolution{PackageManager: pmgsandbox.WorkloadExec, Policy: &pmgsandbox.SandboxPolicy{Name: "exec"}}
+	deps := execDeps{
+		config: cfg,
+		resolve: func(pmName string, requireSandbox bool) (*executor.Resolution, error) {
+			assert.Equal(t, pmgsandbox.WorkloadExec, pmName)
+			assert.True(t, requireSandbox)
+			return resolution, capture.resolveErr
+		},
+		startProxy: func(res *executor.Resolution) (networkProxy, error) {
+			assert.Same(t, resolution, res, "the proxy gets the resolution the runner gets")
+			return capture.proxy, capture.proxyErr
+		},
+		run: func(_ context.Context, pc *packagemanager.ParsedCommand, opts runner.ExecuteOptions) error {
+			capture.calls++
+			capture.pc = pc
+			capture.opts = opts
+			capture.sandboxEnabled = cfg.Config.Sandbox.Enabled
+			return capture.err
+		},
 	}
 
-	cmd := newExecCommand(run, func() *config.RuntimeConfig { return cfg })
+	cmd := newExecCommand(deps)
 	cmd.SetArgs(args)
 	return cmd.Execute()
 }
@@ -88,6 +124,28 @@ func TestExecForcesSandboxOnAndRequiresIt(t *testing.T) {
 	assert.True(t, capture.opts.DryRun)
 }
 
+func TestExecRunsTheProgramBehindTheNetworkProxy(t *testing.T) {
+	capture := &execCapture{}
+	require.NoError(t, runExecCommand(t, &config.RuntimeConfig{}, capture, "claude"))
+
+	require.NotNil(t, capture.opts.Sandbox, "the runner gets the resolution the proxy used, so the policy resolves once")
+	assert.Equal(t, "127.0.0.1:4242", capture.opts.SandboxProxyAddr, "the driver confines outbound to the proxy under network_via_proxy_only")
+	assert.Contains(t, capture.opts.EnvOverrides, "HTTPS_PROXY=http://127.0.0.1:4242")
+	assert.Equal(t, 1, capture.proxy.stopped, "the proxy stops after the program")
+}
+
+func TestExecStopsWhenThePolicyOrTheProxyFails(t *testing.T) {
+	resolveErr := errors.New("no policy")
+	capture := &execCapture{resolveErr: resolveErr}
+	require.ErrorIs(t, runExecCommand(t, &config.RuntimeConfig{}, capture, "claude"), resolveErr)
+	assert.Equal(t, 0, capture.calls)
+
+	proxyErr := errors.New("port in use")
+	capture = &execCapture{proxyErr: proxyErr}
+	require.ErrorIs(t, runExecCommand(t, &config.RuntimeConfig{}, capture, "claude"), proxyErr)
+	assert.Equal(t, 0, capture.calls, "a program must not run without the proxy its policy relies on")
+}
+
 func TestExecNetworkFlagsLandInTheConfig(t *testing.T) {
 	cfg := &config.RuntimeConfig{}
 	capture := &execCapture{}
@@ -120,6 +178,22 @@ func TestExecRefusesAnUnknownNetworkMode(t *testing.T) {
 	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
 	assert.Contains(t, err.Error(), "sandbox.network_mode")
 	assert.Equal(t, 0, capture.calls)
+}
+
+func TestReportNetworkWritesOnlyWhenARuleMatched(t *testing.T) {
+	var out bytes.Buffer
+	require.NoError(t, reportNetwork(&out, flows.NetworkOutcome{Observed: 3, RunID: "abc123def456"}))
+	assert.Empty(t, out.String(), "a clean run stays silent, as the program's own output is the contract")
+
+	denied := flows.NetworkOutcome{
+		Report:   &netpolicy.Report{Enforced: true, Denials: []netpolicy.Denial{{Destination: "pastebin.com:443", Rule: "*:*", Count: 2}}},
+		Observed: 3,
+		RunID:    "abc123def456",
+	}
+	require.NoError(t, reportNetwork(&out, denied))
+	assert.Contains(t, out.String(), "Network policy denied 1 destination(s):")
+	assert.Contains(t, out.String(), "pastebin.com:443  rule *:*  (2)")
+	assert.Contains(t, out.String(), "pmg sandbox profile propose --run abc123def456")
 }
 
 func TestExecPassesChildExitThrough(t *testing.T) {

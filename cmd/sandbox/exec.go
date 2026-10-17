@@ -2,15 +2,20 @@ package sandbox
 
 import (
 	"context"
+	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/netflags"
 	"github.com/safedep/pmg/internal/runner"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -19,25 +24,51 @@ import (
 // replace it to observe the parsed command and options without a sandbox.
 type execRunner func(ctx context.Context, pc *packagemanager.ParsedCommand, opts runner.ExecuteOptions) error
 
-// NewExecCommand returns the `pmg sandbox exec` subcommand.
-func NewExecCommand() *cobra.Command {
-	return newExecCommand(runner.ExecuteWithOptions, config.Get)
+// networkProxy is the proxy that applies the network policy to the run.
+type networkProxy interface {
+	Addr() string
+	Env() []string
+	Stop() flows.NetworkOutcome
 }
 
-func newExecCommand(run execRunner, getConfig func() *config.RuntimeConfig) *cobra.Command {
-	cfg := getConfig()
+// execDeps are the seams of pmg sandbox exec. Production wires the real
+// policy resolver, proxy and runner. Tests replace them.
+type execDeps struct {
+	config     *config.RuntimeConfig
+	resolve    func(pmName string, requireSandbox bool) (*executor.Resolution, error)
+	startProxy func(res *executor.Resolution) (networkProxy, error)
+	run        execRunner
+}
+
+// NewExecCommand returns the `pmg sandbox exec` subcommand.
+func NewExecCommand() *cobra.Command {
+	return newExecCommand(execDeps{
+		config:  config.Get(),
+		resolve: executor.ResolvePolicy,
+		startProxy: func(res *executor.Resolution) (networkProxy, error) {
+			return flows.StartNetworkProxy(res)
+		},
+		run: runner.ExecuteWithOptions,
+	})
+}
+
+func newExecCommand(deps execDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec [--] <command> [args...]",
 		Short: "Run any command in the PMG sandbox",
 		Long: `Run a program under the exec sandbox profile. The program keeps its own stdin,
-stdout, stderr and exit code. Flag parsing stops at the first non-flag argument.`,
+stdout, stderr and exit code. Flag parsing stops at the first non-flag argument.
+
+The program's outbound connections go through a PMG proxy that applies the
+network rules of the profile. The proxy reads no traffic. It decides each
+destination by host and port.`,
 		Example: `  pmg sandbox exec -- claude
   pmg sandbox exec --sandbox-allow preset=codex -- codex
   pmg sandbox exec --sandbox-profile ./my-exec.yml -- make test
   pmg sandbox exec --network-mode enforce --network-deny '*:*' --network-allow api.anthropic.com:443 -- claude`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := runExec(cmd.Context(), cmd.Flags(), args, run, cfg); err != nil {
+			if err := runExec(cmd.Context(), cmd.Flags(), args, deps); err != nil {
 				return sandboxErrorExit(cmd, err)
 			}
 			return nil
@@ -45,12 +76,13 @@ stdout, stderr and exit code. Flag parsing stops at the first non-flag argument.
 	}
 
 	cmd.Flags().SetInterspersed(false)
-	netflags.AddModeFlag(cmd.Flags(), &cfg.Config.Sandbox.NetworkMode, "sandbox.network_mode")
-	netflags.AddRuleFlags(cmd.Flags(), &cfg.SandboxNetworkAllow, &cfg.SandboxNetworkDeny)
+	netflags.AddModeFlag(cmd.Flags(), &deps.config.Config.Sandbox.NetworkMode, "sandbox.network_mode")
+	netflags.AddRuleFlags(cmd.Flags(), &deps.config.SandboxNetworkAllow, &deps.config.SandboxNetworkDeny)
 	return cmd
 }
 
-func runExec(ctx context.Context, fs *pflag.FlagSet, args []string, run execRunner, cfg *config.RuntimeConfig) error {
+func runExec(ctx context.Context, fs *pflag.FlagSet, args []string, deps execDeps) error {
+	cfg := deps.config
 	if len(args) == 0 {
 		return invalidArgumentError(
 			"no command to run",
@@ -80,15 +112,7 @@ func runExec(ctx context.Context, fs *pflag.FlagSet, args []string, run execRunn
 	command, commandArgs := args[0], args[1:]
 	audit.LogExecStarted(pmgsandbox.WorkloadExec, command, commandArgs)
 
-	err := run(ctx, &packagemanager.ParsedCommand{
-		Command: packagemanager.Command{Exe: command, Args: commandArgs},
-	}, runner.ExecuteOptions{
-		PackageManagerName: pmgsandbox.WorkloadExec,
-		ProcessLabel:       filepath.Base(command),
-		DryRun:             cfg.DryRun,
-		Mode:               runner.ExecutionModeAuto,
-		RequireSandbox:     true,
-	})
+	err := runExecWithProxy(ctx, command, commandArgs, deps)
 
 	outcome := audit.OutcomeSuccess
 	if err != nil {
@@ -97,4 +121,48 @@ func runExec(ctx context.Context, fs *pflag.FlagSet, args []string, run execRunn
 	audit.LogSessionComplete(outcome, audit.FlowTypeExec, nil)
 
 	return err
+}
+
+// runExecWithProxy resolves the policy once, so the proxy and the sandbox
+// apply the same rules, and runs the program behind the proxy. The network
+// report goes to stderr after the program exits, and only when a deny rule
+// matched, so a clean run stays silent.
+func runExecWithProxy(ctx context.Context, command string, commandArgs []string, deps execDeps) error {
+	res, err := deps.resolve(pmgsandbox.WorkloadExec, true)
+	if err != nil {
+		return err
+	}
+
+	proxy, err := deps.startProxy(res)
+	if err != nil {
+		return err
+	}
+
+	runErr := deps.run(ctx, &packagemanager.ParsedCommand{
+		Command: packagemanager.Command{Exe: command, Args: commandArgs},
+	}, runner.ExecuteOptions{
+		PackageManagerName: pmgsandbox.WorkloadExec,
+		ProcessLabel:       filepath.Base(command),
+		DryRun:             deps.config.DryRun,
+		Mode:               runner.ExecutionModeAuto,
+		RequireSandbox:     true,
+		Sandbox:            res,
+		SandboxProxyAddr:   proxy.Addr(),
+		EnvOverrides:       proxy.Env(),
+	})
+
+	if err := reportNetwork(os.Stderr, proxy.Stop()); err != nil {
+		return err
+	}
+	return runErr
+}
+
+func reportNetwork(w io.Writer, outcome flows.NetworkOutcome) error {
+	if outcome.Report == nil {
+		return nil
+	}
+	if err := ui.PrintNetworkPolicy(w, outcome.Report); err != nil {
+		return err
+	}
+	return ui.PrintNetworkObservation(w, outcome.Observed, outcome.RunID)
 }
