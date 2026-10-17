@@ -8,10 +8,9 @@ import (
 	"github.com/safedep/pmg/sandbox"
 )
 
-// execNetworkProbe reports how pmg sandbox exec applies a network policy on
-// this host. The proxy by environment applies with every driver. Only some
-// drivers confine every outbound connection to that proxy under
-// network_via_proxy_only.
+// execNetworkProbe reports whether pmg sandbox exec runs on this host. The
+// exec profile confines every outbound connection to the proxy with
+// network_via_proxy_only, and only some drivers support it.
 type execNetworkProbe struct {
 	newSandbox func() (sandbox.Sandbox, error)
 }
@@ -46,17 +45,13 @@ func (p *execNetworkProbe) Run(_ context.Context) sandbox.ProbeResult {
 	if !driverConfinesOutbound(sb.Name()) {
 		return sandbox.ProbeResult{
 			Name:    sandbox.ProbeExecNetwork,
-			Status:  sandbox.ProbeStatusWarn,
-			Summary: fmt.Sprintf("proxy by environment only (%s)", sb.Name()),
-			Detail:  "A program that ignores HTTP_PROXY and HTTPS_PROXY connects direct, and the network policy does not see it. This driver does not support network_via_proxy_only.",
+			Status:  sandbox.ProbeStatusFail,
+			Summary: fmt.Sprintf("%s cannot confine outbound to the proxy", sb.Name()),
+			Detail:  "The exec profile sets network_via_proxy_only, and this driver does not support it, so pmg sandbox exec refuses to run.",
 			Fixes: []sandbox.ProbeFix{{
 				Description: "Use the Landlock driver, which confines outbound connections to the proxy.",
 				Command:     "PMG_SANDBOX_DRIVER=landlock pmg sandbox doctor",
 				Docs:        "https://github.com/safedep/pmg/blob/main/docs/sandbox-exec.md",
-			}, {
-				Description: "Route every process through the enforcing daemon in the kernel.",
-				Command:     "pmg proxy start --daemon --enforce",
-				Docs:        "https://github.com/safedep/pmg/blob/main/docs/persistent-proxy.md",
 			}},
 		}
 	}
@@ -64,8 +59,8 @@ func (p *execNetworkProbe) Run(_ context.Context) sandbox.ProbeResult {
 	return sandbox.ProbeResult{
 		Name:    sandbox.ProbeExecNetwork,
 		Status:  sandbox.ProbeStatusOK,
-		Summary: fmt.Sprintf("proxy by environment, confined with network_via_proxy_only (%s)", sb.Name()),
-		Detail:  "The program gets the proxy through HTTP_PROXY and HTTPS_PROXY. A profile with network_via_proxy_only also refuses every outbound connection that does not go to the proxy, except loopback.",
+		Summary: fmt.Sprintf("confined to the proxy (%s)", sb.Name()),
+		Detail:  "The program gets the proxy through HTTP_PROXY and HTTPS_PROXY. The driver refuses every outbound connection that does not go to the proxy, except loopback.",
 	}
 }
 

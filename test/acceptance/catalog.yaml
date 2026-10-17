@@ -306,10 +306,10 @@
   guarantee: "Under `pmg sandbox exec` in the default audit mode, a `--network-deny` match goes through and the stderr report lists what the rule would deny. A run with no match writes nothing to stderr."
   labels: [sandbox, exec, network, clean]
 - id: sandbox/exec/network-lockdown-via-proxy
-  title: "sandbox exec confines outbound to the proxy under network_via_proxy_only"
+  title: "sandbox exec confines outbound to the proxy by default"
   category: sandbox
   tier: P0
-  guarantee: "With a profile that sets network_via_proxy_only, `pmg sandbox exec` on Landlock or Seatbelt lets a connection through the proxy reach an allowed host, refuses a direct connection that goes around the proxy, and refuses a denied host at the proxy. Under Bubblewrap the run exits non-zero with a clear error before the program runs."
+  guarantee: "Under the exec profile, `pmg sandbox exec` lets a connection through the proxy reach an allowed host, refuses a direct connection that goes around the proxy, and refuses a denied host at the proxy. A child profile that sets network_via_proxy_only: false runs with the proxy by environment only, and the report says so."
   labels: [sandbox, exec, network, block]
 - id: sandbox/exec/network-run-proposes
   title: "a sandbox exec run proposes the profile that enforces it"
@@ -321,7 +321,7 @@
   title: "sandbox doctor reports the exec network path"
   category: sandbox
   tier: P2
-  guarantee: "`pmg sandbox doctor --json` has a network.exec-path probe that names how `pmg sandbox exec` applies a network policy on this host."
+  guarantee: "`pmg sandbox doctor --json` has a network.exec-path probe that says whether this host's driver confines `pmg sandbox exec` to the proxy."
   labels: [sandbox, exec, doctor, offline]
 
 - id: sandbox/observe/env-scrub-recorded

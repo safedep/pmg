@@ -2,6 +2,8 @@
 # environment by default. The claude preset re-allows ANTHROPIC_API_KEY and
 # only that key.
 
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+
 env HOME=$WORK/home
 mkdir $WORK/home
 env PMG_CACHE_DIR=$WORK/cache

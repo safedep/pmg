@@ -1,10 +1,11 @@
-# guarantee: with a profile that sets network_via_proxy_only, `pmg sandbox
-# exec` on Landlock or Seatbelt lets a connection through the proxy reach an
+# guarantee: the exec profile confines every outbound connection to the
+# proxy. `pmg sandbox exec` lets a connection through the proxy reach an
 # allowed host, refuses a direct connection that goes around the proxy, and
-# refuses a denied host at the proxy. Under Bubblewrap the run exits
-# non-zero with a clear error before the program runs.
+# refuses a denied host at the proxy. A child profile that turns the key off
+# runs with the proxy by environment only.
 
 [windows] skip 'pmg sandbox exec is not supported on Windows'
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
 
 env HOME=$WORK/home
 mkdir $WORK/home
@@ -12,16 +13,18 @@ env PMG_CACHE_DIR=$WORK/cache
 env PMG_CONFIG_DIR=$WORK/config
 cd $WORK/proj
 
-[bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/lockdown.yml -- sh -c 'echo ran > ran.txt'
-[bubblewrap] stderr 'network_via_proxy_only is not yet supported on this platform'
-[bubblewrap] ! exists ran.txt
-[bubblewrap] stop 'Bubblewrap refuses the profile'
-
-exec pmg sandbox exec --sandbox-profile $WORK/lockdown.yml --network-mode enforce -- sh probe.sh
+exec pmg sandbox exec --network-mode enforce --network-deny pastebin.com:443 -- sh probe.sh
 stdout 'via proxy 200'
 stdout 'direct refused'
 stdout 'connect 403'
 stderr 'pastebin.com:443  rule pastebin.com:443'
+! stderr 'Set network_via_proxy_only'
+
+exec pmg sandbox exec --sandbox-profile $WORK/open.yml --network-mode enforce --network-deny pastebin.com:443 -- sh probe.sh
+stdout 'via proxy 200'
+stdout 'direct ok'
+stdout 'connect 403'
+stderr 'Set network_via_proxy_only: true in the profile'
 
 -- proj/probe.sh --
 set -u
@@ -34,11 +37,8 @@ else
 fi
 status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
 echo "connect $status"
--- lockdown.yml --
-name: exec-lockdown
-description: the exec profile with outbound confined to the PMG proxy
+-- open.yml --
+name: exec-open
+description: the exec profile with the proxy by environment only
 inherits: exec
-network_via_proxy_only: true
-network:
-  deny_outbound:
-    - pastebin.com:443
+network_via_proxy_only: false
