@@ -300,10 +300,10 @@
   guarantee: "Under `pmg sandbox exec --network-mode enforce`, a `--network-deny` rule makes the proxy refuse the CONNECT with a 403 while an allowed destination goes through, the stderr report names the destination, the rule and the proposal command, `pmg sandbox explain --last` suggests the net-connect override, and `--network-allow` removes a deny rule of the profile for the same destination, so it goes through with no report."
   labels: [sandbox, exec, network, block]
 - id: sandbox/exec/network-deny-audited
-  title: "sandbox exec records a deny match under audit and names the proposal on a clean run"
+  title: "sandbox exec records a deny match under audit and stays silent on a clean run"
   category: sandbox
   tier: P1
-  guarantee: "Under `pmg sandbox exec` in the default audit mode, a `--network-deny` match goes through and the stderr report lists what the rule would deny. A run with no match reports no denial and still names the proposal command."
+  guarantee: "Under `pmg sandbox exec` in the default audit mode, a `--network-deny` match goes through and the stderr report lists what the rule would deny. A run with no match writes nothing to stderr. Under --verbose it names the proposal command."
   labels: [sandbox, exec, network, clean]
 - id: sandbox/exec/network-lockdown-via-proxy
   title: "sandbox exec confines outbound to the proxy by default"

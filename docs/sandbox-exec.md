@@ -140,9 +140,10 @@ names the destination and the rule. Under `global_lockdown`, pmg refuses `--netw
 and refuses `--network-mode audit` over a config that says `enforce`. A deny rule and `enforce`
 over `audit` narrow the policy and pass.
 
-After the program exits, the run writes one dim line to stderr that counts the destinations it
-observed and names the proposal command. A run that reached no destination writes nothing. When
-a deny rule matched, the report comes before that line. Stdout holds only the program's output:
+A clean run writes nothing. Under `--verbose` it writes one dim line to stderr after the program
+exits that counts the observed destinations and names the proposal command. When a deny rule
+matched, the run writes the report and that line in every mode. Stdout holds only the program's
+output:
 
 ```text
 ⊘ Network policy denied 1 destination(s):

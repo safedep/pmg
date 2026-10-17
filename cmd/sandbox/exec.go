@@ -61,7 +61,14 @@ func newExecCommand(deps execDeps) *cobra.Command {
 stdout, stderr and exit code. Flag parsing stops at the first non-flag argument.
 
 The program's outbound connections go through a PMG proxy that applies the
-network rules of the profile by host and port. The proxy reads no traffic.`,
+network rules of the profile by host and port. The proxy reads no traffic.
+Every run records the destinations it reached. After a first run, build the
+profile that allows them and nothing else with:
+
+  pmg sandbox profile propose --last --new <name>
+
+Run with --verbose to see the destination count and the run id after the
+program exits.`,
 		Example: `  pmg sandbox exec -- claude
   pmg sandbox exec --sandbox-allow preset=codex -- codex
   pmg sandbox exec --sandbox-profile ./my-exec.yml -- make test
@@ -152,7 +159,7 @@ func runExecWithProxy(ctx context.Context, command string, commandArgs []string,
 
 	// The program's exit code is the contract, so a failed report write
 	// does not replace it.
-	if err := reportNetwork(os.Stderr, proxy.Stop(), confinesOutbound(res)); err != nil {
+	if err := reportNetwork(os.Stderr, proxy.Stop(), confinesOutbound(res), ui.Verbose()); err != nil {
 		log.Warnf("failed to write the network report: %v", err)
 	}
 	return runErr
@@ -162,20 +169,24 @@ func confinesOutbound(res *executor.Resolution) bool {
 	return res.Policy != nil && utils.SafelyGetValue(res.Policy.NetworkViaProxyOnly)
 }
 
-// reportNetwork writes the denials, then the proposal hint. The hint names
-// the run whenever the program reached a destination, because the default
-// profile allows every destination and the hint is how the user finds the
-// baseline step. Under enforce without network_via_proxy_only the policy
-// applies only to connections that reach the proxy, and the report says so.
-func reportNetwork(w io.Writer, outcome flows.NetworkOutcome, confined bool) error {
-	if outcome.Report != nil {
-		if err := ui.PrintNetworkPolicy(w, outcome.Report); err != nil {
-			return err
+// reportNetwork writes the denials, then the proposal hint. Exec wraps
+// interactive programs, so a clean run stays silent and the hint prints only
+// under --verbose. A denial is already a report, so its hint always prints.
+// Under enforce without network_via_proxy_only the policy applies only to
+// connections that reach the proxy, and the report says so.
+func reportNetwork(w io.Writer, outcome flows.NetworkOutcome, confined, verbose bool) error {
+	if outcome.Report == nil {
+		if !verbose {
+			return nil
 		}
-		if outcome.Report.Enforced && !confined {
-			if _, err := fmt.Fprintf(w, "  %s\n", ui.Colors.Dim("The policy applies to connections that reach the proxy. Set network_via_proxy_only: true in the profile to confine the program to it.")); err != nil {
-				return err
-			}
+		return ui.PrintNetworkObservation(w, outcome.Observed, outcome.RunID)
+	}
+	if err := ui.PrintNetworkPolicy(w, outcome.Report); err != nil {
+		return err
+	}
+	if outcome.Report.Enforced && !confined {
+		if _, err := fmt.Fprintf(w, "  %s\n", ui.Colors.Dim("The policy applies to connections that reach the proxy. Set network_via_proxy_only: true in the profile to confine the program to it.")); err != nil {
+			return err
 		}
 	}
 	return ui.PrintNetworkObservation(w, outcome.Observed, outcome.RunID)

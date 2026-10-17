@@ -224,30 +224,33 @@ func TestExecRefusesAnUnknownNetworkMode(t *testing.T) {
 	assert.Equal(t, 0, capture.calls)
 }
 
-func TestReportNetworkPointsAtTheProposalWheneverARunObservedADestination(t *testing.T) {
+func TestReportNetworkStaysSilentOnACleanRunUnlessVerbose(t *testing.T) {
 	var out bytes.Buffer
-	require.NoError(t, reportNetwork(&out, flows.NetworkOutcome{RunID: "abc123def456"}, false))
-	assert.Empty(t, out.String(), "a run that reached no destination writes nothing to stderr")
+	clean := flows.NetworkOutcome{Observed: 3, RunID: "abc123def456"}
+	require.NoError(t, reportNetwork(&out, clean, false, false))
+	assert.Empty(t, out.String(), "a clean run writes nothing to stderr")
 
-	require.NoError(t, reportNetwork(&out, flows.NetworkOutcome{Observed: 3, RunID: "abc123def456"}, false))
+	require.NoError(t, reportNetwork(&out, clean, false, true))
 	assert.NotContains(t, out.String(), "Network policy", "a clean run has no denial to report")
 	assert.Contains(t, out.String(), "Network: 3 destination(s) observed. Propose a profile with: pmg sandbox profile propose --run abc123def456")
 
 	out.Reset()
+	require.NoError(t, reportNetwork(&out, flows.NetworkOutcome{RunID: "abc123def456"}, false, true))
+	assert.Empty(t, out.String(), "a run that reached no destination writes nothing, even under --verbose")
 
 	denied := flows.NetworkOutcome{
 		Report:   &netpolicy.Report{Enforced: true, Denials: []netpolicy.Denial{{Destination: "pastebin.com:443", Rule: "*:*", Count: 2}}},
 		Observed: 3,
 		RunID:    "abc123def456",
 	}
-	require.NoError(t, reportNetwork(&out, denied, false))
+	require.NoError(t, reportNetwork(&out, denied, false, false))
 	assert.Contains(t, out.String(), "Network policy denied 1 destination(s):")
 	assert.Contains(t, out.String(), "pastebin.com:443  rule *:*  (2)")
 	assert.Contains(t, out.String(), "Set network_via_proxy_only: true", "an unconfined program can go around the proxy")
 	assert.Contains(t, out.String(), "pmg sandbox profile propose --run abc123def456")
 
 	out.Reset()
-	require.NoError(t, reportNetwork(&out, denied, true))
+	require.NoError(t, reportNetwork(&out, denied, true, false))
 	assert.NotContains(t, out.String(), "network_via_proxy_only", "a confined program cannot go around the proxy")
 }
 
