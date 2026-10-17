@@ -179,8 +179,8 @@ func newNetworkRun(res *executor.Resolution) *networkRun {
 func (r *networkRun) record(d proxy.NetworkDecision) { r.log.Record(d) }
 
 // finish records the refused destinations as violations and the run's
-// observation in the event log. Call it after the proxy stopped, so a
-// decision made while the child exits is in the record.
+// observation in the event log. Call it after the proxy stopped. A
+// decision made while the program exits is then in the record.
 func (r *networkRun) finish() NetworkOutcome {
 	r.log.observeViolations()
 	observation := r.log.observation(r.runID, r.res)

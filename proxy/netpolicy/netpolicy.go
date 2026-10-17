@@ -10,9 +10,9 @@
 // deny wins. With no matching rule the connection is allowed, so a profile
 // that wants an allow list denies "*:*".
 //
-// With DenyIPLiterals a destination that is an address and not a name is
-// denied unless a rule names that exact address. A wildcard never names an
-// address, so "*:*" does not save it. Loopback stays with the rules.
+// With DenyIPLiterals the policy denies an IP literal, an address and not
+// a name, unless a rule names that exact address. A wildcard never names an
+// address, so "*:*" does not allow it. Loopback stays with the rules.
 package netpolicy
 
 import (
@@ -232,9 +232,7 @@ func (p *Policy) Decide(host string, port uint16) Decision {
 		}
 	}
 
-	// An exact address rule is a decision a maintainer wrote about this
-	// address, deny or allow, and it stands. Any other outcome for a
-	// non-loopback address is the IP literal denial.
+	// An exact address rule, allow or deny, beats the IP literal denial.
 	if p.denyIPLiterals && isAddr && !addr.IsLoopback() && (best == nil || best.Host != host) {
 		return Decision{Allowed: false, Rule: &ipLiteralRule}
 	}

@@ -183,7 +183,7 @@ func TestExecRefusesAnUnknownNetworkMode(t *testing.T) {
 func TestReportNetworkWritesOnlyWhenARuleMatched(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, reportNetwork(&out, flows.NetworkOutcome{Observed: 3, RunID: "abc123def456"}))
-	assert.Empty(t, out.String(), "a clean run stays silent, as the program's own output is the contract")
+	assert.Empty(t, out.String(), "a clean run writes nothing to stderr")
 
 	denied := flows.NetworkOutcome{
 		Report:   &netpolicy.Report{Enforced: true, Denials: []netpolicy.Denial{{Destination: "pastebin.com:443", Rule: "*:*", Count: 2}}},

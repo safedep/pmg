@@ -66,8 +66,8 @@ func Args(fs *pflag.FlagSet, mode string, allow, deny []string) []string {
 	return args
 }
 
-// CheckRule fails with an actionable error when raw is not a rule the
-// matcher reads. flag names the flag the rule came from.
+// CheckRule returns a usefulerror when raw is not a rule the matcher
+// reads. flag names the flag the rule came from.
 func CheckRule(flag, raw string) error {
 	_, err := netpolicy.ParseRule(raw)
 	if err == nil {

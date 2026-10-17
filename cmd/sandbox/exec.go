@@ -60,8 +60,7 @@ func newExecCommand(deps execDeps) *cobra.Command {
 stdout, stderr and exit code. Flag parsing stops at the first non-flag argument.
 
 The program's outbound connections go through a PMG proxy that applies the
-network rules of the profile. The proxy reads no traffic. It decides each
-destination by host and port.`,
+network rules of the profile by host and port. The proxy reads no traffic.`,
 		Example: `  pmg sandbox exec -- claude
   pmg sandbox exec --sandbox-allow preset=codex -- codex
   pmg sandbox exec --sandbox-profile ./my-exec.yml -- make test
@@ -123,10 +122,9 @@ func runExec(ctx context.Context, fs *pflag.FlagSet, args []string, deps execDep
 	return err
 }
 
-// runExecWithProxy resolves the policy once, so the proxy and the sandbox
-// apply the same rules, and runs the program behind the proxy. The network
-// report goes to stderr after the program exits, and only when a deny rule
-// matched, so a clean run stays silent.
+// runExecWithProxy resolves the policy once for the proxy and the driver,
+// and runs the program behind the proxy. The report goes to stderr only
+// when a deny rule matched.
 func runExecWithProxy(ctx context.Context, command string, commandArgs []string, deps execDeps) error {
 	res, err := deps.resolve(pmgsandbox.WorkloadExec, true)
 	if err != nil {

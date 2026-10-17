@@ -98,7 +98,7 @@ func Network(in Input) (Result, error) {
 
 	// A proposal turns on the IP literal denial, because an attacker who
 	// finds a name denied connects to the address next. A target that set
-	// the key already made that decision, either way, and keeps it.
+	// the key keeps its value.
 	denyIPLiterals := utils.PtrTo(true)
 	if existing.DenyIPLiterals != nil {
 		denyIPLiterals = utils.PtrTo(*existing.DenyIPLiterals)

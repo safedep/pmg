@@ -16,17 +16,16 @@ import (
 
 // networkProxyTunnelTimeout is the wall-clock limit of one connection
 // through the exec proxy. A coding agent holds a connection to its model
-// API for hours, so the package manager default of 30 minutes would cut
-// it. A day covers a work session.
+// API for hours. The package manager default of 30 minutes would cut it.
 const networkProxyTunnelTimeout = 24 * time.Hour
 
 const networkProxyStopTimeout = 5 * time.Second
 
-// NetworkProxy applies the network block of a resolution to a program that
-// is not a package manager. It has no interceptors and does not terminate
-// TLS, so it reads no traffic. It decides each destination by host and
-// port, as the package manager proxy does, and records the run the same
-// way. pmg sandbox exec runs one for the program.
+// NetworkProxy is the exec proxy. It applies the network block of a
+// resolution to a program that is not a package manager. It has no
+// interceptors and does not terminate TLS, so it reads no traffic. It
+// decides each destination by host and port and records the run as the
+// package manager proxy does.
 type NetworkProxy struct {
 	addr string
 	stop func() NetworkOutcome

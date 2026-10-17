@@ -240,13 +240,12 @@ func (l *transparentListener) drop(c net.Conn, what string, err error) {
 }
 
 // recordUnnamedTLS decides a TLS connection with no server name on its
-// original destination address when the policy denies IP literals, so the
-// denial is recorded and reported. The connection is dropped either way:
-// without a name the interceptors cannot decide, and a splice would reach a
-// registry by address without analysis. An exact allow rule for the address
-// records an allowed destination the proxy never reached. That is harmless,
-// because the rule it would propose exists. Without the key the drop stays
-// unrecorded, because every record would say allowed.
+// original destination address when the policy denies IP literals. The
+// report then shows the denial. The connection is dropped either way,
+// because without a name the interceptors cannot decide. An exact allow
+// rule records an allowed destination the proxy never reached. The rule
+// a proposal would write exists, so the record does no harm. Without the
+// key every record would say allowed, so the drop stays unrecorded.
 func (ps *proxyServer) recordUnnamedTLS(orig Origin) {
 	if !orig.IsValid() || !ps.config.NetworkPolicy.DeniesIPLiterals() {
 		return

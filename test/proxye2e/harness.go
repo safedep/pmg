@@ -91,9 +91,7 @@ func WithRedirectOnlyListener(ip string) Option {
 	return func(o *options) { o.redirectOnlyIP = ip }
 }
 
-// WithoutInterceptors builds the proxy pmg sandbox exec runs: no
-// interceptors and no TLS termination, so the proxy reads no traffic and
-// only decides each destination by the network policy.
+// WithoutInterceptors builds the exec proxy. See flows.NetworkProxy.
 func WithoutInterceptors() Option {
 	return func(o *options) { o.noInterceptors = true }
 }

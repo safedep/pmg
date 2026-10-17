@@ -723,14 +723,17 @@ beats a shorter one, and every host rule beats `*`. At equal host specificity an
 beats `*`. At equal specificity deny wins. With no matching rule the connection is allowed, so a
 profile that wants an allow list denies `*:*`.
 
-`network.deny_ip_literals: true` denies a destination that is an address and not a name, with
-the rule `ip_literal`, unless an allow rule names that exact address and port. A wildcard never
-names an address, so `*:*` does not allow one. Loopback addresses stay with the rules. The key
-is off by default. A child profile that sets the key wins over its parent. Under
-`global_lockdown` a profile that does not keep a locked `true` fails to load. An allow list of
-names does not stop a client that connects to an address, so a profile with an allow list sets
-the key. `pmg sandbox profile propose` writes it. An older `pmg` ignores the key, so a team
-that shares profiles needs a version that reads it on every host.
+`network.deny_ip_literals: true` denies an IP literal with the rule `ip_literal`. An IP literal
+is an address and not a name. An allow rule that names that exact address and port wins. A
+wildcard never names an address, so `*:*` does not allow one. Loopback addresses stay with the
+rules. The key is off by default.
+
+An allow list of names does not stop a client that connects to an address. Set the key in every
+profile that has an allow list. `pmg sandbox profile propose` writes `true` unless the target
+already set the key. A child profile that sets the key wins over its parent. Under
+`global_lockdown` the daemon refuses a profile that does not keep a locked `true`. An older
+`pmg` ignores the key, so a team that shares profiles needs a version that reads it on every
+host.
 
 The PMG proxy applies the rules to every connection it sees: a CONNECT, a redirected TLS
 connection, a plain HTTP request, and a request inside a terminated tunnel. The rules are a

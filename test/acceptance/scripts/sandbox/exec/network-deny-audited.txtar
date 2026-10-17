@@ -1,7 +1,6 @@
 # guarantee: under `pmg sandbox exec` in the default audit mode, a
 # --network-deny match goes through and the stderr report lists what the
-# rule would deny. A run with no match writes nothing to stderr, so the
-# program's own output stays the whole output.
+# rule would deny. A run with no match writes nothing to stderr.
 
 [windows] skip 'pmg sandbox exec is not supported on Windows'
 

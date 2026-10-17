@@ -113,12 +113,12 @@ config file.
 
 `pmg sandbox exec` starts a proxy for the program and applies the `network` block of the
 profile to every connection the proxy sees. The proxy has no interceptors and does not
-terminate TLS, so it reads no traffic. It decides each destination by host and port. See
+terminate TLS. It reads no traffic. It decides each destination by host and port. See
 [Network rules](sandbox.md#network-rules) for the rule syntax and `deny_ip_literals`.
 
 The program gets the proxy through `HTTP_PROXY`, `HTTPS_PROXY`, their lower-case forms and
-`NODE_USE_ENV_PROXY=1`. Loopback is excluded, so a dev server the agent starts is reachable
-without the proxy.
+`NODE_USE_ENV_PROXY=1`. The variables exclude loopback. Without `network_via_proxy_only`, a
+dev server the agent starts is reachable without the proxy.
 
 ```bash
 pmg sandbox exec --network-mode enforce --network-deny '*:*' \
@@ -134,12 +134,12 @@ pmg sandbox exec --network-mode enforce --network-deny '*:*' \
 The rule flags add one `host:port` rule each to the resolved profile. `--network-allow` also
 removes an equal deny rule. Under `audit`, the default, the proxy records a match on a deny rule
 and lets the connection through. Under `enforce` the proxy refuses the connection with a 403 that
-names the destination and the rule. Under `global_lockdown`, `--network-allow` and
-`--network-mode audit` over a config that says `enforce` are refused. A deny rule and `enforce`
+names the destination and the rule. Under `global_lockdown`, pmg refuses `--network-allow`,
+and refuses `--network-mode audit` over a config that says `enforce`. A deny rule and `enforce`
 over `audit` narrow the policy and pass.
 
 A clean run writes nothing. When a deny rule matched, the run writes the report to stderr after
-the program exits, so the program's own output stays the whole stdout:
+the program exits. Stdout holds only the program's output:
 
 ```text
 ⊘ Network policy denied 1 destination(s):
@@ -159,19 +159,20 @@ keeps it for the repository.
 ### How the policy reaches the program
 
 The proxy by environment applies with every driver. A program that ignores the proxy variables
-connects direct, and the policy does not see it. Two paths close that gap.
+connects direct, and the policy does not see it. Two paths make the policy apply to that program
+too.
 
 - `network_via_proxy_only: true` in the profile confines every outbound connection of the
   program to the proxy. Landlock and Seatbelt apply it. Bubblewrap does not, and refuses the
-  profile. A child of a lockdown profile such as `go` inherits the key.
+  profile. A child of a profile that sets the key, such as `go`, inherits it.
 - The enforcing daemon, `pmg proxy start --daemon --enforce`, routes every process through the
   proxy in the kernel on Linux. See [Kernel enforcement](persistent-proxy.md#kernel-enforcement-linux).
 
 `pmg sandbox doctor` names the path of this host in the `Exec network path` row.
 
-A proxy connection has a wall-clock limit of 24 hours, so a long agent session keeps its model
-API connection. A program that pins the model API by address needs an exact address rule when
-the profile sets `deny_ip_literals`.
+A proxy connection has a wall-clock limit of 24 hours. A long agent session keeps its model API
+connection. A program that pins the model API by address needs an exact address rule when the
+profile sets `deny_ip_literals`.
 
 ## Package managers inside the sandbox
 
@@ -202,9 +203,8 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
   Bubblewrap. On Linux, only amd64 and arm64 are supported.
 - Under Bubblewrap, a script without a `#!` line fails with "exec format error". Add a `#!`
   line, or run it with its interpreter, as in `pmg sandbox exec -- sh ./script`.
-- The network policy applies to connections that reach the proxy. Without `network_via_proxy_only`
-  or the enforcing daemon, a program that ignores the proxy variables goes around it. See
-  [Network](#network).
+- The network policy applies to connections that reach the proxy. See
+  [How the policy reaches the program](#how-the-policy-reaches-the-program).
 - `git worktree add` and `git worktree remove` are not supported yet. A new worktree lands
   outside the working directory, which the profile does not grant. This is future work.
 - The exec profile grants exec access under `${HOME}`. `pmg sandbox profile lint exec` reports

@@ -79,8 +79,8 @@ func EnvVarForProxy(proxyAddr, certPath string) []string {
 // ProxyEnv returns the environment variables that route a program through
 // the proxy at proxyAddr: the proxy variables HTTP clients read, in both
 // letter cases, with loopback excluded. Node reads them only with
-// NODE_USE_ENV_PROXY set. The list carries no CA, so it fits a proxy that
-// does not terminate TLS.
+// NODE_USE_ENV_PROXY set. The list carries no CA. A proxy that does not
+// terminate TLS needs none.
 func ProxyEnv(proxyAddr string) []string {
 	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
 

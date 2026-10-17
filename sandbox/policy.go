@@ -84,11 +84,11 @@ type NetworkPolicy struct {
 	DenyOutbound  []string `yaml:"deny_outbound" json:"deny_outbound"`
 	AllowBind     []string `yaml:"allow_bind" json:"allow_bind"`
 
-	// DenyIPLiterals denies a destination that is an address and not a
-	// name, unless an allow rule names that exact address. A name-based
-	// allow list does not stop a client that connects to an address, and
-	// a wildcard never names one. Default false. A child wins when it sets
-	// the key. Under lockdown a child may set true and may not set false.
+	// DenyIPLiterals denies an IP literal, an address and not a name,
+	// unless an allow rule names that exact address. An allow list of
+	// names does not stop a client that connects to an address, and a
+	// wildcard never names one. Default false. A child wins when it sets
+	// the key. Under global_lockdown a child may set true and not false.
 	DenyIPLiterals *bool `yaml:"deny_ip_literals,omitempty" json:"deny_ip_literals,omitempty"`
 }
 

@@ -106,11 +106,9 @@ filesystem:
     - ${HOME}/Library/Application Support/safedep/pmg/sandbox/**
 
 network:
-  # pmg sandbox exec routes the program through a PMG proxy that applies
-  # these rules by host and port. The base profile allows every destination,
-  # because an agent needs its model API and the registries of every tool
-  # it runs. Narrow it in a child profile, or with --network-deny and
-  # --network-allow, and run it with --network-mode enforce.
+  # pmg sandbox exec applies these rules through its proxy. The base
+  # profile allows every destination, because an agent needs its model API.
+  # See docs/sandbox-exec.md#network.
   allow_outbound:
     - "*:*"
 

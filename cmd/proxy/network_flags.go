@@ -44,9 +44,9 @@ func absoluteProfileFlag(fs *pflag.FlagSet, srv *config.ProxyServerConfig) {
 }
 
 // wideningNetworkFlags returns the network flags that loosen the policy a
-// locked managed config set. Next to the shared checks, an empty profile
-// over a file that names one widens. Another profile is checked against
-// the locked one when the daemon loads it.
+// locked managed config set. netflags.Widening holds the shared checks. An
+// empty --profile over a file that names one also widens. The daemon checks
+// another profile against the locked one when it loads it.
 func wideningNetworkFlags(fs *pflag.FlagSet, srv config.ProxyServerConfig) []string {
 	out := netflags.Widening(fs, srv.NetworkMode)
 	if profile := fs.Lookup(flagProfile); profile != nil && profile.Changed && srv.Profile == "" && profile.DefValue != "" {

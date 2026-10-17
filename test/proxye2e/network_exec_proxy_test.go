@@ -49,10 +49,8 @@ func (h *Harness) tunnelPeerCert(target string) (*x509.Certificate, error) {
 	return tlsConn.ConnectionState().PeerCertificates[0], nil
 }
 
-// The exec proxy applies the network policy to a program that is not a
-// package manager. It never terminates TLS and runs no interceptor, so it
-// reads no traffic. It refuses a denied destination before the dial and
-// splices an allowed one.
+// The exec proxy refuses a denied destination before the dial and splices
+// an allowed one. It runs no interceptor. See flows.NetworkProxy.
 func TestProxyFlow_NetworkOnlyProxy(t *testing.T) {
 	policy := func(t *testing.T, allow, deny []string, enforce bool) Option {
 		t.Helper()

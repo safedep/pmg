@@ -9,9 +9,9 @@ import (
 )
 
 // execNetworkProbe reports how pmg sandbox exec applies a network policy on
-// this host. The proxy by environment applies with every driver. The
-// confinement of every outbound connection to that proxy, which
-// network_via_proxy_only asks for, needs a driver that has it.
+// this host. The proxy by environment applies with every driver. Only some
+// drivers confine every outbound connection to that proxy under
+// network_via_proxy_only.
 type execNetworkProbe struct {
 	newSandbox func() (sandbox.Sandbox, error)
 }
@@ -48,13 +48,13 @@ func (p *execNetworkProbe) Run(_ context.Context) sandbox.ProbeResult {
 			Name:    sandbox.ProbeExecNetwork,
 			Status:  sandbox.ProbeStatusWarn,
 			Summary: fmt.Sprintf("proxy by environment only (%s)", sb.Name()),
-			Detail:  "The program gets the proxy through HTTP_PROXY and HTTPS_PROXY. A program that ignores them connects direct and the network policy does not see it. This driver does not support network_via_proxy_only.",
+			Detail:  "A program that ignores HTTP_PROXY and HTTPS_PROXY connects direct, and the network policy does not see it. This driver does not support network_via_proxy_only.",
 			Fixes: []sandbox.ProbeFix{{
 				Description: "Use the Landlock driver, which confines outbound connections to the proxy.",
 				Command:     "PMG_SANDBOX_DRIVER=landlock pmg sandbox doctor",
 				Docs:        "https://github.com/safedep/pmg/blob/main/docs/sandbox-exec.md",
 			}, {
-				Description: "Or route every process through the enforcing daemon in the kernel.",
+				Description: "Route every process through the enforcing daemon in the kernel.",
 				Command:     "pmg proxy start --daemon --enforce",
 				Docs:        "https://github.com/safedep/pmg/blob/main/docs/persistent-proxy.md",
 			}},
