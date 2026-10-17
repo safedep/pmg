@@ -274,6 +274,36 @@ func TestDecideDeniesAnUnreadableHost(t *testing.T) {
 	assert.True(t, (*Policy)(nil).Decide("exa mple.com", 443).Allowed, "no policy decides nothing")
 }
 
+func TestRuleCovers(t *testing.T) {
+	cases := []struct {
+		deny, allow string
+		want        bool
+	}{
+		{"api.anthropic.com:*", "api.anthropic.com:443", true},
+		{"api.anthropic.com:443", "api.anthropic.com:443", true},
+		{"api.anthropic.com:443", "api.anthropic.com:*", false},
+		{"api.anthropic.com:443", "api.anthropic.com:8443", false},
+		{"*.anthropic.com:443", "api.anthropic.com:443", true},
+		{"*.anthropic.com:*", "*.api.anthropic.com:443", true},
+		{"*.anthropic.com:*", "*.anthropic.com:443", true},
+		{"*.anthropic.com:443", "*.anthropic.com:*", false},
+		{"*.anthropic.com:*", "anthropic.com:443", false},
+		{"*.anthropic.com:*", "evilanthropic.com:443", false},
+		{"*:*", "api.anthropic.com:443", true},
+		{"*:443", "api.anthropic.com:443", true},
+		{"*:443", "api.anthropic.com:80", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.deny+" covers "+tc.allow, func(t *testing.T) {
+			deny, err := ParseRule(tc.deny)
+			require.NoError(t, err)
+			allow, err := ParseRule(tc.allow)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, deny.Covers(allow))
+		})
+	}
+}
+
 func TestDecideDeniesIPLiterals(t *testing.T) {
 	tests := []struct {
 		name    string

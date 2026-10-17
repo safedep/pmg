@@ -256,7 +256,7 @@ func (p *Preset) ApplyToPolicy(policy *SandboxPolicy) {
 	if len(p.Network.AllowBind) > 0 {
 		policy.AllowNetworkBind = utils.PtrTo(true)
 	}
-	policy.Network.AllowOutbound = unionStringSlices(policy.Network.AllowOutbound, p.Network.AllowOutbound)
+	policy.Network.AllowOutbound = unionStringSlices(policy.Network.AllowOutbound, p.filteredOutboundAllow(policy))
 
 	policy.Environment.Allow = unionStringSlices(policy.Environment.Allow, p.filteredEnvAllow(policy))
 }
@@ -280,6 +280,39 @@ func (p *Preset) filteredEnvAllow(policy *SandboxPolicy) []string {
 		kept = append(kept, allow)
 	}
 	return kept
+}
+
+// The matcher lets the more specific rule win, so a preset rule with an
+// exact port would beat an authored deny for the host with any port. A
+// preset rule an authored deny covers is dropped here, so the author's
+// decision about that host stands. The catch-all deny is not a decision
+// about a host. It is the allow list's floor, and a preset rule is meant
+// to rise above it.
+func (p *Preset) filteredOutboundAllow(policy *SandboxPolicy) []string {
+	if len(p.Network.AllowOutbound) == 0 || len(policy.Network.DenyOutbound) == 0 {
+		return p.Network.AllowOutbound
+	}
+
+	kept := make([]string, 0, len(p.Network.AllowOutbound))
+	for _, raw := range p.Network.AllowOutbound {
+		allow, err := netpolicy.ParseRule(raw)
+		if err != nil || !hostDenyCovers(policy.Network.DenyOutbound, allow) {
+			kept = append(kept, raw)
+			continue
+		}
+		log.Warnf("preset %s: outbound allowance %q dropped, it is covered by an authored deny in policy %s", p.Name, raw, policy.Name)
+	}
+	return kept
+}
+
+func hostDenyCovers(denies []string, allow netpolicy.Rule) bool {
+	for _, raw := range denies {
+		deny, err := netpolicy.ParseRule(raw)
+		if err == nil && deny.Host != netpolicy.AnyHost && deny.Covers(allow) {
+			return true
+		}
+	}
+	return false
 }
 
 func presetFileName(fileName string) (string, bool) {

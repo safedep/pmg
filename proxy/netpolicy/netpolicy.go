@@ -335,6 +335,30 @@ func (r *Rule) matches(host string, port uint16) bool {
 	return r.Host == host
 }
 
+// Covers reports whether every destination other matches, r matches too.
+// A loader uses it to drop an allow rule an authored deny already decides.
+func (r Rule) Covers(other Rule) bool {
+	if r.Client != "" && r.Client != other.Client {
+		return false
+	}
+	if r.Port != anyPort && r.Port != other.Port {
+		return false
+	}
+	switch {
+	case r.Host == anyHost:
+		return true
+	case r.Host == other.Host:
+		return true
+	}
+	suffix, ok := strings.CutPrefix(r.Host, "*.")
+	if !ok {
+		return false
+	}
+	// "*.example.com" covers "a.example.com" and "*.a.example.com".
+	otherHost := strings.TrimPrefix(other.Host, "*.")
+	return strings.HasSuffix(otherHost, "."+suffix)
+}
+
 func isAddress(host string) bool {
 	_, err := netip.ParseAddr(host)
 	return err == nil

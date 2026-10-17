@@ -59,6 +59,7 @@ network:
 `
 		preset, err := ParsePreset([]byte(yaml))
 		require.NoError(t, err)
+		require.NoError(t, preset.Validate())
 		assert.Equal(t, []string{"api.anthropic.com:443", "*.anthropic.com:*"}, preset.Network.AllowOutbound)
 	})
 
@@ -290,7 +291,7 @@ func TestPresetApplyToPolicy(t *testing.T) {
 		},
 		Network: PresetNetwork{
 			AllowBind:     []string{"localhost:4321"},
-			AllowOutbound: []string{"api.anthropic.com:443"},
+			AllowOutbound: []string{"api.anthropic.com:443", "statsig.anthropic.com:443", "github.com:443"},
 		},
 		Process:     PresetProcess{AllowExec: []string{"${CWD}/node_modules/.bin/**"}},
 		Environment: PresetEnvironment{Allow: []string{"ASTRO_TELEMETRY_DISABLED"}},
@@ -306,7 +307,7 @@ func TestPresetApplyToPolicy(t *testing.T) {
 		},
 		Network: NetworkPolicy{
 			AllowOutbound: []string{"registry.npmjs.org:443"},
-			DenyOutbound:  []string{"api.anthropic.com:443"},
+			DenyOutbound:  []string{"api.anthropic.com:443", "*.anthropic.com:*", "*:*"},
 		},
 	}
 
@@ -320,9 +321,10 @@ func TestPresetApplyToPolicy(t *testing.T) {
 	assert.Equal(t, []string{"localhost:4321"}, policy.Network.AllowBind)
 	assert.True(t, utils.SafelyGetValue(policy.AllowNetworkBind),
 		"bind entries enable AllowNetworkBind for translators")
-	assert.Equal(t, []string{"registry.npmjs.org:443", "api.anthropic.com:443"}, policy.Network.AllowOutbound,
-		"outbound rules union, and an authored deny for the same host stays and wins on the tie")
-	assert.Equal(t, []string{"api.anthropic.com:443"}, policy.Network.DenyOutbound)
+	assert.Equal(t, []string{"registry.npmjs.org:443", "github.com:443"}, policy.Network.AllowOutbound,
+		"a preset rule an authored host deny covers is dropped, and the catch-all deny drops none")
+	assert.Equal(t, []string{"api.anthropic.com:443", "*.anthropic.com:*", "*:*"}, policy.Network.DenyOutbound,
+		"deny lists are never modified by presets")
 	assert.Equal(t, []string{"${CWD}/node_modules/.bin/**"}, policy.Process.AllowExec)
 	assert.Equal(t, []string{"ASTRO_TELEMETRY_DISABLED"}, policy.Environment.Allow)
 }

@@ -112,10 +112,15 @@ Rules the schema enforces:
 - `network.allow_outbound` entries are `host:port` rules the proxy reads,
   as in [Network rules](sandbox.md#network-rules). A rule names a host,
   such as `api.anthropic.com:443` or `*.anthropic.com:*`. The host `*` is
-  refused, because a preset must not open the whole network. The rules add to the profile's allow list and remove no deny
-  rule, so an authored deny for the same host wins. Under `pmg sandbox
-  exec` the program is confined to the proxy, so a preset rule means that
-  host and nothing more.
+  refused, because a preset must not open the whole network. The rules add
+  to the profile's allow list and remove no deny rule. A preset rule that an
+  authored deny for a host covers is dropped with a warning, so the author's
+  decision about that host stands. The catch-all deny `*:*` drops none,
+  because a preset rule is meant to rise above it. A preset adds allowances
+  and restricts nothing. Under the `exec` profile every destination is
+  already allowed, so a preset rule matters once a profile denies `*:*`.
+  Under `pmg sandbox exec` the program is confined to the proxy, so a preset
+  rule means that host and nothing more.
 
 Precedence guarantees, in addition to PMG's mandatory denies:
 

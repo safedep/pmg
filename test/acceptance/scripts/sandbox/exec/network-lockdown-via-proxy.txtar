@@ -30,7 +30,8 @@ stderr 'Set network_via_proxy_only: true in the profile'
 set -u
 status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad || echo fail)
 echo "via proxy $status"
-if curl --silent --max-time 30 --noproxy '*' --output /dev/null https://registry.npmjs.org/left-pad; then
+# An address, so a refused DNS lookup cannot stand in for the refused connect.
+if curl --silent --max-time 30 --noproxy '*' --output /dev/null http://1.1.1.1/; then
   echo "direct ok"
 else
   echo "direct refused"
