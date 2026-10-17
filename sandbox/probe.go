@@ -44,6 +44,7 @@ const (
 	ProbeSeatbeltCanary = "canary.seatbelt"
 	ProbeBwrapCanary    = "canary.bubblewrap"
 	ProbeLandlockCanary = "canary.landlock"
+	ProbeExecNetwork    = "network.exec-path"
 )
 
 // RunProbes executes probes sequentially in input order, honoring ctx cancellation
