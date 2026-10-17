@@ -267,6 +267,37 @@ network:
 	assert.Equal(t, netpolicy.IPLiteralRule, denied.Rule.Raw)
 }
 
+func TestResolvePolicyAppliesNetworkFlagRules(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "flags.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: flags
+package_managers: ["exec"]
+network:
+  allow_outbound: ["*:*"]
+  deny_outbound: ["pastebin.com:443"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+	cfg.SandboxNetworkAllow = []string{"pastebin.com:443"}
+	cfg.SandboxNetworkDeny = []string{"*:*"}
+
+	res, err := ResolvePolicy("exec", true)
+	require.NoError(t, err)
+	assert.True(t, res.Network.Decide("pastebin.com", 443).Allowed, "an allow flag removes the exact deny and adds the allow")
+	assert.False(t, res.Network.Decide("evil.example", 443).Allowed, "a deny flag with the catch-all beats the profile's catch-all allow on the tie")
+
+	cfg.SandboxNetworkAllow = []string{"pastebin.com"}
+	_, err = ResolvePolicy("exec", true)
+	var usefulErr usefulerror.UsefulError
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
+	assert.Contains(t, err.Error(), "--network-allow")
+}
+
 func TestResolvePolicyOverrideErrorNamesTheCause(t *testing.T) {
 	dir := t.TempDir()
 	noPM := filepath.Join(dir, "no-pm.yml")

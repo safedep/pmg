@@ -7,10 +7,12 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/netflags"
 	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/packagemanager"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // execRunner runs the command through PMG's shared execution path. Tests
@@ -23,6 +25,7 @@ func NewExecCommand() *cobra.Command {
 }
 
 func newExecCommand(run execRunner, getConfig func() *config.RuntimeConfig) *cobra.Command {
+	cfg := getConfig()
 	cmd := &cobra.Command{
 		Use:   "exec [--] <command> [args...]",
 		Short: "Run any command in the PMG sandbox",
@@ -30,10 +33,11 @@ func newExecCommand(run execRunner, getConfig func() *config.RuntimeConfig) *cob
 stdout, stderr and exit code. Flag parsing stops at the first non-flag argument.`,
 		Example: `  pmg sandbox exec -- claude
   pmg sandbox exec --sandbox-allow preset=codex -- codex
-  pmg sandbox exec --sandbox-profile ./my-exec.yml -- make test`,
+  pmg sandbox exec --sandbox-profile ./my-exec.yml -- make test
+  pmg sandbox exec --network-mode enforce --network-deny '*:*' --network-allow api.anthropic.com:443 -- claude`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := runExec(cmd.Context(), args, run, getConfig()); err != nil {
+			if err := runExec(cmd.Context(), cmd.Flags(), args, run, cfg); err != nil {
 				return sandboxErrorExit(cmd, err)
 			}
 			return nil
@@ -41,15 +45,29 @@ stdout, stderr and exit code. Flag parsing stops at the first non-flag argument.
 	}
 
 	cmd.Flags().SetInterspersed(false)
+	netflags.AddModeFlag(cmd.Flags(), &cfg.Config.Sandbox.NetworkMode, "sandbox.network_mode")
+	netflags.AddRuleFlags(cmd.Flags(), &cfg.SandboxNetworkAllow, &cfg.SandboxNetworkDeny)
 	return cmd
 }
 
-func runExec(ctx context.Context, args []string, run execRunner, cfg *config.RuntimeConfig) error {
+func runExec(ctx context.Context, fs *pflag.FlagSet, args []string, run execRunner, cfg *config.RuntimeConfig) error {
 	if len(args) == 0 {
 		return invalidArgumentError(
 			"no command to run",
 			"Usage: pmg sandbox exec -- <command> [args...]",
 		)
+	}
+
+	if err := config.ValidateSandboxNetworkMode(cfg.Config.Sandbox.NetworkMode); err != nil {
+		return netflags.ModeError(err)
+	}
+
+	// A locked managed config owns the network policy. A flag that only
+	// narrows it stays allowed. The root flags are checked before this.
+	if cfg.IsLocked() {
+		if widening := netflags.Widening(fs, cfg.Config.Sandbox.NetworkMode); len(widening) > 0 {
+			return config.NewManagedFlagOverrideError(widening)
+		}
 	}
 
 	analytics.TrackCommandSandboxExec()

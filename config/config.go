@@ -438,6 +438,12 @@ type RuntimeConfig struct {
 	// Not persisted to config.yml.
 	SandboxAllowOverrides []SandboxAllowOverride
 
+	// SandboxNetworkAllow and SandboxNetworkDeny are the rules from the
+	// --network-allow and --network-deny flags of pmg sandbox exec. Each
+	// adds to the network block of the resolved policy. Not persisted.
+	SandboxNetworkAllow []string
+	SandboxNetworkDeny  []string
+
 	// Internal config values computed at runtime and must be accessed via. API
 	configDir                string
 	configFilePath           string // active config: globally managed file if present, else per-user

@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/netflags"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
@@ -61,11 +61,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := config.ValidateProxyServerNetworkMode(cfg.Config.Proxy.Server.NetworkMode); err != nil {
-		var modeErr *config.NetworkModeError
-		if errors.As(err, &modeErr) {
-			err = config.NewInvalidNetworkModeError(modeErr)
-		}
-		ui.ErrorExit(err)
+		ui.ErrorExit(netflags.ModeError(err))
 	}
 
 	if err := proxyserver.NamespacesNeedEnforce(cfg, opts.Enforce); err != nil {

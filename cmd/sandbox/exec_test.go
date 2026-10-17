@@ -88,6 +88,40 @@ func TestExecForcesSandboxOnAndRequiresIt(t *testing.T) {
 	assert.True(t, capture.opts.DryRun)
 }
 
+func TestExecNetworkFlagsLandInTheConfig(t *testing.T) {
+	cfg := &config.RuntimeConfig{}
+	capture := &execCapture{}
+
+	require.NoError(t, runExecCommand(t, cfg, capture,
+		"--network-mode", "enforce", "--network-allow", "api.anthropic.com:443", "--network-deny", "*:*", "--", "claude", "--network-mode"))
+
+	require.Equal(t, 1, capture.calls)
+	assert.Equal(t, config.SandboxNetworkModeEnforce, cfg.Config.Sandbox.NetworkMode)
+	assert.Equal(t, []string{"api.anthropic.com:443"}, cfg.SandboxNetworkAllow)
+	assert.Equal(t, []string{"*:*"}, cfg.SandboxNetworkDeny)
+	assert.Equal(t, []string{"--network-mode"}, capture.pc.Command.Args, "a flag after the program belongs to the program")
+}
+
+func TestExecKeepsTheConfigNetworkModeWithoutTheFlag(t *testing.T) {
+	cfg := &config.RuntimeConfig{}
+	cfg.Config.Sandbox.NetworkMode = config.SandboxNetworkModeEnforce
+	capture := &execCapture{}
+
+	require.NoError(t, runExecCommand(t, cfg, capture, "true"))
+	assert.Equal(t, config.SandboxNetworkModeEnforce, cfg.Config.Sandbox.NetworkMode)
+}
+
+func TestExecRefusesAnUnknownNetworkMode(t *testing.T) {
+	capture := &execCapture{}
+	err := runExecCommand(t, &config.RuntimeConfig{}, capture, "--network-mode", "loud", "true")
+
+	var usefulErr usefulerror.UsefulError
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
+	assert.Contains(t, err.Error(), "sandbox.network_mode")
+	assert.Equal(t, 0, capture.calls)
+}
+
 func TestExecPassesChildExitThrough(t *testing.T) {
 	capture := &execCapture{err: &runner.ChildExitError{Code: 7, PMName: "sh"}}
 	err := runExecCommand(t, &config.RuntimeConfig{}, capture, "sh", "-c", "exit 7")

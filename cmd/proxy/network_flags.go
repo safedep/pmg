@@ -5,21 +5,16 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/netflags"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
-// The network policy flags of pmg proxy start. --profile and --network-mode
-// bind to the config fields. The rule flags add to the resolved profile and
-// have no config key.
-const (
-	flagProfile      = "profile"
-	flagNetworkMode  = "network-mode"
-	flagNetworkAllow = "network-allow"
-	flagNetworkDeny  = "network-deny"
-)
+// flagProfile is the network policy flag only pmg proxy start has. It
+// binds to proxy.server.profile. The shared flags are in netflags.
+const flagProfile = "profile"
 
 var networkOverridesFlag proxyserver.NetworkOverrides
 
@@ -27,12 +22,8 @@ func addNetworkFlags(cmd *cobra.Command, srv *config.ProxyServerConfig) {
 	fs := cmd.Flags()
 	fs.StringVar(&srv.Profile, flagProfile, srv.Profile,
 		"Sandbox profile whose network rules the proxy applies: a built-in name, a policy_templates name, a user profile name, or a path (proxy.server.profile)")
-	fs.StringVar(&srv.NetworkMode, flagNetworkMode, srv.NetworkMode,
-		"What the proxy does with a match on a deny rule: audit or enforce (proxy.server.network_mode)")
-	fs.StringArrayVar(&networkOverridesFlag.Allow, flagNetworkAllow, nil,
-		"host:port rule added to the profile's allow_outbound list (repeatable)")
-	fs.StringArrayVar(&networkOverridesFlag.Deny, flagNetworkDeny, nil,
-		"host:port rule added to the profile's deny_outbound list (repeatable)")
+	netflags.AddModeFlag(fs, &srv.NetworkMode, "proxy.server.network_mode")
+	netflags.AddRuleFlags(fs, &networkOverridesFlag.Allow, &networkOverridesFlag.Deny)
 }
 
 // absoluteProfileFlag makes a relative --profile path absolute, so the
@@ -53,22 +44,13 @@ func absoluteProfileFlag(fs *pflag.FlagSet, srv *config.ProxyServerConfig) {
 }
 
 // wideningNetworkFlags returns the network flags that loosen the policy a
-// locked managed config set: an allow rule, an empty profile over a file
-// that names one, or audit over a file that says enforce. A deny rule and
-// enforce over audit only narrow. A flag's default is the file's value, so
-// the file's values are the defaults of --profile and --network-mode. An
-// empty mode means audit.
+// locked managed config set. Next to the shared checks, an empty profile
+// over a file that names one widens. Another profile is checked against
+// the locked one when the daemon loads it.
 func wideningNetworkFlags(fs *pflag.FlagSet, srv config.ProxyServerConfig) []string {
-	var out []string
-	if fs.Changed(flagNetworkAllow) {
-		out = append(out, "--"+flagNetworkAllow)
-	}
+	out := netflags.Widening(fs, srv.NetworkMode)
 	if profile := fs.Lookup(flagProfile); profile != nil && profile.Changed && srv.Profile == "" && profile.DefValue != "" {
 		out = append(out, "--"+flagProfile+"=")
-	}
-	if mode := fs.Lookup(flagNetworkMode); mode != nil && mode.Changed &&
-		srv.NetworkMode != config.SandboxNetworkModeEnforce && mode.DefValue == config.SandboxNetworkModeEnforce {
-		out = append(out, "--"+flagNetworkMode+"="+srv.NetworkMode)
 	}
 	return out
 }
@@ -89,14 +71,5 @@ func networkFlagArgs(fs *pflag.FlagSet, o proxyserver.NetworkOverrides, srv conf
 	if fs.Changed(flagProfile) {
 		args = append(args, "--"+flagProfile, srv.Profile)
 	}
-	if fs.Changed(flagNetworkMode) {
-		args = append(args, "--"+flagNetworkMode, srv.NetworkMode)
-	}
-	for _, rule := range o.Allow {
-		args = append(args, "--"+flagNetworkAllow, rule)
-	}
-	for _, rule := range o.Deny {
-		args = append(args, "--"+flagNetworkDeny, rule)
-	}
-	return args
+	return append(args, netflags.Args(fs, srv.NetworkMode, o.Allow, o.Deny)...)
 }
