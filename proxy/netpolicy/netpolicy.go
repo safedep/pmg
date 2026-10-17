@@ -9,6 +9,10 @@
 // At equal host specificity an exact port beats "*". At equal specificity
 // deny wins. With no matching rule the connection is allowed, so a profile
 // that wants an allow list denies "*:*".
+//
+// With DenyIPLiterals a destination that is an address and not a name is
+// denied unless a rule names that exact address. A wildcard never names an
+// address, so "*:*" does not save it. Loopback stays with the rules.
 package netpolicy
 
 import (
@@ -77,8 +81,24 @@ type Decision struct {
 
 // Policy holds the parsed rules of one profile.
 type Policy struct {
-	rules []Rule
+	rules          []Rule
+	denyIPLiterals bool
 }
+
+// Option configures a Policy beyond its rules.
+type Option func(*Policy)
+
+// DenyIPLiterals denies a destination that is an address and not a name,
+// unless a rule names that exact address.
+func DenyIPLiterals() Option {
+	return func(p *Policy) { p.denyIPLiterals = true }
+}
+
+// IPLiteralRule is the rule name a decision carries when DenyIPLiterals
+// denied an address no rule names.
+const IPLiteralRule = "ip_literal"
+
+var ipLiteralRule = Rule{Raw: IPLiteralRule, Deny: true}
 
 // ParseRule parses one rule. It does not know which list the rule came from,
 // so Deny is false. The proxy has no client for a connection yet, so a rule
@@ -137,8 +157,11 @@ func parseRule(raw string) (Rule, error) {
 
 // New parses the allow and deny lists of a profile. The first invalid rule
 // is returned as a *RuleError that names its list.
-func New(allow, deny []string) (*Policy, error) {
+func New(allow, deny []string, opts ...Option) (*Policy, error) {
 	policy := &Policy{rules: make([]Rule, 0, len(allow)+len(deny))}
+	for _, opt := range opts {
+		opt(policy)
+	}
 
 	for _, raw := range allow {
 		rule, err := parseListRule("network.allow_outbound", raw)
@@ -178,6 +201,12 @@ func (p *Policy) Rules() []Rule {
 	return append([]Rule(nil), p.rules...)
 }
 
+// DeniesIPLiterals reports whether the policy denies an address no rule
+// names.
+func (p *Policy) DeniesIPLiterals() bool {
+	return p != nil && p.denyIPLiterals
+}
+
 // Decide returns the decision for a connection to host and port. A nil
 // policy allows every connection.
 func (p *Policy) Decide(host string, port uint16) Decision {
@@ -186,7 +215,9 @@ func (p *Policy) Decide(host string, port uint16) Decision {
 	}
 
 	host = NormalizeHost(host)
-	if !isAddress(host) && validateName(host) != nil {
+	addr, parseErr := netip.ParseAddr(host)
+	isAddr := parseErr == nil
+	if !isAddr && validateName(host) != nil {
 		return Decision{Allowed: false, Rule: &unreadableHost}
 	}
 
@@ -199,6 +230,13 @@ func (p *Policy) Decide(host string, port uint16) Decision {
 		if best == nil || rule.beats(best) {
 			best = rule
 		}
+	}
+
+	// An exact address rule is a decision a maintainer wrote about this
+	// address, deny or allow, and it stands. Any other outcome for a
+	// non-loopback address is the IP literal denial.
+	if p.denyIPLiterals && isAddr && !addr.IsLoopback() && (best == nil || best.Host != host) {
+		return Decision{Allowed: false, Rule: &ipLiteralRule}
 	}
 
 	if best == nil {

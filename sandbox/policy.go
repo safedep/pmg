@@ -83,6 +83,13 @@ type NetworkPolicy struct {
 	AllowOutbound []string `yaml:"allow_outbound" json:"allow_outbound"`
 	DenyOutbound  []string `yaml:"deny_outbound" json:"deny_outbound"`
 	AllowBind     []string `yaml:"allow_bind" json:"allow_bind"`
+
+	// DenyIPLiterals denies a destination that is an address and not a
+	// name, unless an allow rule names that exact address. A name-based
+	// allow list does not stop a client that connects to an address, and
+	// a wildcard never names one. Default false. A child wins when it sets
+	// the key. Under lockdown a child may set true and may not set false.
+	DenyIPLiterals *bool `yaml:"deny_ip_literals,omitempty" json:"deny_ip_literals,omitempty"`
 }
 
 // ProcessPolicy defines allowed and denied process execution patterns.
@@ -183,6 +190,9 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 	child.Network.AllowOutbound = unionStringSlices(parent.Network.AllowOutbound, child.Network.AllowOutbound)
 	child.Network.DenyOutbound = unionStringSlices(parent.Network.DenyOutbound, child.Network.DenyOutbound)
 	child.Network.AllowBind = unionStringSlices(parent.Network.AllowBind, child.Network.AllowBind)
+	if child.Network.DenyIPLiterals == nil {
+		child.Network.DenyIPLiterals = utils.PtrTo(utils.SafelyGetValue(parent.Network.DenyIPLiterals))
+	}
 
 	// Union process lists
 	child.Process.AllowExec = unionStringSlices(parent.Process.AllowExec, child.Process.AllowExec)

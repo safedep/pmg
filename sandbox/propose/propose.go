@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 )
@@ -83,26 +84,43 @@ func Network(in Input) (Result, error) {
 	parent := sandbox.NetworkPolicy{}
 	if in.Parent != nil {
 		parent = in.Parent.Network
-		if _, err := netpolicy.New(parent.AllowOutbound, parent.DenyOutbound); err != nil {
+		if _, err := parent.Compile(); err != nil {
 			return Result{}, fmt.Errorf("parent profile %s: %w", in.Parent.Name, err)
 		}
 	}
 	existing := sandbox.NetworkPolicy{}
 	if in.Existing != nil {
 		existing = *in.Existing
-		if _, err := netpolicy.New(existing.AllowOutbound, existing.DenyOutbound); err != nil {
+		if _, err := existing.Compile(); err != nil {
 			return Result{}, fmt.Errorf("target profile: %w", err)
 		}
 	}
-	rules, err := netpolicy.New(union(parent.AllowOutbound, existing.AllowOutbound), union(parent.DenyOutbound, existing.DenyOutbound))
+
+	// A proposal turns on the IP literal denial, because an attacker who
+	// finds a name denied connects to the address next. A target that set
+	// the key already made that decision, either way, and keeps it.
+	denyIPLiterals := utils.PtrTo(true)
+	if existing.DenyIPLiterals != nil {
+		denyIPLiterals = utils.PtrTo(*existing.DenyIPLiterals)
+	}
+
+	// The verdicts come from the block the proposal writes, so an address
+	// a port-wide allow covers still gets its exact rule when the key
+	// denies it.
+	rules, err := sandbox.NetworkPolicy{
+		AllowOutbound:  union(parent.AllowOutbound, existing.AllowOutbound),
+		DenyOutbound:   union(parent.DenyOutbound, existing.DenyOutbound),
+		DenyIPLiterals: denyIPLiterals,
+	}.Compile()
 	if err != nil {
 		return Result{}, fmt.Errorf("parent and target profile: %w", err)
 	}
 
 	result := Result{Network: sandbox.NetworkPolicy{
-		AllowOutbound: slices.Clone(existing.AllowOutbound),
-		DenyOutbound:  slices.Clone(existing.DenyOutbound),
-		AllowBind:     slices.Clone(existing.AllowBind),
+		AllowOutbound:  slices.Clone(existing.AllowOutbound),
+		DenyOutbound:   slices.Clone(existing.DenyOutbound),
+		AllowBind:      slices.Clone(existing.AllowBind),
+		DenyIPLiterals: denyIPLiterals,
 	}}
 
 	added := map[string]bool{}
@@ -115,7 +133,7 @@ func Network(in Input) (Result, error) {
 		}
 		rule := rules.Decide(d.Host, d.Port).Rule
 		switch {
-		case rule == nil || isCatchAll(rule):
+		case rule == nil || isCatchAll(rule) || rule.Raw == netpolicy.IPLiteralRule:
 			added[row.Rule] = true
 		case rule.Deny:
 			row.Verdict, row.Rule = VerdictKeptDenied, rule.Raw

@@ -208,7 +208,7 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 			Wrap(errors.New(msg))
 	}
 
-	network, err := netpolicy.New(policy.Network.AllowOutbound, policy.Network.DenyOutbound)
+	network, err := policy.Network.Compile()
 	if err != nil {
 		return nil, usefulerror.NewUsefulError().
 			WithCode(errcodes.SandboxPolicyInvalid).

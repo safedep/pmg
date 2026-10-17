@@ -12,6 +12,7 @@ import (
 
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -237,6 +238,33 @@ network:
 		require.ErrorAs(t, err, &usefulErr, path)
 		assert.Equal(t, errcodes.SandboxPolicyInvalid, usefulErr.Code(), path)
 	}
+}
+
+func TestResolvePolicyCompilesDenyIPLiterals(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "literals.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: literals
+package_managers: ["npm"]
+network:
+  deny_ip_literals: true
+  allow_outbound: ["registry.npmjs.org:443", "10.0.0.5:5000"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+
+	res, err := ResolvePolicy("npm", false)
+	require.NoError(t, err)
+	require.NotNil(t, res.Network)
+	assert.True(t, res.Network.DeniesIPLiterals())
+	assert.True(t, res.Network.Decide("registry.npmjs.org", 443).Allowed)
+	assert.True(t, res.Network.Decide("10.0.0.5", 5000).Allowed, "an exact address allow names the address")
+	denied := res.Network.Decide("193.32.204.199", 80)
+	assert.False(t, denied.Allowed)
+	assert.Equal(t, netpolicy.IPLiteralRule, denied.Rule.Raw)
 }
 
 func TestResolvePolicyOverrideErrorNamesTheCause(t *testing.T) {
