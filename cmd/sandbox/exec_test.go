@@ -224,10 +224,16 @@ func TestExecRefusesAnUnknownNetworkMode(t *testing.T) {
 	assert.Equal(t, 0, capture.calls)
 }
 
-func TestReportNetworkWritesOnlyWhenARuleMatched(t *testing.T) {
+func TestReportNetworkPointsAtTheProposalWheneverARunObservedADestination(t *testing.T) {
 	var out bytes.Buffer
+	require.NoError(t, reportNetwork(&out, flows.NetworkOutcome{RunID: "abc123def456"}, false))
+	assert.Empty(t, out.String(), "a run that reached no destination writes nothing to stderr")
+
 	require.NoError(t, reportNetwork(&out, flows.NetworkOutcome{Observed: 3, RunID: "abc123def456"}, false))
-	assert.Empty(t, out.String(), "a clean run writes nothing to stderr")
+	assert.NotContains(t, out.String(), "Network policy", "a clean run has no denial to report")
+	assert.Contains(t, out.String(), "Network: 3 destination(s) observed. Propose a profile with: pmg sandbox profile propose --run abc123def456")
+
+	out.Reset()
 
 	denied := flows.NetworkOutcome{
 		Report:   &netpolicy.Report{Enforced: true, Denials: []netpolicy.Denial{{Destination: "pastebin.com:443", Rule: "*:*", Count: 2}}},

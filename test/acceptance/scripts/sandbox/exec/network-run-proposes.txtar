@@ -14,7 +14,8 @@ env PMG_CONFIG_DIR=$WORK/config
 cd $WORK/proj
 
 exec pmg sandbox exec -- curl --silent --show-error --max-time 30 --output /dev/null https://registry.npmjs.org/left-pad
-! stderr .
+! stderr 'Network policy'
+stderr 'Network: 1 destination\(s\) observed. Propose a profile with: pmg sandbox profile propose --run [0-9a-f]{12}'
 
 exec pmg sandbox profile propose --last
 stdout 'add registry.npmjs.org:443'

@@ -162,19 +162,20 @@ func confinesOutbound(res *executor.Resolution) bool {
 	return res.Policy != nil && utils.SafelyGetValue(res.Policy.NetworkViaProxyOnly)
 }
 
-// reportNetwork writes the denials and the proposal hint. Under enforce
-// without network_via_proxy_only the policy applies only to connections
-// that reach the proxy, and the report says so.
+// reportNetwork writes the denials, then the proposal hint. The hint names
+// the run whenever the program reached a destination, because the default
+// profile allows every destination and the hint is how the user finds the
+// baseline step. Under enforce without network_via_proxy_only the policy
+// applies only to connections that reach the proxy, and the report says so.
 func reportNetwork(w io.Writer, outcome flows.NetworkOutcome, confined bool) error {
-	if outcome.Report == nil {
-		return nil
-	}
-	if err := ui.PrintNetworkPolicy(w, outcome.Report); err != nil {
-		return err
-	}
-	if outcome.Report.Enforced && !confined {
-		if _, err := fmt.Fprintf(w, "  %s\n", ui.Colors.Dim("The policy applies to connections that reach the proxy. Set network_via_proxy_only: true in the profile to confine the program to it.")); err != nil {
+	if outcome.Report != nil {
+		if err := ui.PrintNetworkPolicy(w, outcome.Report); err != nil {
 			return err
+		}
+		if outcome.Report.Enforced && !confined {
+			if _, err := fmt.Fprintf(w, "  %s\n", ui.Colors.Dim("The policy applies to connections that reach the proxy. Set network_via_proxy_only: true in the profile to confine the program to it.")); err != nil {
+				return err
+			}
 		}
 	}
 	return ui.PrintNetworkObservation(w, outcome.Observed, outcome.RunID)

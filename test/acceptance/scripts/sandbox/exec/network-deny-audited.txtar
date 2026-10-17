@@ -1,6 +1,7 @@
 # guarantee: under `pmg sandbox exec` in the default audit mode, a
 # --network-deny match goes through and the stderr report lists what the
-# rule would deny. A run with no match writes nothing to stderr.
+# rule would deny. A run with no match reports no denial and still names
+# the proposal command, so the user can build the baseline from it.
 
 [windows] skip 'pmg sandbox exec is not supported on Windows'
 [bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
@@ -19,7 +20,8 @@ stderr 'Set sandbox.network_mode: enforce to deny them'
 
 exec pmg sandbox exec -- sh probe.sh
 stdout 'connect 200'
-! stderr .
+! stderr 'Network policy'
+stderr 'Network: 1 destination\(s\) observed. Propose a profile with: pmg sandbox profile propose --run [0-9a-f]{12}'
 
 -- proj/probe.sh --
 set -eu
