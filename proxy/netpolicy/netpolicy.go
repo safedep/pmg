@@ -344,10 +344,7 @@ func (r Rule) Covers(other Rule) bool {
 	if r.Port != anyPort && r.Port != other.Port {
 		return false
 	}
-	switch {
-	case r.Host == anyHost:
-		return true
-	case r.Host == other.Host:
+	if r.Host == anyHost || r.Host == other.Host {
 		return true
 	}
 	suffix, ok := strings.CutPrefix(r.Host, "*.")
