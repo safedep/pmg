@@ -1,0 +1,36 @@
+# guarantee: a daemon under a profile with deny_ip_literals and a catch-all
+# allow, in enforce, refuses a plain HTTP request to an IP literal with a
+# 403, lets a request to a name through, and the stop report names the
+# destination and the rule ip_literal.
+
+[windows] skip 'pmg proxy start --daemon is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+
+exec sh run.sh
+stdout 'registry 200'
+stdout 'literal 403'
+stdout 'Network policy: enforce, 1 denied, 0 would deny'
+stdout 'denied  1.1.1.1:80  rule ip_literal'
+
+-- run.sh --
+set -eu
+pmg proxy start --daemon --port 0 --state "$PWD/state.json" --profile "$PWD/literals.yml" --network-mode enforce
+eval "$(pmg proxy env --export --state "$PWD/state.json")"
+status=$(curl --silent --show-error --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
+  --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad)
+echo "registry $status"
+status=$(curl --silent --max-time 30 --noproxy '' --output /dev/null --write-out '%{http_code}' http://1.1.1.1/ || true)
+echo "literal $status"
+pmg proxy stop --state "$PWD/state.json" 2>&1 || true
+-- literals.yml --
+name: literals
+description: every name, and no address
+package_managers: [npm]
+network:
+  deny_ip_literals: true
+  allow_outbound:
+    - "*:*"

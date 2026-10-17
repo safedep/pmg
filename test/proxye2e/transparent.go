@@ -92,6 +92,19 @@ func (h *Harness) RedirectedTLSPeerCert(sni string) (*x509.Certificate, error) {
 	return conn.ConnectionState().PeerCertificates[0], nil
 }
 
+// RedirectedTLSWithoutServerName dials the proxy as a redirected client
+// whose ClientHello carries no server name, and returns the handshake
+// error. The proxy drops such a connection.
+func (h *Harness) RedirectedTLSWithoutServerName() error {
+	h.t.Helper()
+
+	conn, err := h.dialTLS(&tls.Config{InsecureSkipVerify: true}) // #nosec G402
+	if err != nil {
+		return err
+	}
+	return conn.Close()
+}
+
 func (h *Harness) redirectedTLS(sni, path string, cfg *tls.Config) RequestOutcome {
 	h.t.Helper()
 

@@ -5,8 +5,10 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/netflags"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/executor"
@@ -95,20 +97,11 @@ func resolveNetworkPolicy(cfg *config.RuntimeConfig, o NetworkOverrides) (*netwo
 		}
 	}
 
-	for _, raw := range o.Allow {
-		if err := checkFlagRule("--network-allow", raw); err != nil {
-			return nil, err
-		}
-		rules.Allow(raw)
-	}
-	for _, raw := range o.Deny {
-		if err := checkFlagRule("--network-deny", raw); err != nil {
-			return nil, err
-		}
-		rules.Deny(raw)
+	if err := netflags.ApplyRules(&rules, o.Allow, o.Deny); err != nil {
+		return nil, err
 	}
 
-	policy, err := netpolicy.New(rules.AllowOutbound, rules.DenyOutbound)
+	policy, err := rules.Compile()
 	if err != nil {
 		return nil, usefulerror.NewUsefulError().
 			WithCode(errcodes.SandboxPolicyInvalid).
@@ -129,19 +122,6 @@ func networkMode(mode string) string {
 		return config.SandboxNetworkModeAudit
 	}
 	return mode
-}
-
-func checkFlagRule(flag, raw string) error {
-	_, err := netpolicy.ParseRule(raw)
-	if err == nil {
-		return nil
-	}
-	err = fmt.Errorf("%s %q: %w", flag, raw, err)
-	return usefulerror.NewUsefulError().
-		WithCode(errcodes.InvalidArgument).
-		WithHumanError(err.Error()).
-		WithHelp("Write the rule as host:port, for example registry.npmjs.org:443, or *:* for every destination.").
-		Wrap(err)
 }
 
 // loadProfile loads ref. A locked config's own profile loads from the
@@ -166,10 +146,14 @@ func loadProfile(cfg *config.RuntimeConfig, lockedRef, ref string) (*sandbox.San
 }
 
 // refuseWideningProfile fails when child allows what the locked profile
-// does not, or drops a deny rule the locked profile has. A child profile
-// that inherits the locked one and only adds deny rules passes.
+// does not, drops a deny rule the locked profile has, or does not keep the
+// IP literal denial the locked profile has. A child profile that inherits
+// the locked one and only adds deny rules passes.
 func refuseWideningProfile(locked, child *sandbox.SandboxPolicy) error {
 	var widening []string
+	if utils.SafelyGetValue(locked.Network.DenyIPLiterals) && !utils.SafelyGetValue(child.Network.DenyIPLiterals) {
+		widening = append(widening, "does not keep deny_ip_literals: true")
+	}
 	for _, rule := range child.Network.AllowOutbound {
 		if !containsRule(locked.Network.AllowOutbound, rule) {
 			widening = append(widening, "allows "+rule)

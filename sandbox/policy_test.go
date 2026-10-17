@@ -238,6 +238,14 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestValidateResolvedCountsDenyIPLiteralsAsARule(t *testing.T) {
+	policy := &SandboxPolicy{Name: "names-only", PackageManagers: []string{"exec"}}
+	assert.Error(t, policy.ValidateResolved(), "a policy with no rule is invalid")
+
+	policy.Network.DenyIPLiterals = utils.PtrTo(true)
+	assert.NoError(t, policy.ValidateResolved(), "the key is a rule: it denies every address")
+}
+
 func TestValidateResolved(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -386,6 +394,32 @@ func TestMergeWithParentAllowUnixSockets(t *testing.T) {
 
 			assert.NotNil(t, child.AllowUnixSockets)
 			assert.Equal(t, tt.expected, *child.AllowUnixSockets)
+		})
+	}
+}
+
+func TestMergeWithParentDenyIPLiterals(t *testing.T) {
+	tests := []struct {
+		name     string
+		parent   *bool
+		child    *bool
+		expected bool
+	}{
+		{name: "child true over parent false", parent: utils.PtrTo(false), child: utils.PtrTo(true), expected: true},
+		{name: "child false over parent true", parent: utils.PtrTo(true), child: utils.PtrTo(false), expected: false},
+		{name: "child nil inherits parent true", parent: utils.PtrTo(true), child: nil, expected: true},
+		{name: "both nil is false", parent: nil, child: nil, expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := &SandboxPolicy{Network: NetworkPolicy{DenyIPLiterals: tt.parent}}
+			child := &SandboxPolicy{Network: NetworkPolicy{DenyIPLiterals: tt.child}}
+
+			child.MergeWithParent(parent)
+
+			assert.NotNil(t, child.Network.DenyIPLiterals)
+			assert.Equal(t, tt.expected, *child.Network.DenyIPLiterals)
 		})
 	}
 }

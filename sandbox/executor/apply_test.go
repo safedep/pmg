@@ -12,6 +12,7 @@ import (
 
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -237,6 +238,64 @@ network:
 		require.ErrorAs(t, err, &usefulErr, path)
 		assert.Equal(t, errcodes.SandboxPolicyInvalid, usefulErr.Code(), path)
 	}
+}
+
+func TestResolvePolicyCompilesDenyIPLiterals(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "literals.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: literals
+package_managers: ["npm"]
+network:
+  deny_ip_literals: true
+  allow_outbound: ["registry.npmjs.org:443", "10.0.0.5:5000"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+
+	res, err := ResolvePolicy("npm", false)
+	require.NoError(t, err)
+	require.NotNil(t, res.Network)
+	assert.True(t, res.Network.DeniesIPLiterals())
+	assert.True(t, res.Network.Decide("registry.npmjs.org", 443).Allowed)
+	assert.True(t, res.Network.Decide("10.0.0.5", 5000).Allowed, "an exact address allow names the address")
+	denied := res.Network.Decide("193.32.204.199", 80)
+	assert.False(t, denied.Allowed)
+	assert.Equal(t, netpolicy.IPLiteralRule, denied.Rule.Raw)
+}
+
+func TestResolvePolicyAppliesNetworkFlagRules(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "flags.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: flags
+package_managers: ["exec"]
+network:
+  allow_outbound: ["*:*"]
+  deny_outbound: ["pastebin.com:443"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+	cfg.SandboxNetworkAllow = []string{"pastebin.com:443"}
+	cfg.SandboxNetworkDeny = []string{"*:*"}
+
+	res, err := ResolvePolicy("exec", true)
+	require.NoError(t, err)
+	assert.True(t, res.Network.Decide("pastebin.com", 443).Allowed, "an allow flag removes the exact deny and adds the allow")
+	assert.False(t, res.Network.Decide("evil.example", 443).Allowed, "a deny flag with the catch-all beats the profile's catch-all allow on the tie")
+
+	cfg.SandboxNetworkAllow = []string{"pastebin.com"}
+	_, err = ResolvePolicy("exec", true)
+	var usefulErr usefulerror.UsefulError
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
+	assert.Contains(t, err.Error(), "--network-allow")
 }
 
 func TestResolvePolicyOverrideErrorNamesTheCause(t *testing.T) {
@@ -680,11 +739,11 @@ func TestApplySandboxRequireSandboxFailsClosedOnDisabledPolicy(t *testing.T) {
 	assert.Equal(t, errcodes.SandboxPolicyDisabled, usefulErr.Code())
 }
 
-func TestApplySandboxExecRejectsNetworkLockdown(t *testing.T) {
+func TestApplySandboxExecConfinesOutboundToTheProxyUnderNetworkLockdown(t *testing.T) {
 	tests := []struct {
-		name    string
-		profile string
-		wantErr bool
+		name         string
+		profile      string
+		wantLockdown bool
 	}{
 		{
 			name: "direct lockdown",
@@ -695,7 +754,7 @@ filesystem:
   allow_read: ["/tmp"]
 network_via_proxy_only: true
 `,
-			wantErr: true,
+			wantLockdown: true,
 		},
 		{
 			name: "inherited lockdown",
@@ -704,7 +763,7 @@ name: exec-inherits-go
 inherits: go
 package_managers: ["exec"]
 `,
-			wantErr: true,
+			wantLockdown: true,
 		},
 		{
 			name: "inherited lockdown turned off",
@@ -732,22 +791,16 @@ network_via_proxy_only: false
 			require.NoError(t, os.WriteFile(profile, []byte(tt.profile), 0o600))
 			cfg.SandboxProfileOverride = profile
 
+			res, err := ResolvePolicy(sandbox.WorkloadExec, true)
+			require.NoError(t, err, "pmg sandbox exec runs a proxy, so a profile may ask for network lockdown")
+			assert.Equal(t, tt.wantLockdown, utils.SafelyGetValue(res.Policy.NetworkViaProxyOnly))
+
 			fake := &fakeApplySandbox{}
-			result, err := resolveAndApply(exec.Command("sh"), sandbox.WorkloadExec, true,
-				WithSandbox(fake))
-
-			if !tt.wantErr {
-				require.NoError(t, err)
-				assert.True(t, result.ShouldRun())
-				return
-			}
-
-			var usefulErr usefulerror.UsefulError
-			require.ErrorAs(t, err, &usefulErr)
-			assert.Equal(t, errcodes.SandboxRequiresProxy, usefulErr.Code())
-			assert.Contains(t, err.Error(), "pmg sandbox exec does not support network_via_proxy_only")
-			assert.Contains(t, usefulErr.Help(), "network_via_proxy_only: false")
-			assert.Nil(t, fake.rt)
+			rt := &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:4242"}
+			result, err := ApplySandbox(context.Background(), exec.Command("sh"), res, WithSandbox(fake), WithExecutionContext(rt))
+			require.NoError(t, err)
+			assert.True(t, result.ShouldRun())
+			assert.Same(t, rt, fake.rt, "the driver gets the proxy address to confine outbound to")
 		})
 	}
 }

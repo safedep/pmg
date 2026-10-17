@@ -723,10 +723,23 @@ beats a shorter one, and every host rule beats `*`. At equal host specificity an
 beats `*`. At equal specificity deny wins. With no matching rule the connection is allowed, so a
 profile that wants an allow list denies `*:*`.
 
+`network.deny_ip_literals: true` denies an IP literal with the rule `ip_literal`. An IP literal
+is an address and not a name. An allow rule that names that exact address wins. Its port may be
+`*`. A wildcard host never names an address, so `*:*` does not allow one. Loopback addresses stay with the
+rules. The key is off by default.
+
+An allow list of names does not stop a client that connects to an address. Set the key in every
+profile that has an allow list. `pmg sandbox profile propose` writes `true` unless the target
+already set the key. A child profile that sets the key wins over its parent. Under
+`global_lockdown` the daemon refuses a profile that does not keep a locked `true`. An older
+`pmg` ignores the key, so a team that shares profiles needs a version that reads it on every
+host.
+
 The PMG proxy applies the rules to every connection it sees: a CONNECT, a redirected TLS
 connection, a plain HTTP request, and a request inside a terminated tunnel. The rules are a
 guarantee under `network_via_proxy_only` or kernel enforcement. Without them a process can go
-around the proxy.
+around the proxy. `pmg sandbox exec` runs a proxy of its own for the program. See
+[Network](sandbox-exec.md#network) in the exec guide.
 
 `sandbox.network_mode` in the config sets what the proxy does with a match on a deny rule.
 
@@ -743,8 +756,9 @@ and in enforce on another. Every match writes a `network_policy` event to the ev
 
 Every run writes a `network_observation` event with every destination the proxy saw, allowed or
 denied, and the report names the run. `pmg sandbox profile propose --run <id>` turns the run into
-the `network` block of a profile: one allow rule per host and port, plus a catch-all deny. Hosts
-the inherited built-in profile already allows are not repeated. `--last` uses the newest run of
+the `network` block of a profile: one allow rule per host and port, `deny_ip_literals: true`,
+plus a catch-all deny. Hosts the inherited built-in profile already allows are not repeated. A
+destination the run refused under `enforce` gets no rule, because the program never reached it. `--last` uses the newest run of
 this repository. `--since 30d` merges every run of the repository in the window. `--new <name>`
 writes a user profile. `--into <path>` adds the rules to a profile and keeps its other blocks.
 Without a target the command prints the table and the block. `--dry-run` shows what a target would

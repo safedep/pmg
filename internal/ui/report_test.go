@@ -266,33 +266,57 @@ func TestTermWidthFormatTextIndent(t *testing.T) {
 }
 
 func TestReportNormalNetworkPolicy(t *testing.T) {
+	one := []netpolicy.Denial{{Destination: "evil.example:443", Rule: "*:*", Client: "/usr/bin/curl", Count: 2}}
+	two := append(one, netpolicy.Denial{Destination: "pastebin.com:443", Rule: "*:*"})
 	tests := []struct {
 		name     string
 		enforced bool
+		verbose  bool
+		denials  []netpolicy.Denial
 		want     []string
 		absent   []string
 	}{
 		{
-			name:     "enforce lists the refused destinations and the override",
+			name:     "one refused destination takes two lines and names its allow command",
 			enforced: true,
-			want:     []string{"Network policy denied 1 destination(s)", "evil.example:443  rule *:*  /usr/bin/curl  (2)", "--sandbox-allow net-connect=<host>:<port>"},
-			absent:   []string{"would deny"},
+			denials:  one,
+			want:     []string{"Network policy denied evil.example:443  rule *:*  /usr/bin/curl  (2)", "Allow it with pmg sandbox allow net-connect=evil.example:443."},
+			absent:   []string{"would deny", "destinations:", "--sandbox-allow"},
 		},
 		{
-			name:     "audit lists what the rules would deny",
-			enforced: false,
-			want:     []string{"Network policy would deny 1 destination(s)", "sandbox.network_mode: enforce"},
+			name:     "several refused destinations get a header and one row each",
+			enforced: true,
+			denials:  two,
+			want:     []string{"Network policy denied 2 destinations:", "    evil.example:443  rule *:*  /usr/bin/curl  (2)", "    pastebin.com:443  rule *:*", "Allow one with pmg sandbox allow net-connect=<host>:<port>."},
 			absent:   []string{"--sandbox-allow"},
+		},
+		{
+			name:     "verbose adds the one-run override",
+			enforced: true,
+			verbose:  true,
+			denials:  one,
+			want:     []string{"For one run, pass --sandbox-allow net-connect=evil.example:443."},
+		},
+		{
+			name:     "audit lists what the rule would deny",
+			enforced: false,
+			denials:  one,
+			want:     []string{"Network policy would deny evil.example:443  rule *:*", "Set sandbox.network_mode: enforce to deny it."},
+			absent:   []string{"--sandbox-allow", "pmg sandbox allow"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.verbose {
+				SetVerbosityLevel(VerbosityLevelVerbose)
+				t.Cleanup(func() { SetVerbosityLevel(VerbosityLevelNormal) })
+			}
 			data := NewReportData()
 			data.Outcome = OutcomeSuccess
 			data.NetworkPolicy = &netpolicy.Report{
 				Enforced: tc.enforced,
-				Denials:  []netpolicy.Denial{{Destination: "evil.example:443", Rule: "*:*", Client: "/usr/bin/curl", Count: 2}},
+				Denials:  tc.denials,
 			}
 
 			out := captureStdout(t, func() { reportNormal(data) })

@@ -199,6 +199,7 @@ func (l *transparentListener) classifyTLS(tc *transparentConn) {
 	// list, where the kernel never redirects it.
 	sni, ech := clientHelloServerName(hello)
 	if sni == "" || ech {
+		l.ps.recordUnnamedTLS(tc.orig)
 		log.Warnf("transparent: dropping TLS connection from %s to %s: no server name to decide on (ech=%t)",
 			tc.RemoteAddr(), tc.orig, ech)
 		l.drop(tc.Conn, "TLS without a server name", io.EOF)
@@ -236,6 +237,20 @@ func (l *transparentListener) drop(c net.Conn, what string, err error) {
 	if cerr := c.Close(); cerr != nil {
 		log.Debugf("transparent: close %s: %v", c.RemoteAddr(), cerr)
 	}
+}
+
+// recordUnnamedTLS decides a TLS connection with no server name on its
+// original destination address when the policy denies IP literals. The
+// report then shows the denial. The connection is dropped either way,
+// because without a name the interceptors cannot decide. An exact allow
+// rule records an allowed destination the proxy never reached. The rule
+// a proposal would write exists, so the record does no harm. Without the
+// key every record would say allowed, so the drop stays unrecorded.
+func (ps *proxyServer) recordUnnamedTLS(orig Origin) {
+	if !orig.IsValid() || !ps.config.NetworkPolicy.DeniesIPLiterals() {
+		return
+	}
+	ps.decideNetwork(orig.Dst.Addr().String(), orig.Dst.Port(), orig)
 }
 
 // transparentTarget pairs the name the client sent with the port it

@@ -229,9 +229,14 @@ variables. See
 name: ci
 inherits: npm-restrictive
 network:
+  deny_ip_literals: true
   deny_outbound:
     - pastebin.com:443
 ```
+
+`deny_ip_literals` refuses a connection to an IP literal no allow rule
+names. An allow list of names does not stop a workflow that posts to an IP
+literal. See [Network rules](./sandbox.md#network-rules).
 
 The job-end `pmg proxy stop --fail-on-violation` step fails when the proxy
 refused a connection, and its report names the destination, the rule and

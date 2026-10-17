@@ -3,8 +3,19 @@ package sandbox
 import (
 	"slices"
 
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/proxy/netpolicy"
 )
+
+// Compile turns the block into the policy the proxy decides with. Every
+// enforcement point calls it, so the key semantics live in one place.
+func (n NetworkPolicy) Compile() (*netpolicy.Policy, error) {
+	var opts []netpolicy.Option
+	if utils.SafelyGetValue(n.DenyIPLiterals) {
+		opts = append(opts, netpolicy.DenyIPLiterals())
+	}
+	return netpolicy.New(n.AllowOutbound, n.DenyOutbound, opts...)
+}
 
 // Allow adds rule to the allow list and drops the equal deny rule. At equal
 // specificity deny wins, so an allow that leaves the deny in place would

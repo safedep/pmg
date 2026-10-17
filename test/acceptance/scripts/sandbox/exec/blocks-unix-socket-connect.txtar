@@ -1,6 +1,8 @@
 # guarantee: `pmg sandbox exec` blocks host unix sockets, such as the SSH
 # agent. A profile with allow_unix_sockets opens them.
 
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+
 [!exec:python3] skip
 
 env HOME=$WORK/home

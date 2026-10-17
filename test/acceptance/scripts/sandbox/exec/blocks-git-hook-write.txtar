@@ -5,6 +5,8 @@
 # over .git/config) all fail. A commit, which writes the index, objects and
 # refs under .git, works.
 
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+
 env HOME=$WORK/home
 mkdir $WORK/home
 env PMG_CACHE_DIR=$WORK/cache
