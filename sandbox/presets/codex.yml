@@ -25,18 +25,21 @@ environment:
 
 # Network notes. Codex documents no host list, so the hosts come from its
 # documentation pages and its source (github.com/openai/codex, codex-rs).
-# - api.openai.com serves the model requests of an API-key session. A
-#   ChatGPT sign-in session sends them to chatgpt.com/backend-api/codex:
+# - api.openai.com serves the model requests of an API-key session. It is
+#   the base URL of the built-in openai provider, which openai_base_url in
+#   config.toml overrides: https://learn.chatgpt.com/docs/config-file/config-reference
+#   A ChatGPT sign-in session sends them to chatgpt.com/backend-api/codex:
 #   https://learn.chatgpt.com/docs/enterprise/sign-in-with-chatgpt-through-a-gateway
-# - auth.openai.com is the OAuth issuer for the browser and the device-code
-#   sign-in (codex-rs/login/src/server.rs).
+# - auth.openai.com is the OAuth issuer for the browser sign-in
+#   (codex-rs/login/src/server.rs).
 # - ab.chatgpt.com receives the default Statsig metrics
 #   (codex-rs/otel/src/config.rs). Set analytics.enabled = false in
-#   config.toml and drop it in a copy of this preset to send nothing there.
+#   config.toml and drop it in a copy of this preset.
 # - api.github.com serves the update check on start
 #   (codex-rs/tui/src/updates.rs). Set check_for_update_on_startup = false
-#   and drop it in a copy. An npm or Homebrew install also reads its own
-#   registry for that check, which is not listed.
+#   and drop it in a copy. An npm install also reads registry.npmjs.org for
+#   that check. A Homebrew install reads formulae.brew.sh instead. Neither
+#   is listed.
 # - A custom model provider, a gateway or an MCP server over HTTP needs its
 #   own host: --sandbox-allow net-connect=<host>:443 for a run, or
 #   pmg sandbox allow to keep it.

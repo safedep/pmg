@@ -344,7 +344,7 @@ network:
 
 	res, err := ResolvePolicy("exec", true)
 	require.NoError(t, err)
-	assert.True(t, res.Network.Decide("api.anthropic.com", 443).Allowed, "the preset rule rises above the catch-all deny")
+	assert.True(t, res.Network.Decide("api.anthropic.com", 443).Allowed, "the preset rule beats the catch-all deny")
 	assert.True(t, res.Network.Decide("platform.claude.com", 443).Allowed)
 	assert.False(t, res.Network.Decide("pastebin.com", 443).Allowed, "a host the preset does not name stays denied")
 	assert.False(t, res.Network.Decide("api.anthropic.com", 80).Allowed, "the preset names the port")

@@ -48,15 +48,16 @@ Show the full profile with `pmg sandbox profile show exec`.
 ## Agent presets
 
 A preset adds the footprint of one agent: its state directory, its own API key and the hosts it
-reaches. Deny rules win over a preset allow, so the hook configuration stays read-only.
+reaches. Deny rules win over a preset allow, so the hook configuration stays read-only. The
+catch-all deny `*:*` is the one exception. A preset host rule beats it.
 
 The presets are `claude`, `codex` and `pi`. Each one grants the agent's state directory,
 re-allows the agent's own API key, and allows the agent's own hosts: its model API, its sign-in,
 its update check and its telemetry. The preset file names the source of each host and says how
-to drop the optional ones. Under the `exec` profile every destination is already allowed, so the
-hosts matter under a profile that denies `*:*`, such as the one `pmg sandbox profile propose`
-writes. The preset then opens the agent's hosts, and the profile keeps the repository's. Read a
-preset with `pmg sandbox preset show claude`.
+to drop the optional ones. The `exec` profile allows every destination. The hosts matter under a
+profile that denies `*:*`, which `pmg sandbox profile propose` writes. The preset opens the
+agent's hosts. The profile keeps the hosts the repository needs. Read a preset with
+`pmg sandbox preset show claude`.
 
 Apply a preset for one run, or save it for the current repository:
 

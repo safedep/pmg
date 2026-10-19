@@ -42,14 +42,17 @@ environment:
 #   check, the native updater and plugin downloads. code.claude.com serves
 #   the documentation lookups of the built-in guide agent.
 # - The two Datadog hosts receive the optional operational telemetry. Set
-#   DISABLE_TELEMETRY=1 and drop them in a copy of this preset to send
-#   nothing there.
+#   DISABLE_TELEMETRY=1 and drop them in a copy of this preset.
 # - Not listed: registry.npmjs.org for plugin installs and npx MCP servers,
 #   github.com for plugin marketplaces, raw.githubusercontent.com for the
-#   changelog after an update, and storage.googleapis.com for plugin counts.
-#   Add one for a run with --sandbox-allow net-connect=<host>:443, or keep
-#   it with pmg sandbox allow. A session on Bedrock, the Agent Platform or
-#   Foundry needs the provider's own hosts instead of api.anthropic.com.
+#   changelog after an update, storage.googleapis.com for plugin counts,
+#   formulae.brew.sh for the update check of a Homebrew install, and
+#   bridge.claudeusercontent.com for the Chrome extension. Add one for a
+#   run with --sandbox-allow net-connect=<host>:443, or keep it with
+#   pmg sandbox allow. The artifact host *.frame.claudeusercontent.com is a
+#   wildcard, so it goes in a profile rule. A session on Bedrock, the Agent
+#   Platform or Foundry needs the provider's own hosts. api.anthropic.com
+#   stays for the WebFetch safety check.
 network:
   allow_outbound:
     - api.anthropic.com:443
