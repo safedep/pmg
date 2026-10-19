@@ -4,7 +4,13 @@
 package platform
 
 import (
+	"bytes"
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
@@ -260,4 +266,90 @@ func TestExtractSeatbeltViolationsLockdownDenialWithPathOperand(t *testing.T) {
 	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
 	assert.Equal(t, "/private/var/run/mDNSResponder", violations[0].Target)
 	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
+}
+
+// seatbeltCleanExitPolicy reads and runs system binaries, and denies the read
+// of one secret file.
+func seatbeltCleanExitPolicy(secret string) *sandbox.SandboxPolicy {
+	return &sandbox.SandboxPolicy{
+		Name:            "seatbelt-clean-exit",
+		PackageManagers: []string{"npm"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{"/"},
+			AllowWrite: []string{"/dev/null"},
+			DenyRead:   []string{secret},
+		},
+		Process: sandbox.ProcessPolicy{
+			AllowExec: []string{"/bin/**", "/usr/bin/**"},
+		},
+	}
+}
+
+func runSeatbeltClean(t *testing.T, policy *sandbox.SandboxPolicy, argv ...string) (*seatbeltSandbox, string) {
+	t.Helper()
+
+	sb, err := newSeatbeltSandbox()
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdout = &stdout
+
+	result, err := sb.Execute(context.Background(), cmd, policy, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, result.Close())
+	})
+
+	require.NoError(t, cmd.Run(), "the command must exit 0")
+	return sb, stdout.String()
+}
+
+// A credential stealer catches the denial and exits 0. The run succeeds, and
+// the denial must still be reported from the unified log.
+func TestSeatbeltReportsDenialOnCleanExit(t *testing.T) {
+	requireSandboxExec(t)
+
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	secret := filepath.Join(dir, ".env")
+	require.NoError(t, os.WriteFile(secret, []byte("TOKEN=secret\n"), 0o600))
+
+	sb, stdout := runSeatbeltClean(t, seatbeltCleanExitPolicy(secret),
+		"/bin/sh", "-c", `/bin/cat "$1" 2>/dev/null; exit 0`, "sh", secret)
+	assert.NotContains(t, stdout, "TOKEN=secret", "the secret must not reach the process")
+
+	report, err := sb.BestEffortViolation(nil)
+	require.NoError(t, err)
+	require.NotNil(t, report, "the denial must be reported although the command exited 0")
+	assert.Equal(t, sandbox.DriverSeatbelt, report.SandboxName)
+	assert.Equal(t, "seatbelt-clean-exit", report.PolicyName)
+
+	var targets []string
+	for _, v := range report.Violations {
+		if v.Kind == sandbox.ViolationKindFSRead {
+			targets = append(targets, v.Target)
+		}
+	}
+	assert.Contains(t, targets, secret)
+}
+
+// /usr/bin/true probes the system on start and hits the catch-all rule. A
+// clean run reports nothing for that noise. It also must not wait for the
+// full query deadline, or every sandboxed run gets slower.
+func TestSeatbeltCleanRunWithoutRuleDenial(t *testing.T) {
+	requireSandboxExec(t)
+
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+
+	sb, _ := runSeatbeltClean(t, seatbeltCleanExitPolicy(filepath.Join(dir, ".env")), "/usr/bin/true")
+
+	start := time.Now()
+	report, err := sb.BestEffortViolation(nil)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Nil(t, report)
+	assert.Less(t, elapsed, seatbeltMaxQueryWait)
 }

@@ -282,17 +282,22 @@ func TestDenyAccessLabelReportsFiredRule(t *testing.T) {
 	assert.Equal(t, "write", denyAccessLabel(denyBoth, unix.O_RDWR))
 }
 
-func TestBestEffortViolationNilOnSuccess(t *testing.T) {
+// A program can catch a denial and exit 0, so a clean run still reports it.
+func TestBestEffortViolationReportsOnSuccess(t *testing.T) {
 	done := make(chan struct{})
 	close(done)
 	s := &landlockSandbox{
+		policyName:  "test-policy",
 		auditDone:   done,
 		auditEvents: []capturedAuditEvent{denyEvent("openat", "/tmp/.env", "read", "node")},
 	}
 
 	report, err := s.BestEffortViolation(nil)
 	require.NoError(t, err)
-	assert.Nil(t, report)
+	require.NotNil(t, report)
+	require.Len(t, report.Violations, 1)
+	assert.Equal(t, sandbox.ViolationKindFSRead, report.Violations[0].Kind)
+	assert.Equal(t, "/tmp/.env", report.Violations[0].Target)
 }
 
 func TestBestEffortViolationNilWithoutExecute(t *testing.T) {

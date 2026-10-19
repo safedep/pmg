@@ -166,8 +166,9 @@ func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult, pmName string) er
 
 	log.Debugf("Running command with args: %s: %v", cmd.Path, cmd.Args[1:])
 
-	if err := cmd.Run(); err != nil {
-		executor.ObserveViolations(result, err)
+	err := cmd.Run()
+	executor.ObserveViolations(result, err)
+	if err != nil {
 		return classify(err, pmName, result.ScrubbedEnvCount())
 	}
 
@@ -296,8 +297,8 @@ func runPTY(
 		<-copyDone
 	}
 
+	executor.ObserveViolations(result, sessionError)
 	if sessionError != nil {
-		executor.ObserveViolations(result, sessionError)
 		return classify(sessionError, pmName, result.ScrubbedEnvCount())
 	}
 

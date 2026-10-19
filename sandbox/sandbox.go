@@ -203,7 +203,10 @@ func (r *ExecutionResult) ScrubbedEnvCount() int {
 
 // BestEffortViolation returns sandbox-specific best-effort violation details.
 // Implementations may use platform logs or other weak signals, so callers
-// should treat the result as advisory.
+// should treat the result as advisory. err is the command's exit error, nil
+// for a clean exit. A clean exit can hide a denial, because a program can
+// catch it, so every driver reports in both cases. A driver can use err to
+// decide how long to wait for its signal and which weak signals to keep.
 func (r *ExecutionResult) BestEffortViolation(err error) (*ViolationReport, error) {
 	if r == nil || r.sandbox == nil {
 		return nil, nil

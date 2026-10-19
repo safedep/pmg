@@ -826,6 +826,11 @@ jobs:
           touch ~/.ssh/id_rsa
           touch ./.env
 
+      # A package script that catches a denial exits 0. PMG must still
+      # record the denial.
+      - name: Run Sandbox Clean Exit E2E Test
+        run: test/sandbox-clean-exit-e2e.sh
+
       - name: Run Sandbox E2E Test
         env:
           E2E_ENV_SEEDED: "1"
@@ -1055,6 +1060,11 @@ jobs:
 
       - name: Run Landlock Helper E2E Tests (Go)
         run: go test -count=1 -v -run TestLandlockHelper ./sandbox/platform/...
+
+      # A package script that catches a denial exits 0. PMG must still
+      # record the denial.
+      - name: Run Sandbox Clean Exit E2E Test
+        run: test/sandbox-clean-exit-e2e.sh
 
       # The npm leaf profile's npm_config_* env allow is what keeps the
       # job-level npm_config_cache redirect alive.

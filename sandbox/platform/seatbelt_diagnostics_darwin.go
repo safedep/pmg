@@ -66,11 +66,17 @@ func parseSeatbeltLogPayload(raw string) (*seatbeltLogPayload, bool) {
 }
 
 func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationReport, error) {
-	if err == nil || s.logTag == "" || s.startedAt.IsZero() {
+	if s.logTag == "" || s.startedAt.IsZero() {
 		return nil, nil
 	}
 
-	deadline := time.Now().Add(seatbeltMaxQueryWait)
+	// A clean run gets one query. Most clean runs have no denial, and a poll
+	// to the deadline would add seatbeltMaxQueryWait to each of them. A failed
+	// run polls, because the user looks for the cause.
+	deadline := time.Now()
+	if err != nil {
+		deadline = deadline.Add(seatbeltMaxQueryWait)
+	}
 	var lastQueryErr error
 
 	for {
@@ -80,6 +86,9 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 			lastQueryErr = queryErr
 		} else {
 			violations := extractSeatbeltViolations(entries, s.logTag)
+			if err == nil {
+				violations = seatbeltRuleDenials(violations)
+			}
 			if len(violations) > 0 {
 				return &sandbox.ViolationReport{
 					SandboxName:   s.Name(),
@@ -102,6 +111,23 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 	}
 
 	return nil, nil
+}
+
+// seatbeltRuleDenials drops the denials of the catch-all (deny default) rule
+// and keeps the denials of the policy's own deny rules. A clean run reports
+// only these. Runtimes probe the system on start (node and python write
+// /dev/dtracehelper and read sysctls), so the catch-all fires on almost every
+// clean run. Known gap: on a clean run, a write that only the catch-all
+// blocks, such as one to a shell startup file, is not reported.
+func seatbeltRuleDenials(violations []sandbox.Violation) []sandbox.Violation {
+	kept := make([]sandbox.Violation, 0, len(violations))
+	for _, v := range violations {
+		if v.RawKind != seatbeltKindDefault {
+			kept = append(kept, v)
+		}
+	}
+
+	return kept
 }
 
 func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandbox.Violation {

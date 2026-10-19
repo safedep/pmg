@@ -414,10 +414,9 @@ func TestBestEffortViolation(t *testing.T) {
 		wantNil bool
 	}{
 		{
-			name:    "successful run reports nothing",
-			stderr:  "cat: /work/.env: Permission denied\n",
-			attach:  true,
-			wantNil: true,
+			name:   "denial on a clean run is reported",
+			stderr: "cat: /work/.env: Permission denied\n",
+			attach: true,
 		},
 		{
 			name:    "execute never ran",
