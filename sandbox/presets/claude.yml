@@ -23,6 +23,12 @@ metadata:
 #   runs commands from the next start. Accepted: Claude Code writes plugin
 #   and marketplace state here on its own. Deny
 #   ${HOME}/.claude/plugins/** in a custom profile to refuse plugin installs.
+# - The hosts in the network notes below can carry data out of the sandbox.
+#   api.anthropic.com accepts any payload under an attacker's own API key,
+#   the two Datadog hosts accept logs under any client token, and claude.ai
+#   is a general-purpose host. Accepted: the agent cannot run without its
+#   API and sign-in hosts. The profile keeps the rest of the network closed,
+#   and a copy of this preset drops the Datadog hosts.
 filesystem:
   allow_write:
     - ${HOME}/.claude/**
@@ -32,3 +38,35 @@ filesystem:
 environment:
   allow:
     - ANTHROPIC_API_KEY
+
+# Network notes. The hosts come from the Claude Code network access
+# requirements: https://code.claude.com/docs/en/network-config
+# - api.anthropic.com serves the API, the feature flags and the telemetry
+#   events. claude.ai, claude.com and platform.claude.com serve the sign-in
+#   and the OAuth token exchange. mcp-proxy.anthropic.com serves the MCP
+#   connectors of a claude.ai account. downloads.claude.ai serves the update
+#   check, the native updater and plugin downloads. code.claude.com serves
+#   the documentation lookups of the built-in guide agent.
+# - The two Datadog hosts receive the optional operational telemetry. Set
+#   DISABLE_TELEMETRY=1 and drop them in a copy of this preset.
+# - Not listed: registry.npmjs.org for plugin installs and npx MCP servers,
+#   github.com for plugin marketplaces, raw.githubusercontent.com for the
+#   changelog after an update, storage.googleapis.com for plugin counts,
+#   formulae.brew.sh for the update check of a Homebrew install, and
+#   bridge.claudeusercontent.com for the Chrome extension. Add one for a
+#   run with --sandbox-allow net-connect=<host>:443, or keep it with
+#   pmg sandbox allow. The artifact host *.frame.claudeusercontent.com is a
+#   wildcard, so it goes in a profile rule. A session on Bedrock, the Agent
+#   Platform or Foundry needs the provider's own hosts. api.anthropic.com
+#   stays for the WebFetch safety check.
+network:
+  allow_outbound:
+    - api.anthropic.com:443
+    - claude.ai:443
+    - claude.com:443
+    - platform.claude.com:443
+    - mcp-proxy.anthropic.com:443
+    - downloads.claude.ai:443
+    - code.claude.com:443
+    - http-intake.logs.us5.datadoghq.com:443
+    - browser-intake-us5-datadoghq.com:443

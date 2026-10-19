@@ -326,6 +326,30 @@ func TestResolvePolicyFlagDenyBeatsPresetAllow(t *testing.T) {
 	assert.Contains(t, res.Policy.Network.AllowOutbound, "example.com:443", "without the flag the preset rule stands")
 }
 
+func TestResolvePolicyAgentPresetOpensItsHostsOverADenyAll(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "deny.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: deny-all
+package_managers: ["exec"]
+network:
+  deny_outbound: ["*:*"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+	cfg.SandboxAllowOverrides = []config.SandboxAllowOverride{{Type: config.SandboxAllowPreset, Value: "claude"}}
+
+	res, err := ResolvePolicy("exec", true)
+	require.NoError(t, err)
+	assert.True(t, res.Network.Decide("api.anthropic.com", 443).Allowed, "the preset rule beats the catch-all deny")
+	assert.True(t, res.Network.Decide("platform.claude.com", 443).Allowed)
+	assert.False(t, res.Network.Decide("pastebin.com", 443).Allowed, "a host the preset does not name stays denied")
+	assert.False(t, res.Network.Decide("api.anthropic.com", 80).Allowed, "the preset names the port")
+}
+
 func TestResolvePolicyFlagDenySurvivesAnAllowOverride(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "open.yml")
 	require.NoError(t, os.WriteFile(profile, []byte(`

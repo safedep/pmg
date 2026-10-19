@@ -263,6 +263,12 @@
   tier: P0
   guarantee: "Under `pmg sandbox exec`, ANTHROPIC_API_KEY is absent by default, present with preset=claude, and OPENAI_API_KEY stays absent."
   labels: [sandbox, exec, block, agent]
+- id: sandbox/exec/preset-allows-agent-hosts
+  title: "an agent preset allows the agent's own hosts over a deny-all profile"
+  category: sandbox
+  tier: P1
+  guarantee: "Under `pmg sandbox exec --network-mode enforce` with a profile that denies every destination, `--sandbox-allow preset=claude` lets a connection reach api.anthropic.com. The proxy still refuses a host the preset does not name."
+  labels: [sandbox, exec, network, agent]
 - id: sandbox/exec/profile-override-contains-writes
   title: "sandbox exec honours a custom profile and refuses one that does not list exec"
   category: sandbox

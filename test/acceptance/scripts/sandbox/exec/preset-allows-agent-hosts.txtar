@@ -1,0 +1,37 @@
+# guarantee: an agent preset allows the agent's own hosts over a profile
+# that denies every destination. Under `pmg sandbox exec --network-mode
+# enforce` with a deny-all profile, preset=claude lets a connection reach
+# api.anthropic.com, and the proxy still refuses a host the preset does not
+# name.
+
+[windows] skip 'pmg sandbox exec is not supported on Windows'
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+cd $WORK/proj
+
+exec pmg sandbox exec --sandbox-profile $WORK/deny.yml --network-mode enforce -- sh probe.sh
+stdout 'anthropic 403'
+stdout 'pastebin 403'
+
+exec pmg sandbox exec --sandbox-profile $WORK/deny.yml --network-mode enforce --sandbox-allow preset=claude -- sh probe.sh
+stdout 'anthropic 200'
+stdout 'pastebin 403'
+
+-- proj/probe.sh --
+set -eu
+# curl drops the body of a refused CONNECT, so the CONNECT status is the check.
+status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://api.anthropic.com/ || true)
+echo "anthropic $status"
+status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
+echo "pastebin $status"
+-- deny.yml --
+name: exec-deny-all
+description: the exec profile with a catch-all deny
+inherits: exec
+network:
+  deny_outbound:
+    - "*:*"
