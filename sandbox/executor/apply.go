@@ -168,10 +168,10 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 	log.Debugf("Loaded sandbox policy %s", policy.Name)
 
-	// The flag rules join the profile before the overlay and the presets, so
-	// a preset rule a flag deny covers is dropped the same way as one an
-	// authored deny covers.
-	if err := netflags.ApplyRules(&policy.Network, cfg.SandboxNetworkAllow, cfg.SandboxNetworkDeny); err != nil {
+	// The flag denies join the profile before the overlay and the presets,
+	// so the preset filter drops a preset rule a flag deny covers, as it
+	// does for an authored deny.
+	if err := netflags.ApplyRules(&policy.Network, nil, cfg.SandboxNetworkDeny); err != nil {
 		return nil, err
 	}
 
@@ -204,6 +204,14 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 	if !policy.AppliesToPackageManager(pmName) {
 		return nil, fmt.Errorf("sandbox policy %s does not apply to %s", policy.Name, pmName)
+	}
+
+	// A saved allow and a net-connect override remove an equal deny. The
+	// flag rules join again last, so a flag deny survives them and a flag
+	// allow removes an equal profile deny. The matcher then treats a flag
+	// rule like a profile rule, so the more specific rule wins.
+	if err := netflags.ApplyRules(&policy.Network, cfg.SandboxNetworkAllow, cfg.SandboxNetworkDeny); err != nil {
+		return nil, err
 	}
 
 	network, err := policy.Network.Compile()

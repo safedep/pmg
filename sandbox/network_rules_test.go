@@ -20,6 +20,14 @@ func TestNetworkPolicyAllowRemovesTheEqualDeny(t *testing.T) {
 	assert.Equal(t, []string{"*:*", "evil.example:443", "pastebin.com:443"}, n.DenyOutbound)
 }
 
+func TestNetworkPolicyDenyAddsARuleOnce(t *testing.T) {
+	n := NetworkPolicy{DenyOutbound: []string{"pastebin.com:443"}}
+	n.Deny("pastebin.com:443")
+	n.Deny("evil.example:443")
+	n.Deny("evil.example:443")
+	assert.Equal(t, []string{"pastebin.com:443", "evil.example:443"}, n.DenyOutbound)
+}
+
 func TestNetworkPolicyCompileCarriesDenyIPLiterals(t *testing.T) {
 	rules := NetworkPolicy{AllowOutbound: []string{"registry.npmjs.org:443"}, DenyOutbound: []string{"*:*"}}
 

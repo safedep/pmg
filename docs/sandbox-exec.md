@@ -139,7 +139,9 @@ pmg sandbox exec --network-mode enforce --network-deny '*:*' \
 | none | `--network-deny` (repeatable) | none |
 
 The rule flags add one `host:port` rule each to the resolved profile. `--network-allow` also
-removes an equal deny rule. Under `audit`, the default, the proxy records a match on a deny rule
+removes an equal deny rule. The matcher treats a flag rule like a profile rule, so the more
+specific rule wins. A preset rule that a flag deny covers is dropped, and a saved allow does not
+remove a flag deny. Under `audit`, the default, the proxy records a match on a deny rule
 and lets the connection through. Under `enforce` the proxy refuses the connection with a 403 that
 names the destination and the rule. Under `global_lockdown`, pmg refuses `--network-allow`,
 and refuses `--network-mode audit` over a config that says `enforce`. A deny rule and `enforce`

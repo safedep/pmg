@@ -326,6 +326,36 @@ func TestResolvePolicyFlagDenyBeatsPresetAllow(t *testing.T) {
 	assert.Contains(t, res.Policy.Network.AllowOutbound, "example.com:443", "without the flag the preset rule stands")
 }
 
+func TestResolvePolicyFlagDenySurvivesAnAllowOverride(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "open.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: open
+package_managers: ["exec"]
+network:
+  allow_outbound: ["*:*"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+	cfg.SandboxAllowOverrides = []config.SandboxAllowOverride{{Type: config.SandboxAllowNetConnect, Value: "example.com:443"}}
+	cfg.SandboxNetworkDeny = []string{"example.com:443"}
+
+	res, err := ResolvePolicy("exec", true)
+	require.NoError(t, err)
+	assert.False(t, res.Network.Decide("example.com", 443).Allowed,
+		"the override removes the equal deny, and the flag deny joins again last and wins the tie")
+	assert.Equal(t, []string{"example.com:443"}, res.Policy.Network.DenyOutbound, "the flag deny is not repeated")
+
+	cfg.SandboxNetworkDeny = []string{"example.com:*"}
+	res, err = ResolvePolicy("exec", true)
+	require.NoError(t, err)
+	assert.True(t, res.Network.Decide("example.com", 443).Allowed,
+		"the matcher treats a flag rule like a profile rule, so the more specific override allow wins")
+}
+
 func TestResolvePolicyOverrideErrorNamesTheCause(t *testing.T) {
 	dir := t.TempDir()
 	noPM := filepath.Join(dir, "no-pm.yml")
