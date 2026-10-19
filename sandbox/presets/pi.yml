@@ -32,6 +32,10 @@ environment:
 #   (auth/oauth/anthropic.ts). auth.openai.com serves the ChatGPT sign-in
 #   and chatgpt.com its model requests (auth/oauth/openai-codex.ts and
 #   providers/openai-codex.ts).
+# - pi.dev serves the version check on start (coding-agent, utils/
+#   version-check.ts), the model catalog refresh (core/remote-catalog-
+#   provider.ts) and the install report (modes/interactive/interactive-
+#   mode.ts). Set PI_OFFLINE=1 to stop all three and drop the host.
 # - Pi has many more providers. Copy this preset and add the host of the
 #   one you use, or add it for a run with --sandbox-allow
 #   net-connect=<host>:443.
@@ -44,3 +48,4 @@ network:
     - platform.claude.com:443
     - auth.openai.com:443
     - chatgpt.com:443
+    - pi.dev:443

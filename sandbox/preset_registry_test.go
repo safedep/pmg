@@ -43,7 +43,7 @@ func TestPresetRegistryBuiltins(t *testing.T) {
 		hosts := map[string][]string{
 			"claude": {"api.anthropic.com:443", "claude.ai:443", "platform.claude.com:443"},
 			"codex":  {"api.openai.com:443", "chatgpt.com:443", "auth.openai.com:443"},
-			"pi":     {"api.anthropic.com:443", "api.openai.com:443", "generativelanguage.googleapis.com:443"},
+			"pi":     {"api.anthropic.com:443", "api.openai.com:443", "generativelanguage.googleapis.com:443", "pi.dev:443"},
 		}
 		for name, want := range hosts {
 			info, err := registry.Get(name)
