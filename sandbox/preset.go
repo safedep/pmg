@@ -283,11 +283,11 @@ func (p *Preset) filteredEnvAllow(policy *SandboxPolicy) []string {
 }
 
 // The matcher lets the more specific rule win, so a preset rule with an
-// exact port would beat an authored deny for the host with any port. A
-// preset rule an authored deny covers is dropped here, so the author's
-// decision about that host stands. The catch-all deny is not a decision
-// about a host. It is the allow list's floor, and a preset rule is meant
-// to rise above it.
+// exact port would beat an authored deny for the host with any port, or
+// for every host on that port. A preset rule an authored deny covers is
+// dropped here, so the author's decision stands. Only the catch-all deny
+// drops nothing. It is not a decision about a host or a port. It is the
+// allow list's floor, and a preset rule is meant to rise above it.
 func (p *Preset) filteredOutboundAllow(policy *SandboxPolicy) []string {
 	if len(p.Network.AllowOutbound) == 0 || len(policy.Network.DenyOutbound) == 0 {
 		return p.Network.AllowOutbound
@@ -296,7 +296,7 @@ func (p *Preset) filteredOutboundAllow(policy *SandboxPolicy) []string {
 	kept := make([]string, 0, len(p.Network.AllowOutbound))
 	for _, raw := range p.Network.AllowOutbound {
 		allow, err := netpolicy.ParseRule(raw)
-		if err != nil || !hostDenyCovers(policy.Network.DenyOutbound, allow) {
+		if err != nil || !denyCovers(policy.Network.DenyOutbound, allow) {
 			kept = append(kept, raw)
 			continue
 		}
@@ -305,10 +305,10 @@ func (p *Preset) filteredOutboundAllow(policy *SandboxPolicy) []string {
 	return kept
 }
 
-func hostDenyCovers(denies []string, allow netpolicy.Rule) bool {
+func denyCovers(denies []string, allow netpolicy.Rule) bool {
 	for _, raw := range denies {
 		deny, err := netpolicy.ParseRule(raw)
-		if err == nil && deny.Host != netpolicy.AnyHost && deny.Covers(allow) {
+		if err == nil && !deny.CatchAll() && deny.Covers(allow) {
 			return true
 		}
 	}

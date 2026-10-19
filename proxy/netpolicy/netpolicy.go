@@ -376,6 +376,11 @@ func isRelativePath(client string) bool {
 
 // beats says whether r is more specific than other, or as specific and a
 // deny while other is an allow.
+// CatchAll reports whether r matches every destination from every client.
+func (r Rule) CatchAll() bool {
+	return r.Host == anyHost && r.Port == anyPort && r.Client == ""
+}
+
 func (r *Rule) beats(other *Rule) bool {
 	if a, b := r.hostRank(), other.hostRank(); a != b {
 		return a > b

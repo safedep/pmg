@@ -322,11 +322,30 @@ func TestPresetApplyToPolicy(t *testing.T) {
 	assert.True(t, utils.SafelyGetValue(policy.AllowNetworkBind),
 		"bind entries enable AllowNetworkBind for translators")
 	assert.Equal(t, []string{"registry.npmjs.org:443", "github.com:443"}, policy.Network.AllowOutbound,
-		"a preset rule an authored host deny covers is dropped, and the catch-all deny drops none")
+		"a preset rule an authored deny covers is dropped, and the catch-all deny drops none")
 	assert.Equal(t, []string{"api.anthropic.com:443", "*.anthropic.com:*", "*:*"}, policy.Network.DenyOutbound,
 		"deny lists are never modified by presets")
 	assert.Equal(t, []string{"${CWD}/node_modules/.bin/**"}, policy.Process.AllowExec)
 	assert.Equal(t, []string{"ASTRO_TELEMETRY_DISABLED"}, policy.Environment.Allow)
+}
+
+func TestPresetOutboundAllowCannotOverridePortWideDeny(t *testing.T) {
+	preset := &Preset{
+		Kind:    "preset",
+		Name:    "sample",
+		Network: PresetNetwork{AllowOutbound: []string{"example.com:443", "example.com:80"}},
+	}
+	require.NoError(t, preset.Validate())
+
+	policy := &SandboxPolicy{
+		Name:    "test",
+		Network: NetworkPolicy{DenyOutbound: []string{"*:443", "*:*"}},
+	}
+
+	preset.ApplyToPolicy(policy)
+
+	assert.Equal(t, []string{"example.com:80"}, policy.Network.AllowOutbound,
+		"a port-wide deny covers the preset rule on that port, and the catch-all deny drops none")
 }
 
 func TestPresetApplyToPolicyWithoutBindKeepsFlag(t *testing.T) {

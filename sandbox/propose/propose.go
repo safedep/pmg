@@ -138,11 +138,11 @@ func Network(in Input) (Result, error) {
 		}
 		rule := rules.Decide(d.Host, d.Port).Rule
 		switch {
-		case rule != nil && rule.Deny && !isCatchAll(rule) && rule.Raw != netpolicy.IPLiteralRule:
+		case rule != nil && rule.Deny && !rule.CatchAll() && rule.Raw != netpolicy.IPLiteralRule:
 			row.Verdict, row.Rule = VerdictKeptDenied, rule.Raw
 		case d.Enforced && !d.Allowed:
 			row.Verdict, row.Rule = VerdictRefused, d.Rule
-		case rule == nil || isCatchAll(rule) || rule.Raw == netpolicy.IPLiteralRule:
+		case rule == nil || rule.CatchAll() || rule.Raw == netpolicy.IPLiteralRule:
 			added[row.Rule] = true
 		case slices.Contains(existing.AllowOutbound, rule.Raw):
 			row.Verdict, row.Rule = VerdictAlreadyAllowed, rule.Raw
@@ -174,13 +174,9 @@ func union(a, b []string) []string {
 	return out
 }
 
-func isCatchAll(rule *netpolicy.Rule) bool {
-	return rule.Host == "*" && rule.Port == 0 && rule.Client == ""
-}
-
 func deniesCatchAll(deny []string) bool {
 	for _, raw := range deny {
-		if rule, err := netpolicy.ParseRule(raw); err == nil && isCatchAll(&rule) {
+		if rule, err := netpolicy.ParseRule(raw); err == nil && rule.CatchAll() {
 			return true
 		}
 	}

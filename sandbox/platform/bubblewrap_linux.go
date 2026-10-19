@@ -59,7 +59,7 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 		return nil, usefulerror.NewUsefulError().
 			WithCode(errcodes.UnsupportedPlatform).
 			WithHumanError("network_via_proxy_only is not yet supported on this platform").
-			WithHelp("Disable network_via_proxy_only for this profile.").
+			WithHelp("Disable network_via_proxy_only for this profile. For pmg sandbox exec, run under a child profile of exec that sets network_via_proxy_only: false. The program then gets the proxy by environment only. See docs/sandbox-exec.md.").
 			Wrap(fmt.Errorf("network_via_proxy_only is not yet supported on this platform (%s sandbox)", b.Name()))
 	}
 

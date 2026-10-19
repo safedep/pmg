@@ -293,6 +293,12 @@
   tier: P0
   guarantee: "On Linux, `unshare -U` fails under `pmg sandbox exec` with EPERM."
   labels: [sandbox, exec, block, offline]
+- id: sandbox/exec/bubblewrap-refuses-exec
+  title: "sandbox exec refuses to run under Bubblewrap"
+  category: sandbox
+  tier: P1
+  guarantee: "On a host whose sandbox driver is Bubblewrap, `pmg sandbox exec` exits non-zero before it runs the program, and the error names network_via_proxy_only and the child profile of exec that turns it off."
+  labels: [sandbox, exec, block, offline]
 - id: sandbox/exec/network-deny-enforced
   title: "sandbox exec refuses a destination a deny rule covers under enforce"
   category: sandbox

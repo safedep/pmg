@@ -168,6 +168,13 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 	log.Debugf("Loaded sandbox policy %s", policy.Name)
 
+	// The flag rules join the profile before the overlay and the presets, so
+	// a preset rule a flag deny covers is dropped the same way as one an
+	// authored deny covers.
+	if err := netflags.ApplyRules(&policy.Network, cfg.SandboxNetworkAllow, cfg.SandboxNetworkDeny); err != nil {
+		return nil, err
+	}
+
 	// Apply the per-repo project overlay (saved via `pmg sandbox allow`). When
 	// global_lockdown is set, overlays are ignored so the locked baseline is
 	// authoritative. An empty cwd is tolerated by ResolveRepoRoot's callers
@@ -197,10 +204,6 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 	if !policy.AppliesToPackageManager(pmName) {
 		return nil, fmt.Errorf("sandbox policy %s does not apply to %s", policy.Name, pmName)
-	}
-
-	if err := netflags.ApplyRules(&policy.Network, cfg.SandboxNetworkAllow, cfg.SandboxNetworkDeny); err != nil {
-		return nil, err
 	}
 
 	network, err := policy.Network.Compile()

@@ -298,6 +298,34 @@ network:
 	assert.Contains(t, err.Error(), "--network-allow")
 }
 
+func TestResolvePolicyFlagDenyBeatsPresetAllow(t *testing.T) {
+	userDir := t.TempDir()
+	writeFiles(t, userDir, map[string]string{
+		"sandbox/presets/team.yml": "schema_version: 1\nkind: preset\nname: team\nnetwork:\n  allow_outbound: ['example.com:443']\n",
+		"open.yml":                 "name: open\npackage_managers: ['exec']\nnetwork:\n  allow_outbound: ['*:*']\n",
+	})
+	t.Cleanup(config.Reload)
+	t.Setenv("PMG_CONFIG_DIR", userDir)
+	config.Reload()
+
+	cfg := config.Get()
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = filepath.Join(userDir, "open.yml")
+	cfg.SandboxAllowOverrides = []config.SandboxAllowOverride{{Type: config.SandboxAllowPreset, Value: "team"}}
+	cfg.SandboxNetworkDeny = []string{"example.com:*"}
+
+	res, err := ResolvePolicy("exec", true)
+	require.NoError(t, err)
+	assert.False(t, res.Network.Decide("example.com", 443).Allowed,
+		"a deny flag joins the profile before the preset, so the covered preset rule is dropped")
+	assert.NotContains(t, res.Policy.Network.AllowOutbound, "example.com:443")
+
+	cfg.SandboxNetworkDeny = nil
+	res, err = ResolvePolicy("exec", true)
+	require.NoError(t, err)
+	assert.Contains(t, res.Policy.Network.AllowOutbound, "example.com:443", "without the flag the preset rule stands")
+}
+
 func TestResolvePolicyOverrideErrorNamesTheCause(t *testing.T) {
 	dir := t.TempDir()
 	noPM := filepath.Join(dir, "no-pm.yml")

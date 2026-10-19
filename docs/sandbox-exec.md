@@ -119,8 +119,13 @@ terminate TLS. It reads no traffic. It decides each destination by host and port
 The program gets the proxy through `HTTP_PROXY`, `HTTPS_PROXY`, their lower-case forms and
 `NODE_USE_ENV_PROXY=1`. The `exec` profile also sets `network_via_proxy_only`, so the sandbox
 driver refuses every outbound connection that does not go to the proxy. A program that ignores
-the proxy variables fails to connect instead of going around the policy. Loopback stays open, so
-a dev server the agent starts is reachable without the proxy.
+the proxy variables fails to connect instead of going around the policy. That is every client
+that does not speak HTTP through a proxy: database clients such as `psql` and `mysql`, `ssh` and
+git over ssh, raw TCP tools such as `nc`, and any program that resolves a name itself, because
+direct DNS is refused too. Before this key, every outbound connection worked under `exec`. A
+child profile that sets `network_via_proxy_only: false` restores that, with the proxy by
+environment only. Loopback stays open, so a dev server the agent starts is reachable without the
+proxy.
 
 ```bash
 pmg sandbox exec --network-mode enforce --network-deny '*:*' \
