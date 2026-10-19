@@ -4,6 +4,8 @@
 # the read fails. A hard link made in the sandbox is refused, or reads
 # nothing. The legacy open(2) syscall is denied like openat(2).
 
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+
 env HOME=$WORK/home
 env PMG_CACHE_DIR=$WORK/cache
 cd $WORK/proj

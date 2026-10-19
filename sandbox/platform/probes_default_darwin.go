@@ -10,5 +10,6 @@ func DefaultProbes() []sandbox.Probe {
 	return []sandbox.Probe{
 		NewSeatbeltProbe(),
 		NewSeatbeltCanaryProbe(),
+		NewExecNetworkProbe(),
 	}
 }

@@ -1,0 +1,48 @@
+# guarantee: the exec profile confines every outbound connection to the
+# proxy. `pmg sandbox exec` lets a connection through the proxy reach an
+# allowed host, refuses a direct connection that goes around the proxy, and
+# refuses a denied host at the proxy. A child profile that turns the key off
+# runs with the proxy by environment only.
+
+[windows] skip 'pmg sandbox exec is not supported on Windows'
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+cd $WORK/proj
+
+exec pmg sandbox exec --network-mode enforce --network-deny pastebin.com:443 -- sh probe.sh
+stdout 'via proxy 200'
+stdout 'direct refused'
+stdout 'connect 403'
+stderr 'pastebin.com:443  rule pastebin.com:443'
+! stderr 'Set network_via_proxy_only'
+
+exec pmg sandbox exec --sandbox-profile $WORK/open.yml --network-mode enforce --network-deny pastebin.com:443 -- sh probe.sh
+stdout 'via proxy 200'
+stdout 'direct ok'
+stdout 'connect 403'
+stderr 'Set network_via_proxy_only: true in the profile'
+
+-- proj/probe.sh --
+set -u
+status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad || echo fail)
+echo "via proxy $status"
+# An address, so a refused DNS lookup cannot stand in for the refused connect.
+# curl exits 7 when the connect itself fails. Any other failure is named, so
+# a slow transfer cannot pass as a refused connect.
+curl --silent --max-time 30 --noproxy '*' --output /dev/null http://1.1.1.1/
+case $? in
+  0) echo "direct ok" ;;
+  7) echo "direct refused" ;;
+  *) echo "direct error $?" ;;
+esac
+status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
+echo "connect $status"
+-- open.yml --
+name: exec-open
+description: the exec profile with the proxy by environment only
+inherits: exec
+network_via_proxy_only: false

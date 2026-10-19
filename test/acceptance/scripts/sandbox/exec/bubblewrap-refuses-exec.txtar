@@ -1,0 +1,21 @@
+# guarantee: on a host whose sandbox driver is Bubblewrap, `pmg sandbox exec`
+# refuses the exec profile, which sets network_via_proxy_only, before it
+# runs the program. The error names the key and the child profile of exec
+# that turns it off.
+
+[windows] skip 'pmg sandbox exec is not supported on Windows'
+[!bubblewrap] skip 'this script covers the Bubblewrap refusal'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+cd $WORK/proj
+
+! exec pmg sandbox exec -- sh -c 'echo ran > ran.txt'
+! exists ran.txt
+stderr 'UnsupportedPlatform'
+stderr 'network_via_proxy_only is not yet supported on this platform'
+stderr 'child profile of exec that sets network_via_proxy_only: false'
+
+-- proj/.keep --

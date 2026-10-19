@@ -133,6 +133,7 @@ func TestExpandPolicyPathsIsolatesBoolPointers(t *testing.T) {
 		NetworkViaProxyOnly: utils.PtrTo(true),
 		AllowDirectDNS:      utils.PtrTo(true),
 		AllowUnixSockets:    utils.PtrTo(true),
+		Network:             NetworkPolicy{DenyIPLiterals: utils.PtrTo(true)},
 	}
 
 	resolved, err := expandPolicyPaths(source, ResolveOptions{CWD: "/x", Home: "/y"})
@@ -148,6 +149,7 @@ func TestExpandPolicyPathsIsolatesBoolPointers(t *testing.T) {
 		{"NetworkViaProxyOnly", source.NetworkViaProxyOnly, resolved.NetworkViaProxyOnly},
 		{"AllowDirectDNS", source.AllowDirectDNS, resolved.AllowDirectDNS},
 		{"AllowUnixSockets", source.AllowUnixSockets, resolved.AllowUnixSockets},
+		{"Network.DenyIPLiterals", source.Network.DenyIPLiterals, resolved.Network.DenyIPLiterals},
 	}
 	for _, f := range fields {
 		assert.NotSame(t, f.source, f.resolved, f.name)

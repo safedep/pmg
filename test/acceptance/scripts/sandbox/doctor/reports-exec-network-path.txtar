@@ -1,0 +1,14 @@
+# guarantee: `pmg sandbox doctor --json` has a network.exec-path probe that
+# says whether this host's driver confines `pmg sandbox exec` to the proxy.
+
+[windows] skip 'the sandbox is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+
+# Another probe can fail on this host, so the exit status is not the check.
+exec sh -c 'pmg sandbox doctor --json || true'
+stdout '"name": *"network.exec-path"'
+stdout '"summary": *"(confined to the proxy|bubblewrap cannot confine outbound to the proxy)'

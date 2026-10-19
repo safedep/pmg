@@ -282,6 +282,8 @@ func displayName(probeName string) string {
 		return "Bubblewrap canary"
 	case pmgsandbox.ProbeLandlockCanary:
 		return "Landlock canary"
+	case pmgsandbox.ProbeExecNetwork:
+		return "Exec network path"
 	}
 	return probeName
 }

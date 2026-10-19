@@ -8,6 +8,13 @@ package_managers:
 allow_pty: true
 allow_network_bind: true
 
+# Every outbound connection goes to the PMG proxy that pmg sandbox exec
+# starts. A program that ignores HTTP_PROXY cannot go around the network
+# rules, and the run observes every destination, so a proposal can build a
+# profile for the workload. Loopback stays open for dev servers. Landlock
+# and Seatbelt apply this. Bubblewrap does not, and refuses the profile.
+network_via_proxy_only: true
+
 # This profile is deliberately broad on read and exec. Its value is the set
 # of deny rules below plus PMG's mandatory denies: credential files (.env,
 # .ssh, .aws, ...), .git/hooks, .git/config, and the credential environment
@@ -106,9 +113,9 @@ filesystem:
     - ${HOME}/Library/Application Support/safedep/pmg/sandbox/**
 
 network:
-  # pmg sandbox exec does not start the PMG proxy, so no rule is applied by
-  # host and one allow rule turns the network on. An agent needs that for
-  # its model API.
+  # The proxy applies these rules. The base profile allows every
+  # destination, because an agent needs its model API and the registries
+  # of every tool it runs. See docs/sandbox-exec.md#network.
   allow_outbound:
     - "*:*"
 

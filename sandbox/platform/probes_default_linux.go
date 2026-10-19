@@ -13,5 +13,6 @@ func DefaultProbes() []sandbox.Probe {
 		NewAppArmorUsernsProbe(),
 		NewBwrapCanaryProbe(),
 		NewLandlockCanaryProbe(),
+		NewExecNetworkProbe(),
 	}
 }

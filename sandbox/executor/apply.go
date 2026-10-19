@@ -18,6 +18,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/netflags"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
@@ -167,6 +168,13 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 	log.Debugf("Loaded sandbox policy %s", policy.Name)
 
+	// The flag denies join the profile before the overlay and the presets,
+	// so the preset filter drops a preset rule a flag deny covers, as it
+	// does for an authored deny.
+	if err := netflags.ApplyRules(&policy.Network, nil, cfg.SandboxNetworkDeny); err != nil {
+		return nil, err
+	}
+
 	// Apply the per-repo project overlay (saved via `pmg sandbox allow`). When
 	// global_lockdown is set, overlays are ignored so the locked baseline is
 	// authoritative. An empty cwd is tolerated by ResolveRepoRoot's callers
@@ -198,17 +206,15 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 		return nil, fmt.Errorf("sandbox policy %s does not apply to %s", policy.Name, pmName)
 	}
 
-	if pmName == sandbox.WorkloadExec && utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
-		msg := fmt.Sprintf("pmg sandbox exec does not support network_via_proxy_only (policy %s)", policy.Name)
-		return nil, usefulerror.NewUsefulError().
-			WithCode(errcodes.SandboxRequiresProxy).
-			WithHumanError(msg).
-			WithHelp("pmg sandbox exec does not start the PMG proxy. Set network_via_proxy_only: false in the profile. Removing the key keeps the value from a parent profile.").
-			WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox-exec.md").
-			Wrap(errors.New(msg))
+	// A saved allow and a net-connect override remove an equal deny. The
+	// flag rules join again last, so a flag deny survives them and a flag
+	// allow removes an equal profile deny. The matcher then treats a flag
+	// rule like a profile rule, so the more specific rule wins.
+	if err := netflags.ApplyRules(&policy.Network, cfg.SandboxNetworkAllow, cfg.SandboxNetworkDeny); err != nil {
+		return nil, err
 	}
 
-	network, err := netpolicy.New(policy.Network.AllowOutbound, policy.Network.DenyOutbound)
+	network, err := policy.Network.Compile()
 	if err != nil {
 		return nil, usefulerror.NewUsefulError().
 			WithCode(errcodes.SandboxPolicyInvalid).

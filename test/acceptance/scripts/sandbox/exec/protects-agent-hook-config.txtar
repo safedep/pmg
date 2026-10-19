@@ -2,6 +2,8 @@
 # when an agent preset allows the agent's state directory. Deny wins over a
 # preset allow, so a sandboxed agent cannot add a hook or unhook Gryph.
 
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+
 env HOME=$WORK/home
 env PMG_CACHE_DIR=$WORK/cache
 cd $WORK/proj

@@ -438,6 +438,12 @@ type RuntimeConfig struct {
 	// Not persisted to config.yml.
 	SandboxAllowOverrides []SandboxAllowOverride
 
+	// SandboxNetworkAllow and SandboxNetworkDeny are the rules from the
+	// --network-allow and --network-deny flags of pmg sandbox exec. Each
+	// adds to the network block of the resolved policy. Not persisted.
+	SandboxNetworkAllow []string
+	SandboxNetworkDeny  []string
+
 	// Internal config values computed at runtime and must be accessed via. API
 	configDir                string
 	configFilePath           string // active config: globally managed file if present, else per-user
@@ -1066,6 +1072,16 @@ func SetManagedConfigDirForTest(dir string) (restore func()) {
 		globalConfigDirOverride = ""
 		initConfig()
 	}
+}
+
+// LockedRuntimeConfigForTest returns a config that reports lockdown, so a
+// test in another package can check what a command refuses under it. It
+// panics outside a test binary.
+func LockedRuntimeConfigForTest() *RuntimeConfig {
+	if !testing.Testing() {
+		panic("config: LockedRuntimeConfigForTest called outside a test")
+	}
+	return &RuntimeConfig{configLocked: true}
 }
 
 // globalConfigFilePath returns the path to the globally managed config file, or

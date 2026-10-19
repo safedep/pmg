@@ -21,6 +21,7 @@ import (
 	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/sandbox"
 	sandboxplatform "github.com/safedep/pmg/sandbox/platform"
 	"github.com/stretchr/testify/require"
 )
@@ -112,6 +113,9 @@ func TestAcceptance(t *testing.T) {
 						return exec.Command("unshare", "-U", "true").Run() == nil, nil
 					case "enforce":
 						return hostCanEnforce(), nil
+					case "bubblewrap":
+						driver, err := defaultSandboxDriver()
+						return driver == sandbox.DriverBubblewrap, err
 					case "docker":
 						return exec.Command("docker", "info").Run() == nil, nil
 					case "truststore":
@@ -314,6 +318,17 @@ func stopEnforcingDaemon(pmgBin, statePath string) {
 
 // hostCanEnforce reports whether this host can attach the enforcement
 // programs, with the same probe the daemon runs.
+// defaultSandboxDriver is the driver pmg picks on this host, from
+// PMG_SANDBOX_DRIVER or the platform fallback. A host with no driver has
+// no Bubblewrap, so that is not an error here.
+func defaultSandboxDriver() (sandbox.DriverName, error) {
+	sb, err := sandboxplatform.NewSandbox()
+	if err != nil {
+		return "", nil
+	}
+	return sb.Name(), sb.Close()
+}
+
 func hostCanEnforce() bool {
 	enforcer, err := netenforce.New()
 	if err != nil {

@@ -273,3 +273,94 @@ func TestDecideDeniesAnUnreadableHost(t *testing.T) {
 	}
 	assert.True(t, (*Policy)(nil).Decide("exa mple.com", 443).Allowed, "no policy decides nothing")
 }
+
+func TestRuleCovers(t *testing.T) {
+	cases := []struct {
+		deny, allow string
+		want        bool
+	}{
+		{"api.anthropic.com:*", "api.anthropic.com:443", true},
+		{"api.anthropic.com:443", "api.anthropic.com:443", true},
+		{"api.anthropic.com:443", "api.anthropic.com:*", false},
+		{"api.anthropic.com:443", "api.anthropic.com:8443", false},
+		{"*.anthropic.com:443", "api.anthropic.com:443", true},
+		{"*.anthropic.com:*", "*.api.anthropic.com:443", true},
+		{"*.anthropic.com:*", "*.anthropic.com:443", true},
+		{"*.anthropic.com:443", "*.anthropic.com:*", false},
+		{"*.anthropic.com:*", "anthropic.com:443", false},
+		{"*.anthropic.com:*", "evilanthropic.com:443", false},
+		{"*:*", "api.anthropic.com:443", true},
+		{"*:443", "api.anthropic.com:443", true},
+		{"*:443", "api.anthropic.com:80", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.deny+" covers "+tc.allow, func(t *testing.T) {
+			deny, err := ParseRule(tc.deny)
+			require.NoError(t, err)
+			allow, err := ParseRule(tc.allow)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, deny.Covers(allow))
+		})
+	}
+}
+
+func TestDecideDeniesIPLiterals(t *testing.T) {
+	tests := []struct {
+		name    string
+		allow   []string
+		deny    []string
+		host    string
+		port    uint16
+		allowed bool
+		rule    string
+	}{
+		{name: "an address no rule names is denied", host: "193.32.204.199", port: 80, allowed: false, rule: IPLiteralRule},
+		{name: "a wildcard allow does not name an address", allow: []string{"*:*"}, host: "193.32.204.199", port: 80, allowed: false, rule: IPLiteralRule},
+		{name: "a port allow does not name an address", allow: []string{"*:80"}, host: "193.32.204.199", port: 80, allowed: false, rule: IPLiteralRule},
+		{name: "an exact address allow wins", allow: []string{"10.0.0.5:5000"}, deny: []string{"*:*"}, host: "10.0.0.5", port: 5000, allowed: true, rule: "10.0.0.5:5000"},
+		{name: "an exact address allow on another port does not name this one", allow: []string{"10.0.0.5:5000"}, host: "10.0.0.5", port: 443, allowed: false, rule: IPLiteralRule},
+		{name: "an exact address allow with any port names the address", allow: []string{"10.0.0.5:*"}, host: "10.0.0.5", port: 443, allowed: true, rule: "10.0.0.5:*"},
+		{name: "an exact address deny keeps its own name", deny: []string{"10.0.0.5:*"}, host: "10.0.0.5", port: 443, allowed: false, rule: "10.0.0.5:*"},
+		{name: "a catch-all deny names the address denial", deny: []string{"*:*"}, host: "10.0.0.5", port: 443, allowed: false, rule: IPLiteralRule},
+		{name: "an ipv6 address is denied", host: "2001:db8::1", port: 443, allowed: false, rule: IPLiteralRule},
+		{name: "an ipv6 exact allow wins", allow: []string{"[2001:db8::1]:443"}, host: "2001:DB8::1", port: 443, allowed: true, rule: "[2001:db8::1]:443"},
+		{name: "a mapped ipv4 is the ipv4 address", allow: []string{"10.0.0.5:443"}, host: "::ffff:10.0.0.5", port: 443, allowed: true, rule: "10.0.0.5:443"},
+		{name: "a bracketed ipv6 is the address", allow: []string{"*:*"}, host: "[2001:db8::1]", port: 443, allowed: false, rule: IPLiteralRule},
+		{name: "an ipv6 address with a zone is the address", allow: []string{"*:*"}, host: "fe80::1%eth0", port: 443, allowed: false, rule: IPLiteralRule},
+		{name: "a mapped loopback stays with the rules", host: "::ffff:127.0.0.1", port: 8080, allowed: true},
+		{name: "a legacy ipv4 spelling is the address", host: "0xa.1.2", port: 80, allowed: false, rule: IPLiteralRule},
+		{name: "a bare 0x part is zero, as inet_aton reads it", allow: []string{"*:*"}, host: "0x.1.2", port: 80, allowed: false, rule: IPLiteralRule},
+		{name: "loopback stays with the rules", host: "127.0.0.1", port: 8080, allowed: true},
+		{name: "loopback ipv6 stays with the rules", host: "::1", port: 8080, allowed: true},
+		{name: "loopback is still denied by a rule", deny: []string{"*:*"}, host: "127.0.0.1", port: 8080, allowed: false, rule: "*:*"},
+		{name: "a name is decided by the rules", allow: []string{"registry.npmjs.org:443"}, deny: []string{"*:*"}, host: "registry.npmjs.org", port: 443, allowed: true, rule: "registry.npmjs.org:443"},
+		{name: "a name no rule names is allowed", host: "example.com", port: 443, allowed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := New(tt.allow, tt.deny, DenyIPLiterals())
+			require.NoError(t, err)
+			require.True(t, p.DeniesIPLiterals())
+
+			d := p.Decide(tt.host, tt.port)
+			assert.Equal(t, tt.allowed, d.Allowed)
+			if tt.rule == "" {
+				assert.Nil(t, d.Rule)
+				return
+			}
+			require.NotNil(t, d.Rule)
+			assert.Equal(t, tt.rule, d.Rule.Raw)
+		})
+	}
+}
+
+func TestDeniesIPLiteralsIsOffByDefault(t *testing.T) {
+	p, err := New(nil, nil)
+	require.NoError(t, err)
+	assert.False(t, p.DeniesIPLiterals())
+	assert.True(t, p.Decide("193.32.204.199", 80).Allowed)
+
+	var nilPolicy *Policy
+	assert.False(t, nilPolicy.DeniesIPLiterals())
+}
