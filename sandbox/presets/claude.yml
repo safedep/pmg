@@ -23,6 +23,12 @@ metadata:
 #   runs commands from the next start. Accepted: Claude Code writes plugin
 #   and marketplace state here on its own. Deny
 #   ${HOME}/.claude/plugins/** in a custom profile to refuse plugin installs.
+# - The hosts in the network notes below can carry data out of the sandbox.
+#   api.anthropic.com accepts any payload under an attacker's own API key,
+#   the two Datadog hosts accept logs under any client token, and claude.ai
+#   is a general-purpose host. Accepted: the agent cannot run without its
+#   API and sign-in hosts. The profile keeps the rest of the network closed,
+#   and a copy of this preset drops the Datadog hosts.
 filesystem:
   allow_write:
     - ${HOME}/.claude/**

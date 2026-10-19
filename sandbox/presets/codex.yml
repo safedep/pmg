@@ -15,6 +15,12 @@ metadata:
 #   Accepted: Codex writes its own config and refuses to run without it.
 # - OPENAI_API_KEY is re-allowed so an API-key login keeps working. See
 #   docs/sandbox-exec.md for the trade-off.
+# - The hosts in the network notes below can carry data out of the sandbox.
+#   api.openai.com accepts any payload under an attacker's own API key,
+#   api.github.com accepts a gist or an issue under any token, and
+#   chatgpt.com is a general-purpose host. Accepted: the agent cannot run
+#   without its API and sign-in hosts. The profile keeps the rest of the
+#   network closed, and a copy of this preset drops api.github.com.
 filesystem:
   allow_write:
     - ${HOME}/.codex/**
