@@ -67,9 +67,9 @@ and runs as the last step before launch, after project overlays and `--sandbox-a
 merged. Scrubbed variable **names** (never values) are logged at info level. Run with `--debug` to
 see what was removed.
 
-When a sandboxed command fails, the scrubbed names are also recorded to the violation cache as
-`env_scrub` violations, so `pmg sandbox violations list` and `pmg sandbox explain --last` can name
-them after the run. For a conventionally named variable, `explain` suggests
+When a sandboxed command fails, or when a clean run records a denial, the scrubbed names are also
+recorded to the violation cache as `env_scrub` violations, so `pmg sandbox violations list` and
+`pmg sandbox explain --last` can name them after the run. For a conventionally named variable, `explain` suggests
 `pmg sandbox allow env=NAME`, and `pmg sandbox allow --last` persists it. Only names are recorded;
 values never reach the cache.
 
@@ -281,8 +281,15 @@ used by `violations list` and `explain --last` are produced by macOS Seatbelt di
 Linux, by the Landlock driver's seccomp supervisor or the Bubblewrap driver's reader of the
 sandboxed command's output.
 
-Coverage differs by platform. Seatbelt logs every denial, including the default-deny allow-list
-boundary. The Landlock driver only reports denials made by its seccomp deny-list layer (reads and
+PMG records violations after every sandboxed run, also when the command exits 0. A program can
+catch a denial and exit 0, so a clean run can still carry one.
+
+Coverage differs by platform. On macOS, PMG reads denials from the Seatbelt entries in the unified
+log. After a failed run, it records every denial, including denials at the default-deny allow-list
+boundary. After a clean run, it records only the denials of the profile's own deny rules, such as
+the mandatory credential denies and `deny_*` entries. Ordinary tools cross the allow-list boundary
+on every start, so recording those denials would fill the cache on every run. The Landlock driver
+only reports denials made by its seccomp deny-list layer (reads and
 writes of `deny_*` paths, blocked `deny_exec` binaries): denials made by the Landlock LSM itself
 (operations outside the allow-list, delete/rename, network rules) fail in-kernel with `EACCES` and
 produce no report. `deny_write` entries outside writable areas are enforced by Landlock rather than
@@ -842,8 +849,8 @@ bwrap --verbose [arguments...] -- npm install express
 
 **Note**: Unlike macOS, Bubblewrap does not provide real-time violation logging. Policy violations typically manifest as `EACCES` (Permission denied) errors.
 
-With the Landlock driver, denials made by the seccomp deny-list layer on a failed run are captured
-into the violation cache and can be inspected with `pmg sandbox violations list` and
+With the Landlock driver, denials made by the seccomp deny-list layer are captured into the
+violation cache after every run and can be inspected with `pmg sandbox violations list` and
 `pmg sandbox explain --last` (see Sandbox Debug Commands above for coverage limits).
 
 ### AppArmor blocks the Landlock driver (Ubuntu 23.10+)

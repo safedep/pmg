@@ -116,10 +116,11 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 
 // seatbeltRuleDenials drops the denials of the catch-all (deny default) rule
 // and keeps the denials of the policy's own deny rules. A clean run reports
-// only these. Runtimes probe the system on start, so the catch-all fires on
-// almost every clean run. Node and Python write /dev/dtracehelper and read
-// sysctls. This leaves a known gap. On a clean run, PMG does not report a
-// write that only the catch-all blocks, such as one to a shell startup file.
+// only these. Ordinary tools cross the allow-list edge on start, for example
+// to register DTrace helpers, read sysctls or look up system services, so the
+// catch-all fires on almost every clean run. This leaves a known gap. On a
+// clean run, PMG does not report a write that only the catch-all blocks, such
+// as one to a shell startup file.
 func seatbeltRuleDenials(violations []sandbox.Violation) []sandbox.Violation {
 	return slices.DeleteFunc(violations, func(v sandbox.Violation) bool {
 		return v.RawKind == seatbeltKindDefault
