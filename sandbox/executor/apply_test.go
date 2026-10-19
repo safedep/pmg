@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 	"os"
@@ -851,4 +852,216 @@ func TestObserveNetworkDenialsWritesAViolationRecord(t *testing.T) {
 	assert.Equal(t, sandbox.DriverProxy, record.Report.SandboxName)
 	assert.Equal(t, "ci", record.Report.PolicyName)
 	assert.Equal(t, "evil.example:443", record.Report.Violations[0].Target)
+}
+
+// A relative profile path in the config resolves next to the config file
+// before the working directory, so a repository cannot replace the
+// user's file with one of the same path.
+func TestLoadProfileResolvesAConfigPathNextToTheConfigFile(t *testing.T) {
+	open := "name: open\npackage_managers: [npm]\nnetwork:\n  allow_outbound: ['*:*']\n"
+
+	configDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(configDir, "profiles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "profiles", "ci.yml"), []byte("name: config-ci\ninherits: npm-restrictive\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "bare.yml"), []byte("name: config-bare\ninherits: npm-restrictive\n"), 0o600))
+
+	workDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(workDir, "profiles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "profiles", "ci.yml"), []byte(open), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "bare.yml"), []byte(open), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "local.yml"), []byte("name: local\ninherits: npm-restrictive\n"), 0o600))
+
+	t.Setenv("PMG_CONFIG_DIR", configDir)
+	config.Reload()
+	t.Cleanup(config.Reload)
+	cfg := config.Get()
+
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(workDir))
+	t.Cleanup(func() { require.NoError(t, os.Chdir(cwd)) })
+
+	policy, err := LoadProfile(cfg, "profiles/ci.yml")
+	require.NoError(t, err)
+	assert.Equal(t, "config-ci", policy.Name)
+
+	policy, err = LoadProfile(cfg, "bare.yml")
+	require.NoError(t, err)
+	assert.Equal(t, "config-bare", policy.Name, "a bare file name is a path too")
+
+	policy, err = LoadProfile(cfg, "local.yml")
+	require.NoError(t, err)
+	assert.Equal(t, "local", policy.Name, "a path with no file next to the config falls through to the working directory")
+
+	policy, err = LoadProfile(cfg, "npm-restrictive")
+	require.NoError(t, err)
+	assert.Equal(t, "npm-restrictive", policy.Name)
+}
+
+// A managed profile's chain resolves from managed locations only. A user
+// profile, a template or a user preset must not stand in for a parent the
+// managed file names.
+func TestLoadManagedProfileResolvesTheChainFromManagedLocations(t *testing.T) {
+	configDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(configDir, "profiles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "profiles", "managed.yml"), []byte("name: managed\ninherits: base.yml\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "profiles", "base.yml"), []byte("name: managed-base\ninherits: runner\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "profiles", "runner.yml"), []byte("name: managed-runner\ninherits: npm-restrictive\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(configDir, "sandbox", "profiles"), 0o755))
+	open := "name: open\npackage_managers: [npm]\nnetwork:\n  allow_outbound: ['*:*']\n"
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "sandbox", "profiles", "base.yml.yml"), []byte(open), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "sandbox", "profiles", "runner.yml"), []byte(open), 0o600))
+
+	t.Setenv("PMG_CONFIG_DIR", configDir)
+	config.Reload()
+	t.Cleanup(config.Reload)
+	cfg := config.Get()
+	cfg.Config.Sandbox.PolicyTemplates = map[string]config.SandboxPolicyTemplate{
+		"runner": {Path: filepath.Join(configDir, "profiles", "runner.yml")},
+	}
+
+	policy, err := LoadManagedProfile(cfg, "profiles/managed.yml")
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"npm-restrictive",
+		filepath.Join(configDir, "profiles", "runner.yml"),
+		filepath.Join(configDir, "profiles", "base.yml"),
+		filepath.Join(configDir, "profiles", "managed.yml"),
+	}, policy.Lineage, "a template of the config joins the chain, a user profile does not")
+	assert.Contains(t, policy.Network.DenyOutbound, "*:*")
+	assert.NotContains(t, policy.Network.AllowOutbound, "*:*")
+}
+
+// A locked config resolves its sandbox policy from built-ins and from files
+// next to the managed config file. The user's profile directory, preset
+// directory, config directory and the working directory are writable by the
+// user, so a profile from one of them must not enter the chain.
+func TestResolvePolicyLockedResolvesTheChainFromManagedLocations(t *testing.T) {
+	open := "name: open\npackage_managers: [npm]\nnetwork:\n  allow_outbound: ['*:*']\n"
+	openPreset := "schema_version: 1\nkind: preset\nname: team\nfilesystem:\n  allow_write: ['${HOME}/**']\n"
+	managedConfig := "global_lockdown: true\nsandbox:\n  enabled: true\n  policies:\n    npm:\n      enabled: true\n      profile: %s\n  policy_templates:\n    runner:\n      path: sandbox/profiles/runner.yml\n"
+
+	tests := []struct {
+		name     string
+		profile  string
+		managed  map[string]string
+		user     map[string]string
+		work     map[string]string
+		override string
+		parent   string
+		leaf     string
+		wantErr  error
+	}{
+		{
+			name:    "a user profile named like the parent",
+			profile: "profiles/managed.yml",
+			managed: map[string]string{
+				"profiles/managed.yml": "name: managed\ninherits: base.yml\n",
+				"profiles/base.yml":    "name: managed-base\ninherits: npm-restrictive\n",
+			},
+			user:   map[string]string{"sandbox/profiles/base.yml.yml": open},
+			parent: "profiles/base.yml",
+			leaf:   "profiles/managed.yml",
+		},
+		{
+			name:    "a template under the user config directory",
+			profile: "profiles/managed.yml",
+			managed: map[string]string{
+				"profiles/managed.yml":        "name: managed\ninherits: runner\n",
+				"sandbox/profiles/runner.yml": "name: managed-runner\ninherits: base.yml\n",
+				"sandbox/profiles/base.yml":   "name: managed-base\ninherits: npm-restrictive\n",
+			},
+			user:   map[string]string{"sandbox/profiles/runner.yml": open},
+			parent: "sandbox/profiles/base.yml",
+			leaf:   "profiles/managed.yml",
+		},
+		{
+			name:    "a template as the policy",
+			profile: "runner",
+			managed: map[string]string{
+				"sandbox/profiles/runner.yml": "name: managed-runner\ninherits: base.yml\n",
+				"sandbox/profiles/base.yml":   "name: managed-base\ninherits: npm-restrictive\n",
+			},
+			user:   map[string]string{"sandbox/profiles/runner.yml": open, "sandbox/profiles/base.yml.yml": open},
+			parent: "sandbox/profiles/base.yml",
+			leaf:   "sandbox/profiles/runner.yml",
+		},
+		{
+			name:     "a profile override",
+			profile:  "npm-restrictive",
+			override: "open.yml",
+			work:     map[string]string{"open.yml": open},
+			wantErr:  sandbox.ErrProfileNotFound,
+		},
+		{
+			name:    "a user preset",
+			profile: "profiles/managed.yml",
+			managed: map[string]string{"profiles/managed.yml": "name: managed\ninherits: npm-restrictive\npresets: [team]\n"},
+			user:    map[string]string{"sandbox/presets/team.yml": openPreset},
+			wantErr: sandbox.ErrPresetNotFound,
+		},
+		{
+			name:    "a file at the same relative path in the working directory",
+			profile: "profiles/managed.yml",
+			work:    map[string]string{"profiles/managed.yml": open},
+			wantErr: sandbox.ErrProfileNotFound,
+		},
+		{
+			name:    "a bare name that is a user profile",
+			profile: "team",
+			user:    map[string]string{"sandbox/profiles/team.yml": open},
+			wantErr: sandbox.ErrProfileNotFound,
+		},
+		{
+			name:    "a bare name that is a file in the working directory",
+			profile: "team",
+			work:    map[string]string{"team": open},
+			wantErr: sandbox.ErrProfileNotFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			managedDir := t.TempDir()
+			userDir := t.TempDir()
+			workDir := t.TempDir()
+			writeFiles(t, managedDir, tc.managed)
+			writeFiles(t, userDir, tc.user)
+			writeFiles(t, workDir, tc.work)
+			writeFiles(t, managedDir, map[string]string{"config.yml": fmt.Sprintf(managedConfig, tc.profile)})
+
+			t.Setenv("PMG_CONFIG_DIR", userDir)
+			t.Cleanup(config.SetManagedConfigDirForTest(managedDir))
+			cfg := config.Get()
+			if !cfg.IsManaged() {
+				t.Skip("a managed config the runtime trusts needs an elevated process to create")
+			}
+			require.True(t, cfg.IsLocked())
+			cfg.SandboxProfileOverride = tc.override
+
+			t.Chdir(workDir)
+
+			res, err := ResolvePolicy("npm", false)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			chain := res.Policy.Lineage
+			assert.Equal(t, "npm-restrictive", chain[0])
+			assert.Contains(t, chain, filepath.Join(managedDir, filepath.FromSlash(tc.parent)))
+			assert.Equal(t, filepath.Join(managedDir, filepath.FromSlash(tc.leaf)), chain[len(chain)-1])
+			assert.Contains(t, res.Policy.Network.DenyOutbound, "*:*")
+			assert.NotContains(t, res.Policy.Network.AllowOutbound, "*:*")
+		})
+	}
+}
+
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	}
 }

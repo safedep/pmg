@@ -7,6 +7,7 @@ import (
 
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy/netpolicy"
 )
 
 // FlowType indicates which execution flow was used
@@ -88,7 +89,13 @@ type ReportData struct {
 
 	// NetworkPolicy holds the connections a deny rule matched. nil when no
 	// policy ran.
-	NetworkPolicy *NetworkPolicyReport
+	NetworkPolicy *netpolicy.Report
+
+	// NetworkRunID names the run in the event log and ObservedDestinations
+	// is how many destinations the proxy saw, so the report can point at
+	// `pmg sandbox profile propose`.
+	NetworkRunID         string
+	ObservedDestinations int
 
 	// AdvisoryMessage is the optional org-configured message appended to block
 	// output regardless of which control blocked. Set from advisory_message.
@@ -175,21 +182,6 @@ func reportSilent(data *ReportData) {
 	printAdvisoryMessage(data.AdvisoryMessage)
 }
 
-// NetworkPolicyReport is what the network policy decided during a run.
-type NetworkPolicyReport struct {
-	Enforced bool
-	Denials  []NetworkDenial
-}
-
-// NetworkDenial is one destination a deny rule matched, with how many
-// connections it matched.
-type NetworkDenial struct {
-	Destination string
-	Rule        string
-	Client      string
-	Count       int
-}
-
 // reportNormal shows minimal, assuring output
 func reportNormal(data *ReportData) {
 	if data.Outcome == OutcomeDryRun {
@@ -197,6 +189,7 @@ func reportNormal(data *ReportData) {
 	}
 
 	printNetworkPolicy(data.NetworkPolicy)
+	printNetworkObservation(data)
 
 	if data.Outcome == OutcomeError {
 		// The child's own error output and PMG's exit line render elsewhere.
@@ -376,13 +369,24 @@ func reportVerbose(data *ReportData) {
 	}
 
 	printNetworkPolicy(data.NetworkPolicy)
+	printNetworkObservation(data)
 
 	fmt.Println()
 }
 
+// printNetworkObservation points at the proposal command when the run
+// reached a destination and the run has an id in the event log.
+func printNetworkObservation(data *ReportData) {
+	if data.ObservedDestinations == 0 || data.NetworkRunID == "" {
+		return
+	}
+	fmt.Println()
+	fmt.Printf("  %s\n", Colors.Dim(fmt.Sprintf("Network: %d destination(s) observed. Propose a profile with: pmg sandbox profile propose --run %s", data.ObservedDestinations, data.NetworkRunID)))
+}
+
 // printNetworkPolicy lists the destinations a deny rule matched. Under
 // enforce the proxy refused them. Under audit they went through.
-func printNetworkPolicy(report *NetworkPolicyReport) {
+func printNetworkPolicy(report *netpolicy.Report) {
 	if report == nil || len(report.Denials) == 0 {
 		return
 	}

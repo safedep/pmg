@@ -74,7 +74,7 @@ inputs:
     default: "false"
 
   server-mode:
-    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job. Requires a job-end "pmg proxy stop --fail-on-violation" step.
+    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job, with PMG_PROXY_RUN, the id of the run in the event log. Requires a job-end "pmg proxy stop --fail-on-violation" step.
     required: false
     default: "false"
   expose-to-job-network:
@@ -83,7 +83,7 @@ inputs:
     default: "false"
 
   enforce:
-    description: With server-mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. Needs passwordless sudo on the runner. The action installs the PMG CA into the system trust store and starts the daemon as root. The action exports PMG_BIN and PMG_PROXY_STATE, and the job-end step becomes "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE --fail-on-violation".
+    description: With server-mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. Needs passwordless sudo on the runner. The action installs the PMG CA into the system trust store and starts the daemon as root. The action exports PMG_BIN and PMG_PROXY_STATE, and the job-end step becomes "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE --fail-on-violation". With config-file it also exports PMG_PROXY_CONFIG_DIR, the daemon's config directory.
     required: false
     default: "false"
   enforce-ports:
@@ -104,6 +104,14 @@ inputs:
     default: ""
   enforce-namespaces:
     description: With enforce, what happens to containers that steps start, such as docker run and docker build. ignore leaves them alone. redirect sends them through the proxy and fails the job when the runner cannot. auto redirects where the runner can. A container must trust the PMG CA, see PMG_CA_BUNDLE in docs/persistent-proxy.md. Passed as --enforce-namespaces.
+    required: false
+    default: ""
+  network-profile:
+    description: With server-mode, the sandbox profile whose network rules the proxy applies, as a path in the workspace or a built-in name. Passed as --profile. See docs/persistent-proxy.md.
+    required: false
+    default: ""
+  network-mode:
+    description: With network-profile, what the proxy does with a match on a deny rule, audit or enforce. Passed as --network-mode.
     required: false
     default: ""
 
@@ -459,6 +467,11 @@ runs:
       shell: sh
       run: printf '%s\n' "::warning::The enforce-* inputs apply only with enforce true. They are ignored."
 
+    - name: Warn about network inputs without server mode
+      if: inputs.server-mode != 'true' && (inputs.network-profile != '' || inputs.network-mode != '')
+      shell: sh
+      run: printf '%s\n' "::warning::network-profile and network-mode apply only with server-mode true. They are ignored."
+
     - name: Warn about expose-to-job-network without server mode
       if: inputs.expose-to-job-network == 'true' && (inputs.server-mode != 'true' || inputs.enforce == 'true')
       shell: sh
@@ -469,14 +482,27 @@ runs:
       shell: sh
       env:
         INPUT_EXPOSE_TO_JOB_NETWORK: ${{ inputs.expose-to-job-network == 'true' }}
+        INPUT_NETWORK_PROFILE: ${{ inputs.network-profile }}
+        INPUT_NETWORK_MODE: ${{ inputs.network-mode }}
         JOB_CONTAINER_ID: ${{ job.container.id }}
       run: | # zizmor: ignore[github-env]
         set -eu
+        # The network inputs travel as flags, which the job log shows. The
+        # script prints one argument per line, and sh has no arrays, so the
+        # lines become the positional parameters.
+        flags="$("$GITHUB_ACTION_PATH/.github/scripts/enforce-flags.sh")"
+        set --
+        while IFS= read -r arg; do
+          if [ -n "$arg" ]; then set -- "$@" "$arg"; fi
+        done <<EOF
+        $flags
+        EOF
+
         # No cert install needed: `pmg proxy env` exports the CA path via
         # NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/PIP_CERT, so package managers trust
         # the proxy without touching the OS trust store.
         if [ "$INPUT_EXPOSE_TO_JOB_NETWORK" != "true" ]; then
-          pmg proxy start --daemon
+          pmg proxy start --daemon "$@"
           pmg proxy env >> "$GITHUB_ENV"
           exit 0
         fi
@@ -509,7 +535,7 @@ runs:
           exit 1
         fi
 
-        pmg proxy start --daemon --host "$host"
+        pmg proxy start --daemon --host "$host" "$@"
         proxy_env="$(pmg proxy env)"
         printf '%s\n' "$proxy_env" >> "$GITHUB_ENV"
 
@@ -546,6 +572,8 @@ runs:
         INPUT_ENFORCE_EXEMPT_EXECUTABLES: ${{ inputs.enforce-exempt-executables }}
         INPUT_ENFORCE_SKIP_DESTINATIONS: ${{ inputs.enforce-skip-destinations }}
         INPUT_ENFORCE_NAMESPACES: ${{ inputs.enforce-namespaces }}
+        INPUT_NETWORK_PROFILE: ${{ inputs.network-profile }}
+        INPUT_NETWORK_MODE: ${{ inputs.network-mode }}
       run: | # zizmor: ignore[github-env]
         set -euo pipefail
         if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true 2>/dev/null; then
@@ -566,6 +594,10 @@ runs:
         if [ -n "$INPUT_CONFIG_FILE" ]; then
           export PMG_CONFIG_DIR="${RUNNER_TEMP}/pmg-daemon-config"
           sudo install -D -m 0644 "${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml" "${PMG_CONFIG_DIR}/config.yml"
+          # The daemon's event log is under its config directory. A step
+          # that reads the run back, such as `pmg sandbox profile propose`,
+          # needs the same directory.
+          echo "PMG_PROXY_CONFIG_DIR=${PMG_CONFIG_DIR}" >> "$GITHUB_ENV"
         fi
 
         # Trust goes through the system store: the keypair lands in
@@ -573,8 +605,9 @@ runs:
         sudo "$pmg_bin" setup cert install --system
 
         # The policy inputs travel as flags, which the job log shows, where a
-        # variable preserved through sudo would not. A flag adds to the
-        # config file's list.
+        # variable preserved through sudo would not. A list flag adds to the
+        # config file's list. sudo keeps the working directory, so a
+        # network-profile path in the workspace resolves in the daemon.
         mapfile -t enforce_flags < <("$GITHUB_ACTION_PATH/.github/scripts/enforce-flags.sh")
 
         sudo --preserve-env=PMG_CONFIG_DIR,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_ACTOR,GITHUB_REF,GITHUB_REF_NAME,GITHUB_HEAD_REF,GITHUB_WORKFLOW,GITHUB_JOB,GITHUB_SERVER_URL \

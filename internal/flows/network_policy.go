@@ -6,61 +6,76 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/executor"
 )
 
-// networkDecisionLog writes every network policy decision to the audit log
-// and keeps one line per destination for the report.
-type networkDecisionLog struct {
-	mu             sync.Mutex
-	policyName     string
-	packageManager string
-	enforced       bool
-	denials        map[string]*ui.NetworkDenial
+// NetworkDecisionLog records every destination the proxy decides. A match
+// on a deny rule goes to the audit log as well. The log keeps one line per
+// destination for the report and the run's observation. The daemon keys
+// the lines by client too, so its report names the program behind each one.
+type NetworkDecisionLog struct {
+	mu           sync.Mutex
+	byClient     bool
+	enforced     bool
+	now          func() time.Time
+	destinations map[string]*netpolicy.Destination
 }
 
-func newNetworkDecisionLog(res *executor.Resolution) *networkDecisionLog {
-	l := &networkDecisionLog{denials: map[string]*ui.NetworkDenial{}}
-	if res != nil {
-		l.packageManager = res.PackageManager
-		if res.Policy != nil {
-			l.policyName = res.Policy.Name
-		}
-	}
-	return l
+func NewNetworkDecisionLog(byClient bool) *NetworkDecisionLog {
+	return &NetworkDecisionLog{byClient: byClient, now: time.Now, destinations: map[string]*netpolicy.Destination{}}
 }
 
-func (l *networkDecisionLog) record(d proxy.NetworkDecision) {
+func (l *NetworkDecisionLog) Record(d proxy.NetworkDecision) {
 	entryPoint, client := interceptors.AuditClient(d.Origin)
-	audit.LogNetworkPolicy(audit.NetworkDecision{
-		Hostname:   d.Host,
-		Port:       d.Port,
-		Rule:       d.Rule,
-		Enforced:   d.Enforced,
-		EntryPoint: entryPoint,
-		Client:     client,
-	})
+	if !d.Allowed {
+		audit.LogNetworkPolicy(audit.NetworkDecision{
+			Hostname:   d.Host,
+			Port:       d.Port,
+			Rule:       d.Rule,
+			Enforced:   d.Enforced,
+			EntryPoint: entryPoint,
+			Client:     client,
+		})
+	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.enforced = d.Enforced
-	destination := net.JoinHostPort(d.Host, strconv.Itoa(int(d.Port)))
-	if denial, ok := l.denials[destination]; ok {
-		denial.Count++
+	if !d.Allowed {
+		l.enforced = d.Enforced
+	}
+	key := net.JoinHostPort(d.Host, strconv.Itoa(int(d.Port)))
+	if l.byClient {
+		key += "\x00" + clientLabel(d.Origin) + "\x00" + strconv.FormatUint(uint64(d.Origin.PID), 10)
+	}
+	seen := l.now()
+	if dest, ok := l.destinations[key]; ok {
+		dest.Count++
+		dest.LastSeen = seen
+		dest.Allowed = d.Allowed
+		dest.Rule = d.Rule
+		dest.Enforced = d.Enforced
 		return
 	}
-	l.denials[destination] = &ui.NetworkDenial{
-		Destination: destination,
-		Rule:        d.Rule,
-		Client:      clientLabel(d.Origin),
-		Count:       1,
+	l.destinations[key] = &netpolicy.Destination{
+		Host:      d.Host,
+		Port:      d.Port,
+		Client:    clientLabel(d.Origin),
+		PID:       int(d.Origin.PID),
+		Count:     1,
+		FirstSeen: seen,
+		LastSeen:  seen,
+		Allowed:   d.Allowed,
+		Rule:      d.Rule,
+		Enforced:  d.Enforced,
 	}
 }
 
@@ -76,22 +91,97 @@ func clientLabel(o proxy.Origin) string {
 	return ""
 }
 
-func (l *networkDecisionLog) report() *ui.NetworkPolicyReport {
+// Report returns the denials sorted by destination, then client. nil when
+// no deny rule matched.
+func (l *NetworkDecisionLog) Report() *netpolicy.Report {
+	var report *netpolicy.Report
+	for _, d := range l.sorted() {
+		if d.Allowed {
+			continue
+		}
+		if report == nil {
+			report = &netpolicy.Report{Enforced: l.enforced}
+		}
+		report.Denials = append(report.Denials, netpolicy.Denial{
+			Destination: d.Address(),
+			Rule:        d.Rule,
+			Client:      d.Client,
+			PID:         d.PID,
+			Count:       d.Count,
+		})
+	}
+	return report
+}
+
+// Observation returns every destination of the run under the keys a later
+// command finds it by. The table keeps one row per process for the denial
+// report. The observation folds the processes of one client into one row,
+// so a long run with many processes stays small.
+func (l *NetworkDecisionLog) Observation(runID, repoRoot, packageManager, profile, mode string) netpolicy.Observation {
+	return netpolicy.Observation{
+		RunID:          runID,
+		RepoRoot:       repoRoot,
+		PackageManager: packageManager,
+		Profile:        profile,
+		Mode:           mode,
+		Destinations:   netpolicy.Fold(l.sorted()),
+	}
+}
+
+func (l *NetworkDecisionLog) sorted() []netpolicy.Destination {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if len(l.denials) == 0 {
-		return nil
+	out := make([]netpolicy.Destination, 0, len(l.destinations))
+	for _, d := range l.destinations {
+		out = append(out, *d)
 	}
-
-	report := &ui.NetworkPolicyReport{Enforced: l.enforced}
-	for _, d := range l.denials {
-		report.Denials = append(report.Denials, *d)
-	}
-	sort.Slice(report.Denials, func(i, j int) bool {
-		return report.Denials[i].Destination < report.Denials[j].Destination
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Host != b.Host {
+			return a.Host < b.Host
+		}
+		if a.Port != b.Port {
+			return a.Port < b.Port
+		}
+		if a.Client != b.Client {
+			return a.Client < b.Client
+		}
+		return a.PID < b.PID
 	})
-	return report
+	return out
+}
+
+// networkDecisionLog is the one-shot proxy's log. It knows the policy and
+// the package manager, so a refused destination becomes a violation.
+type networkDecisionLog struct {
+	*NetworkDecisionLog
+	policyName     string
+	packageManager string
+}
+
+func newNetworkDecisionLog(res *executor.Resolution) *networkDecisionLog {
+	l := &networkDecisionLog{NetworkDecisionLog: NewNetworkDecisionLog(false)}
+	if res != nil {
+		l.packageManager = res.PackageManager
+		if res.Policy != nil {
+			l.policyName = res.Policy.Name
+		}
+	}
+	return l
+}
+
+func (l *networkDecisionLog) record(d proxy.NetworkDecision) { l.Record(d) }
+
+// observation keys the run's destinations by the repository the command
+// ran in, as the overlay does, so a later proposal finds the runs of one
+// repository.
+func (l *networkDecisionLog) observation(runID string, res *executor.Resolution) netpolicy.Observation {
+	mode := ""
+	if res != nil {
+		mode = res.NetworkMode
+	}
+	return l.Observation(runID, sandbox.RepoRootOfCwd(), l.packageManager, l.policyName, mode)
 }
 
 // observeViolations records the refused destinations as sandbox violations.
@@ -106,7 +196,7 @@ func (l *networkDecisionLog) observeViolations() {
 // client has no process attribution, and the package manager is the only
 // client of the one-shot proxy, so its name stands in.
 func (l *networkDecisionLog) violations() []sandbox.Violation {
-	report := l.report()
+	report := l.Report()
 	if report == nil || !report.Enforced {
 		return nil
 	}

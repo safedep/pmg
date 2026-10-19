@@ -3,12 +3,16 @@ package proxy
 import (
 	"fmt"
 	"os"
+	"strings"
+	"text/tabwriter"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/safedep/pmg/internal/ui"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/spf13/cobra"
 )
 
@@ -49,6 +53,10 @@ func runStop(_ *cobra.Command, _ []string) error {
 		}
 	}
 
+	if _, werr := fmt.Fprint(os.Stdout, networkReport(res)+observationLine(res)); werr != nil {
+		ui.ErrorExit(werr)
+	}
+
 	// On a policy violation the framed error states the blocked count, so exit
 	// here before the plain summary to avoid stating the count twice.
 	if verr := stopExitError(res, failOnViolation); verr != nil {
@@ -87,14 +95,84 @@ func stopExitError(res proxyserver.StopResult, failOnViolation bool) error {
 			WithHelp("The proxy may have crashed; treat this run as failed and re-run")
 	}
 
+	var violations []string
 	if res.BlockedCount > 0 {
-		msg := fmt.Sprintf("%d package(s) were blocked by the proxy", res.BlockedCount)
-		return usefulerror.NewUsefulError().
-			WithCode(errcodes.ProxyPolicyViolation).
-			WithHumanError(msg).
-			WithMsg(msg).
-			WithHelp("Review the proxy logs for details on blocked packages")
+		violations = append(violations, fmt.Sprintf("%d package(s) were blocked by the proxy", res.BlockedCount))
+	}
+	if denied := res.Network.DeniedCount(); denied > 0 {
+		violations = append(violations, fmt.Sprintf("%d connection(s) were denied by the network policy", denied))
+	}
+	if len(violations) == 0 {
+		return nil
 	}
 
-	return nil
+	msg := strings.Join(violations, " and ")
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.ProxyPolicyViolation).
+		WithHumanError(msg).
+		WithMsg(msg).
+		WithHelp("Review the proxy logs for details on blocked packages and denied connections")
+}
+
+// observationLine points at the proposal command. Empty when the proxy saw
+// no destination, or when the daemon predates the run id.
+func observationLine(res proxyserver.StopResult) string {
+	if res.Observed == 0 || res.RunID == "" {
+		return ""
+	}
+	return fmt.Sprintf("Destinations: %d observed. Propose a profile with: pmg sandbox profile propose --run %s\n", res.Observed, res.RunID)
+}
+
+// networkReport renders the network policy block of the stop report: the
+// mode and the counts, one line per denial, then the profile chain and the
+// enforced ports. Empty when the daemon had no policy.
+func networkReport(res proxyserver.StopResult) string {
+	n := res.Network
+	if n == nil {
+		return ""
+	}
+
+	action, denied, wouldDeny := "would deny", 0, 0
+	for _, d := range n.Denials {
+		wouldDeny += d.Count
+	}
+	if n.Enforced() {
+		action, denied, wouldDeny = "denied", wouldDeny, 0
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Network policy: %s, %d denied, %d would deny\n", n.Mode, denied, wouldDeny)
+	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	for _, d := range n.Denials {
+		cells := []string{"  " + action, d.Destination, "rule " + d.Rule}
+		if client := denialClient(d); client != "" {
+			cells = append(cells, client)
+		}
+		if _, err := fmt.Fprintln(tw, strings.Join(cells, "\t")); err != nil {
+			log.Warnf("failed to render the network policy report: %v", err)
+		}
+	}
+	if err := tw.Flush(); err != nil {
+		log.Warnf("failed to render the network policy report: %v", err)
+	}
+	fmt.Fprintf(&b, "Profile: %s", n.Profile())
+	if res.Enforce != nil {
+		fmt.Fprintf(&b, "  ports %s", res.Enforce.PortList())
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// denialClient names the program and the pid behind a denial, or the
+// container address. A proxy-aware client without kernel enforcement has
+// no name.
+func denialClient(d netpolicy.Denial) string {
+	client := d.Client
+	if d.PID != 0 {
+		client = fmt.Sprintf("%s pid %d", client, d.PID)
+	}
+	if d.Count > 1 {
+		client += fmt.Sprintf(" (%d)", d.Count)
+	}
+	return strings.TrimSpace(client)
 }

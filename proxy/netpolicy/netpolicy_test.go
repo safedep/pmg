@@ -56,7 +56,7 @@ func TestDecide(t *testing.T) {
 		{name: "numeric wildcard does not match an ip literal", allow: []string{"*.0.5:443"}, deny: []string{"*:*"}, host: "10.0.0.5", port: 443, allowed: false, rule: "*:*"},
 		{name: "numeric wildcard matches a numeric name", allow: []string{"*.0.5:443"}, deny: []string{"*:*"}, host: "x.0.5", port: 443, allowed: true, rule: "*.0.5:443"},
 
-		{name: "empty host is denied by deny all", allow: []string{"registry.npmjs.org:443"}, deny: []string{"*:*"}, host: "", port: 443, allowed: false, rule: "*:*"},
+		{name: "empty host is denied by deny all", allow: []string{"registry.npmjs.org:443"}, deny: []string{"*:*"}, host: "", port: 443, allowed: false, rule: "(unreadable host)"},
 	}
 
 	for _, tc := range tests {
@@ -226,8 +226,50 @@ func TestNormalizeHost(t *testing.T) {
 		"*.Example.com":      "*.example.com",
 		"":                   "",
 		"registry.npmjs.org": "registry.npmjs.org",
+
+		// The transport maps a name with IDNA before it dials, so the
+		// policy must read the same name.
+		"\uff4cocalhost":            "localhost",
+		"local\u00adhost":           "localhost",
+		"b\u00fccher.example":       "xn--bcher-kva.example",
+		"[fe80::1%eth0]":            "fe80::1",
+		"127.1":                     "127.0.0.1",
+		"0x7f000001":                "127.0.0.1",
+		"2130706433":                "127.0.0.1",
+		"0177.0.0.1":                "127.0.0.1",
+		"0177.0000.0.01":            "127.0.0.1",
+		"\uff11\uff12\uff17.\uff11": "127.0.0.1",
+		"*.b\u00fccher.example":     "*.xn--bcher-kva.example",
 	}
 	for in, want := range tests {
-		assert.Equal(t, want, NormalizeHost(in), in)
+		got := NormalizeHost(in)
+		assert.Equal(t, want, got, in)
+		assert.Equal(t, got, NormalizeHost(got), "normalization is idempotent for %q", in)
 	}
+}
+
+func TestWildcardRuleWithAnInternationalizedSuffix(t *testing.T) {
+	rule, err := ParseRule("*.b\u00fccher.example:443")
+	require.NoError(t, err)
+	assert.Equal(t, "*.xn--bcher-kva.example", rule.Host)
+
+	p, err := New(nil, []string{"*.b\u00fccher.example:443"})
+	require.NoError(t, err)
+	assert.False(t, p.Decide("shop.b\u00fccher.example", 443).Allowed)
+	assert.False(t, p.Decide("shop.xn--bcher-kva.example", 443).Allowed)
+	assert.True(t, p.Decide("b\u00fccher.example", 443).Allowed, "a wildcard does not match its own suffix")
+}
+
+// A host the policy cannot read as a name or an address is denied, because
+// the transport may still reach something by it.
+func TestDecideDeniesAnUnreadableHost(t *testing.T) {
+	p, err := New([]string{"*:*"}, nil)
+	require.NoError(t, err)
+	for _, host := range []string{"exa mple.com", "evil.example\x00", "-evil.example", "evil..example", "*"} {
+		d := p.Decide(host, 443)
+		assert.False(t, d.Allowed, host)
+		require.NotNil(t, d.Rule, host)
+		assert.True(t, d.Rule.Deny, host)
+	}
+	assert.True(t, (*Policy)(nil).Decide("exa mple.com", 443).Allowed, "no policy decides nothing")
 }

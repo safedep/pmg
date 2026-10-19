@@ -149,7 +149,8 @@ type ProxyConfig struct {
 	// audit: the proxy records the decision and lets the connection through.
 	NetworkEnforce bool
 
-	// OnNetworkDecision receives every match on a deny rule.
+	// OnNetworkDecision receives every destination the proxy decides,
+	// allowed or denied, with or without a policy.
 	OnNetworkDecision func(NetworkDecision)
 }
 
@@ -307,7 +308,9 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 		}
 	}
 
-	if config.NetworkPolicy != nil {
+	// The handlers run the policy and report every destination, so they
+	// are needed for the observer even without a policy.
+	if config.NetworkPolicy != nil || config.OnNetworkDecision != nil {
 		ps.configureNetworkPolicy()
 	}
 
@@ -515,8 +518,11 @@ func (ps *proxyServer) RemoveInterceptor(name string) {
 func (ps *proxyServer) configureMITM() {
 	// Configure selective MITM based on interceptors
 	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
+		// The session records the destination the policy decided, which for
+		// a CONNECT without a port is port 80. A request inside the tunnel
+		// is dialed on 443, so it must get its own decision.
 		orig := originFromContext(ctx.Req.Context())
-		hostname, port := splitTarget(host, 443)
+		hostname, port := splitTarget(host, connectDefaultPort)
 		ctx.UserData = mitmSession{origin: orig, target: normalizedTarget(hostname, port)}
 		if ps.shouldMITM(host, "CONNECT", orig) {
 			mitmAction := &goproxy.ConnectAction{

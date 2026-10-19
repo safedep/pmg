@@ -10,6 +10,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -289,9 +290,9 @@ func TestReportNormalNetworkPolicy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			data := NewReportData()
 			data.Outcome = OutcomeSuccess
-			data.NetworkPolicy = &NetworkPolicyReport{
+			data.NetworkPolicy = &netpolicy.Report{
 				Enforced: tc.enforced,
-				Denials:  []NetworkDenial{{Destination: "evil.example:443", Rule: "*:*", Client: "/usr/bin/curl", Count: 2}},
+				Denials:  []netpolicy.Denial{{Destination: "evil.example:443", Rule: "*:*", Client: "/usr/bin/curl", Count: 2}},
 			}
 
 			out := captureStdout(t, func() { reportNormal(data) })
@@ -308,7 +309,7 @@ func TestReportNormalNetworkPolicy(t *testing.T) {
 func TestReportNormalNetworkPolicyQuietWithoutDenials(t *testing.T) {
 	data := NewReportData()
 	data.Outcome = OutcomeSuccess
-	data.NetworkPolicy = &NetworkPolicyReport{Enforced: true}
+	data.NetworkPolicy = &netpolicy.Report{Enforced: true}
 
 	out := captureStdout(t, func() { reportNormal(data) })
 	assert.NotContains(t, out, "Network policy")

@@ -13,6 +13,7 @@ type StatusInfo struct {
 	Addr    string
 	CACert  string
 	Enforce *EnforceState
+	Network *NetworkState
 
 	// Warnings are every notice of the daemon, from State.Notices.
 	Warnings []string
@@ -44,6 +45,7 @@ func GetStatus(statePath string) StatusInfo {
 		Addr:    state.Addr,
 		CACert:  state.CACertPath,
 		Enforce: state.Enforce,
+		Network: state.Network,
 
 		Warnings: state.Notices(),
 

@@ -161,10 +161,12 @@ jobs:
             /opt/agent/bin/agent
             /opt/agent/bin/worker-*
           INPUT_ENFORCE_SKIP_DESTINATIONS: "10.20.0.0/16,"
+          INPUT_NETWORK_PROFILE: .pmg/profiles/ci.yml
+          INPUT_NETWORK_MODE: enforce
         run: |
           set -euo pipefail
           got="$(.github/scripts/enforce-flags.sh | tr '\n' ' ')"
-          want="--enforce-port 8443 --enforce-port 9443 --enforce-exempt-executable /opt/agent/bin/agent --enforce-exempt-executable /opt/agent/bin/worker-* --enforce-skip-destination 10.20.0.0/16 "
+          want="--enforce-port 8443 --enforce-port 9443 --enforce-exempt-executable /opt/agent/bin/agent --enforce-exempt-executable /opt/agent/bin/worker-* --enforce-skip-destination 10.20.0.0/16 --profile .pmg/profiles/ci.yml --network-mode enforce "
           test "$got" = "$want" || { echo "got:  $got"; echo "want: $want"; exit 1; }
       - name: No inputs give no flags
         run: |

@@ -105,7 +105,7 @@ func InspectShimFiles(shimDir string, packageManagers []string) (ShimInspection,
 			inspection.Missing = append(inspection.Missing, pm)
 			continue
 		}
-		if fsutil.SamePath(named, pmgBin) {
+		if fsutil.SamePath(named, pmgBin) || fsutil.SameFile(named, pmgBin) {
 			continue
 		}
 		if _, err := os.Stat(named); err != nil {

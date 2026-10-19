@@ -276,6 +276,18 @@ func (h *Harness) recordDecision(d proxy.NetworkDecision) {
 
 // NetworkDecisions returns every match on a deny rule, in order.
 func (h *Harness) NetworkDecisions() []proxy.NetworkDecision {
+	var denied []proxy.NetworkDecision
+	for _, d := range h.Destinations() {
+		if !d.Allowed {
+			denied = append(denied, d)
+		}
+	}
+	return denied
+}
+
+// Destinations returns every destination the proxy decided, allowed or
+// denied, in order.
+func (h *Harness) Destinations() []proxy.NetworkDecision {
 	h.decisionMu.Lock()
 	defer h.decisionMu.Unlock()
 	return append([]proxy.NetworkDecision(nil), h.decisions...)

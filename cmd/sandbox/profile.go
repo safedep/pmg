@@ -47,5 +47,6 @@ func NewProfileCommand() *cobra.Command {
 	cmd.AddCommand(newProfileEditCommand(defaultRegistryFactory))
 	cmd.AddCommand(newProfileLintCommand(defaultRegistryFactory))
 	cmd.AddCommand(newProfileDiffCommand(defaultRegistryFactory))
+	cmd.AddCommand(newProfileProposeCommand(defaultRegistryFactory, defaultProposeDeps()))
 	return cmd
 }

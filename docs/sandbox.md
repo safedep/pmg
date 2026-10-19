@@ -235,6 +235,9 @@ pmg sandbox profile lint ./my-profile.yml --strict
 
 # Compare two resolved profiles
 pmg sandbox profile diff npm-restrictive pypi-restrictive
+
+# Propose network rules from the destinations of the last run
+pmg sandbox profile propose --last --new my-npm
 ```
 
 `pmg sandbox profile edit` resolves the profile name to its file under the user profile
@@ -706,6 +709,10 @@ The `network.allow_outbound` and `network.deny_outbound` lists hold rules of the
 - `host` is a name, compared without case and without a trailing dot. `*.example.com` matches
   one or more labels before `example.com` and not `example.com` itself. `*` matches every host.
   An IPv4 or IPv6 literal is a host. An IPv6 literal is written in brackets, `[2001:db8::1]:443`.
+  The proxy compares a connection's host as the transport dials it: a name is mapped with IDNA,
+  so a fullwidth letter or a soft hyphen in a request names the plain host, an address in a
+  short or octal form such as `127.1` is `127.0.0.1`, and an IPv6 zone is dropped. A host the
+  proxy cannot read as a name or an address is denied.
 - `port` is a number from 1 to 65535, or `*`.
 - `<exe>` is an absolute path or a bare program name, such as `git=github.com:443`. The
   proxy cannot name the program behind a connection yet, so a profile with a client rule
@@ -733,6 +740,17 @@ around the proxy.
 
 The mode lives in the config and not in the profile, so one profile can run in audit on one host
 and in enforce on another. Every match writes a `network_policy` event to the event log.
+
+Every run writes a `network_observation` event with every destination the proxy saw, allowed or
+denied, and the report names the run. `pmg sandbox profile propose --run <id>` turns the run into
+the `network` block of a profile: one allow rule per host and port, plus a catch-all deny. Hosts
+the inherited built-in profile already allows are not repeated. `--last` uses the newest run of
+this repository. `--since 30d` merges every run of the repository in the window. `--new <name>`
+writes a user profile. `--into <path>` adds the rules to a profile and keeps its other blocks.
+Without a target the command prints the table and the block. `--dry-run` shows what a target would
+get. The command reads the event log, so `skip_event_logging` must be off. With event logging off
+the report names no run. The other sections of a profile come from violations, not observation.
+Promote them with `pmg sandbox allow --last --all`.
 
 `pmg sandbox profile lint` reports a rule the proxy cannot parse as an error, and warns when
 `allow_direct_dns` is set under `network_via_proxy_only`, because DNS is a path past the rules. A

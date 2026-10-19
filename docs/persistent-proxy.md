@@ -94,7 +94,7 @@ when a package was blocked.
 pmg proxy start    # start the proxy, in the foreground or detached with --daemon
 pmg proxy stop     # stop the proxy and report the outcome
 pmg proxy env      # print the variables that route package managers through it
-pmg proxy status   # report whether a proxy runs
+pmg proxy status   # report whether a proxy runs, and which network policy it applies
 ```
 
 `pmg proxy <command> --help` lists the flags. `--daemon` works on Unix only.
@@ -211,11 +211,129 @@ and flushes the rest on shutdown.
 a `Cloud sync failed` line. A failed flush does not change the
 `--fail-on-violation` exit code.
 
+## Network policy
+
+The daemon applies the network rules of a sandbox profile, the same
+`network` block the one-shot proxy applies under a sandbox. See
+[Network rules](./sandbox.md#network-rules) for the rule syntax. The daemon
+reads only the `network` block. It warns at start when the profile has
+filesystem, process or environment rules, because only a sandbox applies
+those. Without a profile the daemon has no policy and says so at start.
+
+```yaml
+proxy:
+  server:
+    profile: profiles/ci.yml   # built-in name, policy_templates name, user profile name, or path
+    network_mode: audit        # audit | enforce
+```
+
+| Config key | Flag | Variable |
+| --- | --- | --- |
+| `profile` | `--profile` | `PMG_PROXY_SERVER_PROFILE` |
+| `network_mode` | `--network-mode` | `PMG_PROXY_SERVER_NETWORK_MODE` |
+| none | `--network-allow` (repeatable) | none |
+| none | `--network-deny` (repeatable) | none |
+
+A relative `profile` path in the config resolves next to the config file
+first. A relative `--profile` path resolves against the working directory.
+A reference with a directory part or a `.yml` extension is a path. A bare
+name such as `npm-restrictive` is a profile name, whatever file the working
+directory holds. Under `global_lockdown` the managed config names a built-in
+profile, one of its `policy_templates`, an absolute path, or a path relative
+to the managed config file. A parent in its chain resolves the same way. A
+user profile, a user preset and the working directory are writable by the
+user, so they are not read. The two rule flags add one `host:port` rule each to the resolved
+profile. `--network-allow` also removes an equal deny rule, because deny wins
+at equal specificity. A profile inherits its parent's rules, so a repository
+profile that inherits the system profile adds rules and drops none.
+
+```bash
+pmg proxy start --daemon --profile .pmg/profiles/ci.yml --network-mode enforce \
+  --network-deny pastebin.com:443
+```
+
+Under `audit`, the default, the proxy records a match on a deny rule and lets
+the connection through. Under `enforce` the proxy refuses it: a proxy-aware
+client gets a 403 that names the destination and the rule, and a redirected
+TLS connection is closed before the handshake. Every match writes a
+`network_policy` event. A redirected container connection is decided by host
+and port, as a host connection is.
+
+The policy is a guarantee under [kernel enforcement](#kernel-enforcement-linux)
+and advisory without it, because a process can go around the proxy. The
+start line and `pmg proxy status` say which: `Network policy: enforce,
+profile npm-restrictive < .pmg/profiles/ci.yml, enforce: off, policy
+advisory`. The profile is the inheritance chain, base first.
+
+`pmg proxy stop` reports the matches:
+
+```text
+Network policy: enforce, 2 denied, 0 would deny
+  denied  193.32.204.199:80  rule *:*  /usr/bin/curl pid 4132
+  denied  pastebin.com:443   rule *:*  172.17.0.2 (3)
+Profile: pypi-restrictive < /etc/pmg/profiles/runner.yml  ports 80,443
+```
+
+The columns are the action, the destination, the rule, and the program with
+its pid, or the container address. Under `audit` the action reads `would
+deny`. With kernel enforcement the kernel names the program. Without it a
+proxy-aware client has no name. `ports` are the enforced ports.
+
+Under `global_lockdown` a profile and a flag may narrow the policy and may
+not widen it. `--network-deny` and `enforce` over `audit` narrow.
+`--network-allow`, and `--network-mode audit` over a file that says
+`enforce`, fail fast. A `--profile` that adds an allow rule, or drops a deny
+rule, of the managed profile fails the start and names the rule.
+
+A repository profile is as trusted as the workflow file. Add a `CODEOWNERS`
+line for `.pmg/profiles` so a change to it gets a review.
+
+### Build the allow list
+
+The proxy records every destination its clients reach. A run under
+`audit` with no profile gives the baseline for the allow list. Three runs
+take a daemon from no policy to `enforce`.
+
+1. **Observe.** Start the daemon with no profile, run the commands through
+   it, stop the daemon. `pmg proxy env` exports the run id as
+   `PMG_PROXY_RUN` for a script. The stop report counts the destinations
+   and names the run:
+
+   ```text
+   Destinations: 7 observed. Propose a profile with: pmg sandbox profile propose --run 3f2a9c1d7e4b
+   ```
+
+2. **Propose.** The command reads the run from the event log. It prints
+   each destination with its client, its count and the proposed action.
+   `--new` writes the profile. `--dry-run` shows the file and does not
+   write it.
+
+   ```bash
+   pmg sandbox profile propose --run 3f2a9c1d7e4b --new .pmg/profiles/ci.yml
+   ```
+
+   The profile inherits `exec` and holds one allow rule per host and port,
+   plus a catch-all deny. A proposal from a one-shot run inherits the
+   built-in profile of the package manager and does not repeat the registry
+   hosts that profile already allows. Review every rule. Commit the file.
+
+3. **Enforce.** Start the daemon with `--profile .pmg/profiles/ci.yml
+   --network-mode enforce`. A destination the run did not reach gets a 403.
+
+A later run adds destinations with `--into .pmg/profiles/ci.yml`. A
+proposal adds allow rules and does not remove rules, because one run does
+not reach every destination. A destination that a deny rule of the profile
+matches stays denied. `--last` uses the newest run of the repository.
+`--since 30d` merges every run of the repository in the window. The event
+log keeps `event_log_retention_days` of runs. With `skip_event_logging` on,
+the command has no data.
+
 ## Fail on violation
 
 `pmg proxy stop` exits `0` by default. `--fail-on-violation` makes it a gate:
 
-- It exits non-zero when any package was blocked.
+- It exits non-zero when any package was blocked, or when the network
+  policy refused a connection under `enforce`.
 - It fails closed. When the daemon stopped without a final state it could
   verify, for example after a crash, it fails too. A security gate must not
   pass on a run it cannot verify.
@@ -442,6 +560,7 @@ variables that point a tool at the system store, and the path of the bundle:
 | `UV_NATIVE_TLS=1` | uv validates against its bundled roots without it. |
 | `REQUESTS_CA_BUNDLE=<system bundle>` | Tools built on Python `requests` validate against `certifi`. poetry needs it. pip does not. |
 | `PMG_CA_BUNDLE=<system bundle>` | The file to pass into a container. See below. |
+| `PMG_PROXY_RUN=<id>` | The run in the event log, for `pmg sandbox profile propose --run`. |
 
 `curl`, Go, cargo, pip and bun trust the store on their own.
 

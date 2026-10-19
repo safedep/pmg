@@ -1,0 +1,50 @@
+# guarantee: under global_lockdown a network flag that loosens the policy
+# fails fast, a profile that adds an allow rule fails and names the rule,
+# and a deny rule or a profile that only adds deny rules is accepted.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+
+# The harness removes a managed config a script created.
+mkdir -p /etc/safedep/pmg
+cp managed.yml /etc/safedep/pmg/config.yml
+
+! exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE --network-allow pastebin.com:443
+stderr 'globally managed'
+stderr '--network-allow'
+
+! exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE --network-mode audit
+stderr 'globally managed'
+stderr '--network-mode=audit'
+
+! exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE --profile $WORK/wider.yml
+stderr 'widens the globally managed profile npm-restrictive'
+stderr 'allows pastebin.com:443'
+
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE --profile $WORK/narrower.yml --network-deny evil.example:443
+exec pmg proxy status --state $ENFORCE_STATE
+stdout 'Network policy: enforce, profile npm-restrictive < .*narrower.yml$'
+exec pmg proxy stop --state $ENFORCE_STATE
+
+-- managed.yml --
+global_lockdown: true
+proxy:
+  server:
+    profile: npm-restrictive
+    network_mode: enforce
+-- wider.yml --
+name: wider
+inherits: npm-restrictive
+network:
+  allow_outbound:
+    - pastebin.com:443
+-- narrower.yml --
+name: narrower
+inherits: npm-restrictive
+network:
+  deny_outbound:
+    - npm.pkg.github.com:443
