@@ -23,3 +23,24 @@ environment:
     - ANTHROPIC_API_KEY
     - OPENAI_API_KEY
     - GEMINI_API_KEY
+
+# Network notes. Pi documents no host list, so the hosts come from its
+# source (github.com/badlogic/pi-mono, packages/ai/src).
+# - The three API hosts match the three keys above. Their base URLs are in
+#   providers/anthropic.ts, providers/openai.ts and providers/google.ts.
+# - claude.ai and platform.claude.com serve the Claude Pro/Max sign-in
+#   (auth/oauth/anthropic.ts). auth.openai.com serves the ChatGPT sign-in
+#   and chatgpt.com its model requests (auth/oauth/openai-codex.ts and
+#   providers/openai-codex.ts).
+# - Pi has many more providers. Copy this preset and add the host of the
+#   one you use, or add it for a run with --sandbox-allow
+#   net-connect=<host>:443.
+network:
+  allow_outbound:
+    - api.anthropic.com:443
+    - api.openai.com:443
+    - generativelanguage.googleapis.com:443
+    - claude.ai:443
+    - platform.claude.com:443
+    - auth.openai.com:443
+    - chatgpt.com:443

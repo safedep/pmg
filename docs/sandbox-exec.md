@@ -47,17 +47,23 @@ Show the full profile with `pmg sandbox profile show exec`.
 
 ## Agent presets
 
-A preset adds the footprint of one agent: its state directory and its own API key. Deny rules win
-over a preset allow, so the hook configuration stays read-only.
+A preset adds the footprint of one agent: its state directory, its own API key and the hosts it
+reaches. Deny rules win over a preset allow, so the hook configuration stays read-only.
 
-The presets are `claude`, `codex` and `pi`. Each one grants the agent's state directory and
-re-allows the agent's own API key. Read a preset with `pmg sandbox preset show claude`.
+The presets are `claude`, `codex` and `pi`. Each one grants the agent's state directory,
+re-allows the agent's own API key, and allows the agent's own hosts: its model API, its sign-in,
+its update check and its telemetry. The preset file names the source of each host and says how
+to drop the optional ones. Under the `exec` profile every destination is already allowed, so the
+hosts matter under a profile that denies `*:*`, such as the one `pmg sandbox profile propose`
+writes. The preset then opens the agent's hosts, and the profile keeps the repository's. Read a
+preset with `pmg sandbox preset show claude`.
 
 Apply a preset for one run, or save it for the current repository:
 
 ```bash
 pmg sandbox exec --sandbox-allow preset=claude -- claude
 pmg sandbox allow preset=claude && pmg sandbox exec -- claude
+pmg sandbox exec --sandbox-profile agent.yml --network-mode enforce --sandbox-allow preset=claude -- claude
 ```
 
 Each preset file states the residual risk of each allowance. Read it with
