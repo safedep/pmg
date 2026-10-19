@@ -347,7 +347,9 @@ The action needs a POSIX shell and userland in the image, such as busybox:
 `sh`, `tar`, `sha256sum`, `grep`, `sed`, `tr`, `cut`, `head`, `uname`,
 `mktemp`, `mkdir`, `chmod`, `cp` and `rm`, and `curl` or `wget`. It does not
 need `bash`. Alpine images, such as `golang:1.26-alpine` and
-`node:24-alpine`, work as they are. The action at
+`node:24-alpine`, work as they are. The action refuses a `wget` that does not
+verify TLS certificates, such as the `wget` of the `busybox` image. Add `curl`
+to such an image. The action at
 v0.32.0 and older runs every step with `bash` and fails on an image without
 it. On those versions, run `apk add --no-cache bash curl` in a step before
 the action.

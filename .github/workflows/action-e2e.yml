@@ -494,6 +494,47 @@ jobs:
         if: matrix.mode == 'server'
         run: pmg proxy stop --fail-on-violation
 
+  # Upstream busybox wget, as in the busybox image, does not verify TLS
+  # certificates. It prints the note below and goes on. The stand-in prints
+  # the same note in front of the Alpine wget, so the job does not depend on
+  # a busybox image that can run actions/checkout.
+  alpine-unverified-wget:
+    name: Refuse a wget that does not verify TLS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: node:24-alpine
+      options: --init
+    defaults:
+      run:
+        shell: sh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Put a wget that prints the busybox note first on PATH
+        run: |
+          set -eu
+          if command -v curl >/dev/null 2>&1; then echo "::error::The image has curl." >&2; exit 1; fi
+          real="$(command -v wget)"
+          dir="$RUNNER_TEMP/unverified-wget"
+          mkdir -p "$dir"
+          printf '%s\n' '#!/bin/sh' \
+            'echo "wget: note: TLS certificate validation not implemented" >&2' \
+            "exec $real \"\$@\"" > "$dir/wget"
+          chmod +x "$dir/wget"
+          cat "$dir/wget"
+          printf '%s\n' "$dir" >> "$GITHUB_PATH"
+      - name: Action must exit non-zero
+        id: run
+        continue-on-error: true
+        uses: $/
+      - name: The action failed and installed no PMG
+        run: |
+          set -eu
+          test "${{ steps.run.outcome }}" = "failure"
+          if command -v pmg >/dev/null 2>&1; then echo "::error::PMG is on PATH." >&2; exit 1; fi
+
   expose-needs-job-container:
     name: expose-to-job-network fails without a job container
     runs-on: ubuntu-latest

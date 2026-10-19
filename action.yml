@@ -146,8 +146,7 @@ runs:
         '
         cr=$(printf '\r')
 
-        # Minimal images such as Alpine have busybox wget but no curl. Both
-        # verify TLS and fail on an HTTP error.
+        # Minimal images such as Alpine have busybox wget but no curl.
         if command -v curl >/dev/null 2>&1; then
           downloader=curl
         elif command -v wget >/dev/null 2>&1; then
@@ -158,6 +157,25 @@ runs:
         fi
         printf '%s\n' "Downloading with ${downloader}"
 
+        tmpdir=$(mktemp -d)
+        trap 'rm -rf "$tmpdir"' EXIT
+
+        # checksums.txt and the tarball come over the same connection, so TLS
+        # is what keeps a host on the path from replacing both. Upstream
+        # busybox wget, as in the busybox image, does not verify the
+        # certificate. It prints this note and goes on. Alpine busybox and
+        # GNU wget verify it and never print the note. wget writes its
+        # stderr, with the -S headers, to wget.err.
+        fetch_wget() {
+          rc=0
+          wget "$@" 2>"${tmpdir}/wget.err" || rc=$?
+          if grep -q 'certificate validation not implemented' "${tmpdir}/wget.err"; then
+            printf '%s\n' "::error::This wget does not verify TLS certificates, so the action cannot trust the download. Add curl or GNU wget to the image, or use an Alpine image." >&2
+            exit 1
+          fi
+          return "$rc"
+        }
+
         # GNU wget -q prints nothing on a failure, so this line names the URL
         # and the exit code. wget uses 4 for a network error, 5 for TLS and 8
         # for an HTTP error.
@@ -165,9 +183,12 @@ runs:
           if [ "$downloader" = curl ]; then
             curl -fsSL -o "$2" "$1" && return 0
           else
-            wget -q -O "$2" "$1" && return 0
+            fetch_wget -q -O "$2" "$1" && return 0
           fi
           rc=$?
+          if [ "$downloader" = wget ]; then
+            cat "${tmpdir}/wget.err" >&2
+          fi
           printf '%s\n' "::error::Could not download $1 with ${downloader} (exit ${rc})." >&2
           exit 1
         }
@@ -180,7 +201,8 @@ runs:
           if [ "$downloader" = curl ]; then
             location=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "$latest_url")
           else
-            location=$(wget -q --spider -S "$latest_url" 2>&1 | sed -n 's/^ *[Ll]ocation: *\([^ ]*\).*/\1/p' | head -n 1)
+            fetch_wget -q --spider -S "$latest_url" || true
+            location=$(sed -n 's/^ *[Ll]ocation: *\([^ ]*\).*/\1/p' "${tmpdir}/wget.err" | head -n 1)
           fi
           tag=$(printf '%s' "$location" | sed 's|.*/||' | tr -d '\r\n')
           if [ -z "$tag" ]; then
@@ -233,8 +255,6 @@ runs:
 
         # Always fetch upstream checksums.txt — even on a cache hit — so a
         # tampered cache entry is caught before we run the binary.
-        tmpdir=$(mktemp -d)
-        trap 'rm -rf "$tmpdir"' EXIT
         download "https://github.com/${repo}/releases/download/${tag}/checksums.txt" "${tmpdir}/checksums.txt"
         expected=$(grep "  ${asset}\$" "${tmpdir}/checksums.txt" | cut -d' ' -f1 || true)
         if [ -z "$expected" ]; then
