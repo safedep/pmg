@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,19 +116,14 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 
 // seatbeltRuleDenials drops the denials of the catch-all (deny default) rule
 // and keeps the denials of the policy's own deny rules. A clean run reports
-// only these. Runtimes probe the system on start (node and python write
-// /dev/dtracehelper and read sysctls), so the catch-all fires on almost every
-// clean run. Known gap: on a clean run, a write that only the catch-all
-// blocks, such as one to a shell startup file, is not reported.
+// only these. Runtimes probe the system on start, so the catch-all fires on
+// almost every clean run. Node and Python write /dev/dtracehelper and read
+// sysctls. This leaves a known gap. On a clean run, PMG does not report a
+// write that only the catch-all blocks, such as one to a shell startup file.
 func seatbeltRuleDenials(violations []sandbox.Violation) []sandbox.Violation {
-	kept := make([]sandbox.Violation, 0, len(violations))
-	for _, v := range violations {
-		if v.RawKind != seatbeltKindDefault {
-			kept = append(kept, v)
-		}
-	}
-
-	return kept
+	return slices.DeleteFunc(violations, func(v sandbox.Violation) bool {
+		return v.RawKind == seatbeltKindDefault
+	})
 }
 
 func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandbox.Violation {

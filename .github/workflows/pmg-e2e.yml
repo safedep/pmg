@@ -941,6 +941,10 @@ jobs:
           sudo systemctl disable apparmor
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
+      # The unit test job has no bwrap, so these tests skip there.
+      - name: Run Bubblewrap E2E Tests (Go)
+        run: go test -count=1 -v -run TestBubblewrapE2E ./sandbox/platform/...
+
       - name: Run Sandbox E2E Test
         env:
           E2E_ENV_SEEDED: "1"
