@@ -14,9 +14,11 @@ or `poetry add`. The proxy blocks malicious packages before they run.
 
 > **Action version.** The `v1` tag points to an older action. It does not have
 > the `enforce`, `enforce-*` and `expose-to-job-network` inputs. Use
-> `safedep/pmg@v0.31.0` or later for these inputs. GitHub warns about an
-> unknown input and runs the job without it, so a job on `v1` with
-> `enforce: true` runs without kernel enforcement.
+> `safedep/pmg@v0.31.0` or later for these inputs. The `network-profile` and
+> `network-mode` inputs need `safedep/pmg@v0.33.0` or later. GitHub warns
+> about an unknown input and runs the job without it, so a job on `v1` with
+> `enforce: true` runs without kernel enforcement, and a job on `v0.32.0`
+> with `network-profile` runs without a network policy.
 
 Out of the box the action gives:
 
@@ -82,8 +84,8 @@ default.
 | `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config. Passed as `--enforce-exempt-executable`. | unset |
 | `enforce-skip-destinations` | With `enforce`, CIDR prefixes the kernel never routes, in addition to the config. Passed as `--enforce-skip-destination`. | unset |
 | `enforce-namespaces` | With `enforce`, what happens to containers that steps start: `ignore`, `redirect` or `auto`. See [Containers](#containers). Passed as `--enforce-namespaces`. | unset (`ignore`) |
-| `network-profile` | With `server-mode`, the sandbox profile whose network rules the proxy applies: a path in the workspace or a built-in name. See [Network policy](#network-policy). Passed as `--profile`. | unset (no policy) |
-| `network-mode` | With `network-profile`, what the proxy does with a match on a deny rule: `audit` or `enforce`. Passed as `--network-mode`. | unset (`audit`) |
+| `network-profile` | With `server-mode`, the sandbox profile whose network rules the proxy applies: a path in the workspace or a built-in name. See [Network policy](#network-policy). Passed as `--profile`. Needs `safedep/pmg@v0.33.0` or later. | unset (no policy) |
+| `network-mode` | With `network-profile`, what the proxy does with a match on a deny rule: `audit` or `enforce`. Passed as `--network-mode`. Needs `safedep/pmg@v0.33.0` or later. | unset (`audit`) |
 
 ## Outputs
 
@@ -216,7 +218,7 @@ variables. See
 [persistent-proxy.md](./persistent-proxy.md#network-policy).
 
 ```yaml
-- uses: safedep/pmg@v0.31.0
+- uses: safedep/pmg@v0.33.0
   with:
     server-mode: true
     enforce: true
@@ -230,9 +232,24 @@ name: ci
 inherits: npm-restrictive
 network:
   deny_ip_literals: true
+  allow_outbound:
+    # The runner reports the job to GitHub through the proxy.
+    - "*.actions.githubusercontent.com:443"
+    - "*.githubapp.com:443"
   deny_outbound:
     - pastebin.com:443
 ```
+
+`npm-restrictive` denies `"*:*"`, so the profile allows the hosts of the
+runner. The runner is not exempt, see [Runner traffic](#runner-traffic).
+Without these rules the proxy refuses the runner's connections to GitHub,
+and `actions/upload-artifact` fails. A step that uploads an artifact or
+saves a cache while the daemon enforces also needs
+`"*.blob.core.windows.net:443"`. That rule allows every Azure storage
+account, so a script can send data to one. Put such a step after the stop
+step if you can. A profile that `pmg sandbox profile propose` builds from a
+run under `enforce` has the hosts the runner reached in that run. See
+[Build the profile from a run](#build-the-profile-from-a-run).
 
 `deny_ip_literals` refuses a connection to an IP literal no allow rule
 names. An allow list of names does not stop a workflow that posts to an IP
