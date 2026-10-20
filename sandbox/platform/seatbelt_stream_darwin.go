@@ -9,9 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -87,9 +87,13 @@ type seatbeltLogStream struct {
 	sentinels map[string]bool
 }
 
-// seatbeltStreamCommand runs argv under seatbeltStreamWrapper.
+// seatbeltStreamCommand runs argv under seatbeltStreamWrapper, in a process
+// group of its own, so shutdown can kill the wrapper, the watcher and the
+// stream together.
 func seatbeltStreamCommand(argv ...string) *exec.Cmd {
-	return exec.Command("/bin/sh", append([]string{"-c", seatbeltStreamWrapper, "sh"}, argv...)...)
+	cmd := exec.Command("/bin/sh", append([]string{"-c", seatbeltStreamWrapper, "sh"}, argv...)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
 }
 
 func seatbeltLogStreamCommand(logTag string) *exec.Cmd {
@@ -260,9 +264,16 @@ func (st *seatbeltLogStream) shutdown() {
 	select {
 	case <-st.done:
 	case <-time.After(seatbeltStreamStopTimeout):
-		log.Debugf("seatbelt log stream did not end after its input closed, killing the wrapper")
-		if err := st.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-			log.Debugf("kill seatbelt log stream wrapper: %v", err)
+		log.Debugf("seatbelt log stream did not end after its input closed, killing its process group")
+		if err := syscall.Kill(-st.cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			log.Debugf("kill seatbelt log stream process group: %v", err)
+		}
+
+		// Wait closes the output pipe, so let the reader finish first.
+		select {
+		case <-st.done:
+		case <-time.After(seatbeltStreamStopTimeout):
+			log.Debugf("seatbelt log stream output did not close after the kill")
 		}
 	}
 

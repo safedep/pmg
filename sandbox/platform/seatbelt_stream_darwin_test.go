@@ -6,7 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -98,6 +103,34 @@ func TestSeatbeltLogStreamEndsWhenInputCloses(t *testing.T) {
 		t.Fatal("the stream did not end after its input closed")
 	}
 	st.shutdown()
+}
+
+// A stream that ignores the stop is killed with its whole process group, so
+// no log process survives the run.
+func TestSeatbeltLogStreamShutdownKillsStuckStream(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "stream.pid")
+	cmd := fakeLogStream(printLines(fakeSentinelLine(t, "start")) +
+		`echo $$ > '` + pidFile + `'; trap '' TERM; exec sleep 30`)
+
+	st, err := startSeatbeltLogStream(cmd, fakeStreamTag, noopSentinel, time.Second)
+	require.NoError(t, err)
+
+	var pid int
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(pidFile)
+		if err != nil {
+			return false
+		}
+		pid, err = strconv.Atoi(strings.TrimSpace(string(data)))
+		return err == nil
+	}, time.Second, 10*time.Millisecond)
+
+	st.shutdown()
+
+	assert.NotNil(t, cmd.ProcessState, "shutdown must reap the wrapper")
+	assert.Eventually(t, func() bool {
+		return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+	}, 2*time.Second, 50*time.Millisecond, "the stuck stream process must not survive")
 }
 
 func TestSeatbeltLogStreamStartFailures(t *testing.T) {
