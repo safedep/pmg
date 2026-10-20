@@ -11,6 +11,7 @@
     <packageSourceUrl>https://github.com/safedep/pmg/tree/main/scripts/choco</packageSourceUrl>
     <docsUrl>https://github.com/safedep/pmg/blob/main/docs/system-install.md</docsUrl>
     <bugTrackerUrl>https://github.com/safedep/pmg/issues</bugTrackerUrl>
+    <copyright>Copyright (c) SafeDep</copyright>
     <licenseUrl>https://github.com/safedep/pmg/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <releaseNotes>https://github.com/safedep/pmg/releases/tag/{{RELEASE_TAG}}</releaseNotes>
