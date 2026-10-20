@@ -6,18 +6,28 @@ set -euo pipefail
 PMG_CACHE_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pmg-clean-exit-e2e.XXXXXX")"
 export PMG_CACHE_DIR
 
+# Prints the primary target of each cached record, one per line. It fails when
+# pmg fails or prints no valid JSON, so a crash cannot look like an empty cache.
+violation_targets() {
+  local out
+  out="$(pmg sandbox violations list --json)" || return 1
+  node -e 'for (const e of JSON.parse(process.argv[1]).entries) console.log(e.primary?.target ?? "")' "$out"
+}
+
 pmg --sandbox --sandbox-enforce npm exec -- node -e "console.log('clean run')"
-if [ -n "$(pmg sandbox violations list 2>/dev/null)" ]; then
+targets="$(violation_targets)"
+if [ -n "$targets" ]; then
   echo "FAIL: a clean run recorded a violation"
-  pmg sandbox violations list
+  echo "$targets"
   exit 1
 fi
 
 pmg --sandbox --sandbox-enforce npm exec -- node -e \
   "try { require('fs').readFileSync(require('os').homedir() + '/.ssh/id_rsa') } catch (e) {}"
-if ! pmg sandbox violations list | grep -q '\.ssh/id_rsa'; then
+targets="$(violation_targets)"
+if [[ "$targets" != *"/.ssh/id_rsa"* ]]; then
   echo "FAIL: the caught read of ~/.ssh/id_rsa was not recorded"
-  pmg sandbox violations list
+  echo "$targets"
   exit 1
 fi
 

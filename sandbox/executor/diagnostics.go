@@ -28,8 +28,13 @@ func ObserveViolations(result *sandbox.ExecutionResult, runErr error) int {
 	report, diagErr := result.BestEffortViolation(runErr)
 	if diagErr != nil {
 		// Env scrubs come from the executor, not the driver, so a failed
-		// collection must not discard them.
-		log.Warnf("failed to collect sandbox diagnostics: %v", diagErr)
+		// collection must not discard them. A clean run gets a debug line,
+		// because a broken platform log would otherwise warn on every run.
+		logf := log.Warnf
+		if runErr == nil {
+			logf = log.Debugf
+		}
+		logf("failed to collect sandbox diagnostics: %v", diagErr)
 		report = nil
 	}
 

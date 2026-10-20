@@ -155,11 +155,11 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 	switch mode {
 	case ExecutionModePTY:
 		childErr, err = runPTY(ctx, cmd, cmd.Env, result, opts.PreparePTYSession)
+		if err != nil {
+			return err
+		}
 	default:
-		childErr, err = runDirect(cmd, result)
-	}
-	if err != nil {
-		return err
+		childErr = runDirect(cmd, result)
 	}
 
 	// runPTY has closed its session and restored the console, so the wait
@@ -173,15 +173,15 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 	return nil
 }
 
-// runDirect runs cmd and returns its exit error as childErr.
-func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult) (childErr error, err error) {
+// runDirect runs cmd and returns its exit error.
+func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult) error {
 	if !result.ShouldRun() {
-		return nil, nil
+		return nil
 	}
 
 	log.Debugf("Running command with args: %s: %v", cmd.Path, cmd.Args[1:])
 
-	return cmd.Run(), nil
+	return cmd.Run()
 }
 
 // runPTY runs cmd in a PTY session and returns its exit error as childErr.
