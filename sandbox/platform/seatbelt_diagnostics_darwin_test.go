@@ -352,5 +352,5 @@ func TestSeatbeltCleanRunWithoutRuleDenial(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Nil(t, report)
-	assert.Less(t, elapsed, seatbeltStreamDrainWait+500*time.Millisecond)
+	assert.Less(t, elapsed, 500*time.Millisecond)
 }

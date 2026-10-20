@@ -18,20 +18,31 @@ import (
 )
 
 const (
-	// seatbeltStreamReadyTimeout bounds the wait for the first line of log
-	// stream. The stream prints that line when it is attached, so it catches
-	// every denial after the line.
+	// seatbeltStreamReadyTimeout bounds the wait for the start sentinel. A
+	// stream that does not deliver it is not used.
 	seatbeltStreamReadyTimeout = 2 * time.Second
 
-	// seatbeltStreamDrainWait is how long a run waits after the command exits
-	// for denials that are still on their way to the stream.
-	seatbeltStreamDrainWait = 150 * time.Millisecond
+	// seatbeltStreamEndTimeout bounds the wait for the end sentinel. A stream
+	// that does not deliver it is incomplete, and the run reads the log store.
+	seatbeltStreamEndTimeout = 2 * time.Second
+
+	// seatbeltSentinelRetry is how often a sentinel is made again while PMG
+	// waits for it. A sentinel made before the stream is attached is lost.
+	seatbeltSentinelRetry = 100 * time.Millisecond
 
 	// seatbeltStreamEntryCap bounds the buffer of one run. The predicate
 	// matches only the denials of that run.
 	seatbeltStreamEntryCap = 512
 
 	seatbeltStreamStopTimeout = 2 * time.Second
+
+	// seatbeltKindSentinel marks the denials that PMG makes itself to confirm
+	// that the stream delivers. They are never violations.
+	seatbeltKindSentinel = "sentinel"
+
+	// seatbeltSentinelPath exists on every Mac and every user can read it, so
+	// a denied read of it always reaches the log.
+	seatbeltSentinelPath = "/private/etc/hosts"
 )
 
 // seatbeltStreamWrapper runs its arguments until its standard input closes.
@@ -50,16 +61,30 @@ status=$?
 kill "$watcher" 2>/dev/null
 exit "$status"`
 
+// seatbeltSentinelTrigger makes a denial that carries the sentinel marker of
+// logTag and target.
+type seatbeltSentinelTrigger func(logTag, target string) error
+
 // seatbeltLogStream collects the unified log entries of one run while the
 // command runs. A query of the log store after the run misses a denial that
 // has not reached the store yet, and each query costs about 0.7s or more.
+//
+// The kernel logs the denials in order. So when a sentinel denial that PMG
+// makes after the command exits comes through the stream, every denial of the
+// command came through before it.
 type seatbeltLogStream struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
 	done  chan struct{}
 
-	mu      sync.Mutex
-	entries []seatbeltLogEntry
+	logTag     string
+	trigger    seatbeltSentinelTrigger
+	endTimeout time.Duration
+	arrived    chan struct{}
+
+	mu        sync.Mutex
+	entries   []seatbeltLogEntry
+	sentinels map[string]bool
 }
 
 // seatbeltStreamCommand runs argv under seatbeltStreamWrapper.
@@ -73,10 +98,31 @@ func seatbeltLogStreamCommand(logTag string) *exec.Cmd {
 		"--predicate", seatbeltRunPredicate(logTag))
 }
 
-// startSeatbeltLogStream starts cmd and returns when the stream is attached.
-// It stops cmd and returns an error when the stream ends or is not ready in
-// readyTimeout. cmd must come from seatbeltStreamCommand.
-func startSeatbeltLogStream(cmd *exec.Cmd, readyTimeout time.Duration) (*seatbeltLogStream, error) {
+// triggerSeatbeltSentinel runs a denied read of seatbeltSentinelPath under a
+// one-rule profile, so the kernel logs a denial with the sentinel marker.
+func triggerSeatbeltSentinel(logTag, target string) error {
+	profile := fmt.Sprintf(`(version 1)(allow default)(deny file-read-data (literal "%s") (with message "%s"))`,
+		seatbeltSentinelPath, seatbeltLogMessage(logTag, seatbeltKindSentinel, target))
+
+	err := exec.Command(seatbeltSandboxExecPath, "-p", profile, "/bin/cat", seatbeltSentinelPath).Run()
+
+	// cat fails on the denied read, as intended.
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return nil
+	}
+	if err == nil {
+		return errors.New("the sentinel read was not denied")
+	}
+
+	return fmt.Errorf("run the sentinel: %w", err)
+}
+
+// startSeatbeltLogStream starts cmd and returns when a start sentinel came
+// through it, so the stream is attached. It stops cmd and returns an error
+// when the start sentinel does not come in readyTimeout. cmd must come from
+// seatbeltStreamCommand.
+func startSeatbeltLogStream(cmd *exec.Cmd, logTag string, trigger seatbeltSentinelTrigger, readyTimeout time.Duration) (*seatbeltLogStream, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("pipe log stream input: %w", err)
@@ -91,42 +137,51 @@ func startSeatbeltLogStream(cmd *exec.Cmd, readyTimeout time.Duration) (*seatbel
 		return nil, fmt.Errorf("start log stream: %w", err)
 	}
 
-	st := &seatbeltLogStream{cmd: cmd, stdin: stdin, done: make(chan struct{})}
-	ready := make(chan struct{})
-	go st.read(stdout, ready)
-
-	select {
-	case <-ready:
-		return st, nil
-	case <-st.done:
-		st.stop(0)
-		return nil, errors.New("log stream ended before it was ready")
-	case <-time.After(readyTimeout):
-		st.stop(0)
-		return nil, errors.New("log stream was not ready in time")
+	st := &seatbeltLogStream{
+		cmd:        cmd,
+		stdin:      stdin,
+		done:       make(chan struct{}),
+		logTag:     logTag,
+		trigger:    trigger,
+		endTimeout: seatbeltStreamEndTimeout,
+		arrived:    make(chan struct{}, 1),
+		sentinels:  make(map[string]bool),
 	}
+	go st.read(stdout)
+
+	if !st.confirm("start", readyTimeout) {
+		st.shutdown()
+		return nil, errors.New("log stream did not deliver the start sentinel")
+	}
+
+	return st, nil
 }
 
-// read buffers the entries of the stream. The first line is the plain-text
-// header that log stream prints when it is attached. Lines that are not JSON
-// are status lines and are skipped.
-func (st *seatbeltLogStream) read(r io.Reader, ready chan<- struct{}) {
+// read buffers the entries of the stream and notes the sentinels. Lines that
+// are not JSON, such as the header, are skipped.
+func (st *seatbeltLogStream) read(r io.Reader) {
 	defer close(st.done)
 
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 
-	attached := false
 	dropped := false
 	for scanner.Scan() {
-		if !attached {
-			attached = true
-			close(ready)
+		var entry seatbeltLogEntry
+		if err := json.Unmarshal(bytes.TrimSpace(scanner.Bytes()), &entry); err != nil {
 			continue
 		}
 
-		var entry seatbeltLogEntry
-		if err := json.Unmarshal(bytes.TrimSpace(scanner.Bytes()), &entry); err != nil {
+		payload, ok := parseSeatbeltLogPayload(entry.EventMessage)
+		if ok && payload.RunID == st.logTag && payload.Kind == seatbeltKindSentinel {
+			st.mu.Lock()
+			st.sentinels[payload.Target] = true
+			st.mu.Unlock()
+
+			select {
+			case st.arrived <- struct{}{}:
+			default:
+			}
 			continue
 		}
 
@@ -145,25 +200,59 @@ func (st *seatbeltLogStream) read(r io.Reader, ready chan<- struct{}) {
 	}
 }
 
-// stop waits drain for late entries, then ends the stream and returns what it
-// collected. complete is false when the stream ended before stop, so it can
-// miss entries.
-func (st *seatbeltLogStream) stop(drain time.Duration) (entries []seatbeltLogEntry, complete bool) {
-	select {
-	case <-st.done:
-	case <-time.After(drain):
+// confirm makes the sentinel target until it comes through the stream, and
+// reports whether it came in timeout.
+func (st *seatbeltLogStream) confirm(target string, timeout time.Duration) bool {
+	if err := st.trigger(st.logTag, target); err != nil {
+		log.Debugf("seatbelt log stream sentinel: %v", err)
+		return false
 	}
 
-	// A separate check, because a select picks at random when the stream has
-	// ended and the drain has also run out.
-	complete = true
-	select {
-	case <-st.done:
-		complete = false
-	default:
-	}
+	retry := time.NewTicker(seatbeltSentinelRetry)
+	defer retry.Stop()
+	deadline := time.After(timeout)
 
-	// The wrapper ends the stream when its standard input closes.
+	for {
+		if st.hasSentinel(target) {
+			return true
+		}
+
+		select {
+		case <-st.arrived:
+		case <-retry.C:
+			if err := st.trigger(st.logTag, target); err != nil {
+				log.Debugf("seatbelt log stream sentinel: %v", err)
+				return false
+			}
+		case <-st.done:
+			return st.hasSentinel(target)
+		case <-deadline:
+			return false
+		}
+	}
+}
+
+func (st *seatbeltLogStream) hasSentinel(target string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.sentinels[target]
+}
+
+// end confirms that every denial made before the call came through the
+// stream, then stops it. complete is false when the stream ended early or did
+// not deliver the end sentinel, so it can miss entries.
+func (st *seatbeltLogStream) end() (entries []seatbeltLogEntry, complete bool) {
+	complete = st.confirm("end", st.endTimeout)
+	st.shutdown()
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return append([]seatbeltLogEntry(nil), st.entries...), complete
+}
+
+// shutdown stops the stream. The wrapper ends it when its standard input
+// closes.
+func (st *seatbeltLogStream) shutdown() {
 	if err := st.stdin.Close(); err != nil {
 		log.Debugf("close seatbelt log stream input: %v", err)
 	}
@@ -182,8 +271,4 @@ func (st *seatbeltLogStream) stop(drain time.Duration) (entries []seatbeltLogEnt
 	if err := st.cmd.Wait(); err != nil {
 		log.Debugf("seatbelt log stream exit: %v", err)
 	}
-
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	return append([]seatbeltLogEntry(nil), st.entries...), complete
 }

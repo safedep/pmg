@@ -14,6 +14,8 @@ import (
 	"github.com/safedep/pmg/sandbox"
 )
 
+const seatbeltSandboxExecPath = "/usr/bin/sandbox-exec"
+
 type seatbeltSandbox struct {
 	translator       *seatbeltPolicyTranslator
 	tempProfilePath  string
@@ -85,7 +87,7 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	originalArgs := cmd.Args
 
 	// sandbox-exec -f <profile> <command> <args...>
-	cmd.Path = "/usr/bin/sandbox-exec"
+	cmd.Path = seatbeltSandboxExecPath
 	cmd.Args = []string{
 		"sandbox-exec",
 		"-f", s.tempProfilePath,
@@ -103,7 +105,7 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	// the first denials. Without a stream, PMG reads the log store after the
 	// run.
 	s.stopStream()
-	stream, err := startSeatbeltLogStream(seatbeltLogStreamCommand(s.logTag), seatbeltStreamReadyTimeout)
+	stream, err := startSeatbeltLogStream(seatbeltLogStreamCommand(s.logTag), s.logTag, triggerSeatbeltSentinel, seatbeltStreamReadyTimeout)
 	if err != nil {
 		log.Debugf("Seatbelt log stream unavailable, falling back to log show: %v", err)
 	}
@@ -119,7 +121,7 @@ func (s *seatbeltSandbox) stopStream() {
 		return
 	}
 
-	s.stream.stop(0)
+	s.stream.shutdown()
 	s.stream = nil
 }
 

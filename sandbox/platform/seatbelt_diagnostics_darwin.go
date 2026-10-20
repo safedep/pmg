@@ -24,6 +24,7 @@ import (
 
 const seatbeltLogWindowPadding = 2 * time.Second
 const seatbeltMaxQueryWait = 6 * time.Second
+const seatbeltCleanFallbackWait = 2 * time.Second
 const seatbeltQueryInterval = 250 * time.Millisecond
 const seatbeltLogCommandTimeout = 5 * time.Second
 const macOSUnifiedLogPath = "/usr/bin/log"
@@ -83,13 +84,14 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 		}
 	}
 
-	// Without a complete stream, a clean run gets one query. Most clean runs
-	// have no denial, and a poll to the deadline would add
-	// seatbeltMaxQueryWait to each of them.
-	deadline := time.Now()
-	if err != nil {
-		deadline = deadline.Add(seatbeltMaxQueryWait)
+	// Without a complete stream, PMG polls the log store, because a denial
+	// can reach the store late. A clean run polls for a shorter time. This
+	// path is rare, because the stream covers almost every run.
+	wait := seatbeltMaxQueryWait
+	if err == nil {
+		wait = seatbeltCleanFallbackWait
 	}
+	deadline := time.Now().Add(wait)
 	var lastQueryErr error
 
 	for {
@@ -122,7 +124,7 @@ func (s *seatbeltSandbox) streamViolations(runErr error) (violations []sandbox.V
 		return nil, false
 	}
 
-	entries, complete := s.stream.stop(seatbeltStreamDrainWait)
+	entries, complete := s.stream.end()
 	s.stream = nil
 	if !complete {
 		return nil, false
@@ -168,7 +170,7 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 	violations := make([]sandbox.Violation, 0, len(entries))
 	for _, entry := range entries {
 		payload, ok := parseSeatbeltLogPayload(entry.EventMessage)
-		if !ok || payload.RunID != runID {
+		if !ok || payload.RunID != runID || payload.Kind == seatbeltKindSentinel {
 			continue
 		}
 
