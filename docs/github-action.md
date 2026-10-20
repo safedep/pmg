@@ -85,7 +85,7 @@ default.
 | `enforce-skip-destinations` | With `enforce`, CIDR prefixes the kernel never routes, in addition to the config. Passed as `--enforce-skip-destination`. | unset |
 | `enforce-namespaces` | With `enforce`, what happens to containers that steps start: `ignore`, `redirect` or `auto`. See [Containers](#containers). Passed as `--enforce-namespaces`. | unset (`ignore`) |
 | `network-profile` | With `server-mode`, the sandbox profile whose network rules the proxy applies: a path in the workspace or a built-in name. See [Network policy](#network-policy). Passed as `--profile`. Needs `safedep/pmg@v0.33.0` or later. | unset (no policy) |
-| `network-mode` | With `network-profile`, what the proxy does with a match on a deny rule: `audit` or `enforce`. Passed as `--network-mode`. Needs `safedep/pmg@v0.33.0` or later. | unset (`audit`) |
+| `network-mode` | With `server-mode` and `network-profile`, what the proxy does with a match on a deny rule: `audit` or `enforce`. Passed as `--network-mode`. Needs `safedep/pmg@v0.33.0` or later. | unset (`audit`) |
 
 ## Outputs
 
@@ -247,7 +247,8 @@ and `actions/upload-artifact` fails. A step that uploads an artifact or
 saves a cache while the daemon enforces also needs
 `"*.blob.core.windows.net:443"`. That rule allows every Azure storage
 account, so a script can send data to one. Put such a step after the stop
-step if you can. A profile that `pmg sandbox profile propose` builds from a
+step if you can, and give it `if: always()`. The stop step fails on a
+denial, and GitHub skips the steps after a failed step. A profile that `pmg sandbox profile propose` builds from a
 run under `enforce` has the hosts the runner reached in that run. See
 [Build the profile from a run](#build-the-profile-from-a-run).
 
