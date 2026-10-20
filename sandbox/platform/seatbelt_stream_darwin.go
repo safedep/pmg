@@ -36,14 +36,19 @@ const (
 
 // seatbeltStreamWrapper runs its arguments until its standard input closes.
 // pmg holds the only write end of that pipe, so the stream also ends when pmg
-// dies, even by SIGKILL. When the stream ends on its own, the wrapper ends
-// too and closes its output. An asynchronous list reads /dev/null as its
-// standard input, so the reader uses a copy of it on file descriptor 3.
+// dies, even by SIGKILL. When the stream ends on its own, the wrapper stops
+// the watcher, so the watcher cannot later signal a reused PID, then exits
+// with the status of the stream. An asynchronous list reads /dev/null as its
+// standard input, so the watcher uses a copy of it on file descriptor 3.
 const seatbeltStreamWrapper = `exec 3<&0
 "$@" </dev/null 3<&- &
 pid=$!
 { read -r _ <&3; kill "$pid" 2>/dev/null; } >/dev/null 2>&1 &
-wait "$pid"`
+watcher=$!
+wait "$pid"
+status=$?
+kill "$watcher" 2>/dev/null
+exit "$status"`
 
 // seatbeltLogStream collects the unified log entries of one run while the
 // command runs. A query of the log store after the run misses a denial that
@@ -144,11 +149,18 @@ func (st *seatbeltLogStream) read(r io.Reader, ready chan<- struct{}) {
 // collected. complete is false when the stream ended before stop, so it can
 // miss entries.
 func (st *seatbeltLogStream) stop(drain time.Duration) (entries []seatbeltLogEntry, complete bool) {
+	select {
+	case <-st.done:
+	case <-time.After(drain):
+	}
+
+	// A separate check, because a select picks at random when the stream has
+	// ended and the drain has also run out.
 	complete = true
 	select {
 	case <-st.done:
 		complete = false
-	case <-time.After(drain):
+	default:
 	}
 
 	// The wrapper ends the stream when its standard input closes.
