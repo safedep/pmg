@@ -805,25 +805,29 @@ package manager command.
 ### MacOS
 
 OSX sandbox implementation is based on [Chromium OSX Sandbox Design](https://www.chromium.org/developers/design-documents/sandbox/osx-sandboxing-design/)
-and [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime). Current implementation does not support
-identifying sandbox policy violations.
+and [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime).
 
-To manually investigate sandbox policy violations, you can use the following command:
+PMG records Seatbelt denials in the violation cache. Inspect them with `pmg sandbox violations list`
+and `pmg sandbox explain --last`.
+
+To see every raw denial of a run, also the ones that PMG does not record after a clean run, run the
+command with debug logging:
 
 ```bash
 APP_LOG_LEVEL=debug APP_LOG_FILE=/tmp/pmg-debug.log pmg --sandbox --sandbox-profile=npm-restrictive npm install express
 ```
 
-Find the log tag in the debug log file and use it to investigate the sandbox policy violation.
+Get the log tag of the run from the debug log file.
 
 ```bash
-grep "PMG_SBX_" /tmp/pmg-debug.log
+TAG=$(grep -o "PMG_SBX_[A-Z0-9]*" /tmp/pmg-debug.log | tail -1)
 ```
 
-Use `log(1)` to filter the log file by the log tag.
+Use `log(1)` to show the denials that carry the tag. Give its full path, because zsh has a
+built-in `log` command.
 
 ```bash
-log show --last 5m --predicate 'message ENDSWITH "PMG_SBX_${TAG}"' --style compact
+/usr/bin/log show --last 5m --predicate "eventMessage CONTAINS \"$TAG\"" --style compact
 ```
 
 ### Linux
