@@ -118,7 +118,8 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 }
 
 // streamViolations stops the log stream of the run and returns its denials.
-// ok is false when the run has no stream, or when the stream ended early.
+// ok is false when the run has no stream, or when the stream could not
+// confirm that it delivered every denial.
 func (s *seatbeltSandbox) streamViolations(runErr error) (violations []sandbox.Violation, ok bool) {
 	if s.stream == nil {
 		return nil, false
