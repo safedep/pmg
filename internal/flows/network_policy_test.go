@@ -17,9 +17,9 @@ func TestNetworkDecisionLogReport(t *testing.T) {
 	assert.Nil(t, l.Report())
 
 	curl := proxy.Origin{PID: 7, Comm: "curl", Exe: "/usr/bin/curl", EntryPoint: proxy.EntryPointRedirectedHost}
-	l.record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true, Origin: curl})
-	l.record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true, Origin: curl})
-	l.record(proxy.NetworkDecision{Host: "cdn.example", Port: 80, Rule: "*:80", Enforced: true,
+	l.Record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true, Origin: curl})
+	l.Record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true, Origin: curl})
+	l.Record(proxy.NetworkDecision{Host: "cdn.example", Port: 80, Rule: "*:80", Enforced: true,
 		Origin: proxy.Origin{Address: netip.MustParseAddr("172.17.0.2"), EntryPoint: proxy.EntryPointRedirectedNamespace}})
 
 	report := l.Report()
@@ -36,7 +36,7 @@ func TestNetworkDecisionLogReport(t *testing.T) {
 
 func TestNetworkDecisionLogAuditIsNotAViolation(t *testing.T) {
 	l := newNetworkDecisionLog(nil)
-	l.record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: false})
+	l.Record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: false})
 
 	report := l.Report()
 	require.NotNil(t, report)
@@ -46,8 +46,8 @@ func TestNetworkDecisionLogAuditIsNotAViolation(t *testing.T) {
 
 func TestNetworkDecisionLogViolations(t *testing.T) {
 	l := newNetworkDecisionLog(&executor.Resolution{PackageManager: "npm", Policy: &sandbox.SandboxPolicy{Name: "deny-registry"}})
-	l.record(proxy.NetworkDecision{Host: "registry.npmjs.org", Port: 443, Rule: "registry.npmjs.org:443", Enforced: true})
-	l.record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true,
+	l.Record(proxy.NetworkDecision{Host: "registry.npmjs.org", Port: 443, Rule: "registry.npmjs.org:443", Enforced: true})
+	l.Record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true,
 		Origin: proxy.Origin{Exe: "/usr/bin/curl", EntryPoint: proxy.EntryPointRedirectedHost}})
 
 	violations := l.violations()

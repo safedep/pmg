@@ -216,7 +216,7 @@ jobs:
             echo "ERROR: stop should have exited non-zero (a package was blocked)"
             exit 1
           fi
-          grep -Eq "denied  pastebin.com:443  rule pastebin.com:443  /usr/bin/curl pid [0-9]+" <<<"$out"
+          grep -Eq "denied +pastebin.com:443 +rule pastebin.com:443 +/usr/bin/curl pid [0-9]+" <<<"$out"
           grep -q "Profile: $GITHUB_WORKSPACE/test/e2e/network-profile.yml  ports 80,443" <<<"$out"
           out=$(env -i /usr/bin/curl -sS -o /dev/null -v https://registry.npmjs.org/ 2>&1)
           if grep -q "SafeDep PMG Proxy CA" <<<"$out"; then
@@ -309,4 +309,4 @@ jobs:
           set -e
           echo "$out"
           test "$code" -ne 0
-          grep -q "denied  pastebin.com:443  rule \*:\*" <<<"$out"
+          grep -Eq "denied +pastebin.com:443 +rule \*:\*" <<<"$out"

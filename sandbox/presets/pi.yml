@@ -14,6 +14,12 @@ metadata:
 # - Pi talks to several model providers, so it re-allows the three common
 #   provider keys. Copy this preset and keep one key to narrow it. See
 #   docs/sandbox-exec.md for the trade-off.
+# - The hosts in the network notes below can carry data out of the sandbox.
+#   api.anthropic.com, api.openai.com and generativelanguage.googleapis.com
+#   accept any payload under an attacker's own API key, and claude.ai and
+#   chatgpt.com are general-purpose hosts. Accepted: the agent cannot run
+#   without its API and sign-in hosts. The profile keeps the rest of the
+#   network closed, and a copy of this preset keeps one provider.
 filesystem:
   allow_write:
     - ${HOME}/.pi/**
@@ -23,3 +29,29 @@ environment:
     - ANTHROPIC_API_KEY
     - OPENAI_API_KEY
     - GEMINI_API_KEY
+
+# Network notes. Pi documents no host list, so the hosts come from its
+# source (github.com/badlogic/pi-mono, packages/ai/src).
+# - The three API hosts match the three keys above. Their base URLs are in
+#   providers/anthropic.ts, providers/openai.ts and providers/google.ts.
+# - claude.ai and platform.claude.com serve the Claude Pro/Max sign-in
+#   (auth/oauth/anthropic.ts). auth.openai.com serves the ChatGPT sign-in
+#   and chatgpt.com its model requests (auth/oauth/openai-codex.ts and
+#   providers/openai-codex.ts).
+# - pi.dev serves the version check on start (coding-agent, utils/
+#   version-check.ts), the model catalog refresh (core/remote-catalog-
+#   provider.ts) and the install report (modes/interactive/interactive-
+#   mode.ts). Set PI_OFFLINE=1 to stop all three and drop the host.
+# - Pi has many more providers. Copy this preset and add the host of the
+#   one you use, or add it for a run with --sandbox-allow
+#   net-connect=<host>:443.
+network:
+  allow_outbound:
+    - api.anthropic.com:443
+    - api.openai.com:443
+    - generativelanguage.googleapis.com:443
+    - claude.ai:443
+    - platform.claude.com:443
+    - auth.openai.com:443
+    - chatgpt.com:443
+    - pi.dev:443

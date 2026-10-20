@@ -9,6 +9,10 @@
 // At equal host specificity an exact port beats "*". At equal specificity
 // deny wins. With no matching rule the connection is allowed, so a profile
 // that wants an allow list denies "*:*".
+//
+// With DenyIPLiterals the policy denies an IP literal, an address and not
+// a name, unless a rule names that exact address. A wildcard never names an
+// address, so "*:*" does not allow it. Loopback stays with the rules.
 package netpolicy
 
 import (
@@ -23,7 +27,9 @@ import (
 )
 
 const (
-	anyHost = "*"
+	// AnyHost is the host of a rule that matches every host.
+	AnyHost = "*"
+	anyHost = AnyHost
 	anyPort = 0
 
 	// A name is at most 253 characters and a label at most 63 (RFC 1035).
@@ -77,8 +83,24 @@ type Decision struct {
 
 // Policy holds the parsed rules of one profile.
 type Policy struct {
-	rules []Rule
+	rules          []Rule
+	denyIPLiterals bool
 }
+
+// Option configures a Policy beyond its rules.
+type Option func(*Policy)
+
+// DenyIPLiterals denies a destination that is an address and not a name,
+// unless a rule names that exact address.
+func DenyIPLiterals() Option {
+	return func(p *Policy) { p.denyIPLiterals = true }
+}
+
+// IPLiteralRule is the rule name a decision carries when DenyIPLiterals
+// denied an address no rule names.
+const IPLiteralRule = "ip_literal"
+
+var ipLiteralRule = Rule{Raw: IPLiteralRule, Deny: true}
 
 // ParseRule parses one rule. It does not know which list the rule came from,
 // so Deny is false. The proxy has no client for a connection yet, so a rule
@@ -137,8 +159,11 @@ func parseRule(raw string) (Rule, error) {
 
 // New parses the allow and deny lists of a profile. The first invalid rule
 // is returned as a *RuleError that names its list.
-func New(allow, deny []string) (*Policy, error) {
+func New(allow, deny []string, opts ...Option) (*Policy, error) {
 	policy := &Policy{rules: make([]Rule, 0, len(allow)+len(deny))}
+	for _, opt := range opts {
+		opt(policy)
+	}
 
 	for _, raw := range allow {
 		rule, err := parseListRule("network.allow_outbound", raw)
@@ -178,6 +203,12 @@ func (p *Policy) Rules() []Rule {
 	return append([]Rule(nil), p.rules...)
 }
 
+// DeniesIPLiterals reports whether the policy denies an address no rule
+// names.
+func (p *Policy) DeniesIPLiterals() bool {
+	return p != nil && p.denyIPLiterals
+}
+
 // Decide returns the decision for a connection to host and port. A nil
 // policy allows every connection.
 func (p *Policy) Decide(host string, port uint16) Decision {
@@ -186,7 +217,9 @@ func (p *Policy) Decide(host string, port uint16) Decision {
 	}
 
 	host = NormalizeHost(host)
-	if !isAddress(host) && validateName(host) != nil {
+	addr, parseErr := netip.ParseAddr(host)
+	isAddr := parseErr == nil
+	if !isAddr && validateName(host) != nil {
 		return Decision{Allowed: false, Rule: &unreadableHost}
 	}
 
@@ -199,6 +232,11 @@ func (p *Policy) Decide(host string, port uint16) Decision {
 		if best == nil || rule.beats(best) {
 			best = rule
 		}
+	}
+
+	// An exact address rule, allow or deny, beats the IP literal denial.
+	if p.denyIPLiterals && isAddr && !addr.IsLoopback() && (best == nil || best.Host != host) {
+		return Decision{Allowed: false, Rule: &ipLiteralRule}
 	}
 
 	if best == nil {
@@ -254,6 +292,10 @@ func parseLegacyIPv4(host string) (netip.Addr, bool) {
 		if part == "" || strings.ContainsAny(part, "_+-") || strings.HasPrefix(part, "0b") || strings.HasPrefix(part, "0o") {
 			return netip.Addr{}, false
 		}
+		// inet_aton reads a bare "0x" as 0, so "0x.1.2" is 0.1.0.2.
+		if part == "0x" || part == "0X" {
+			part = "0"
+		}
 		n, err := strconv.ParseUint(part, 0, 32)
 		if err != nil {
 			return netip.Addr{}, false
@@ -293,6 +335,27 @@ func (r *Rule) matches(host string, port uint16) bool {
 	return r.Host == host
 }
 
+// Covers reports whether every destination other matches, r matches too.
+// A loader uses it to drop an allow rule an authored deny already decides.
+func (r Rule) Covers(other Rule) bool {
+	if r.Client != "" && r.Client != other.Client {
+		return false
+	}
+	if r.Port != anyPort && r.Port != other.Port {
+		return false
+	}
+	if r.Host == anyHost || r.Host == other.Host {
+		return true
+	}
+	suffix, ok := strings.CutPrefix(r.Host, "*.")
+	if !ok {
+		return false
+	}
+	// "*.example.com" covers "a.example.com" and "*.a.example.com".
+	otherHost := strings.TrimPrefix(other.Host, "*.")
+	return strings.HasSuffix(otherHost, "."+suffix)
+}
+
 func isAddress(host string) bool {
 	_, err := netip.ParseAddr(host)
 	return err == nil
@@ -313,6 +376,11 @@ func isRelativePath(client string) bool {
 
 // beats says whether r is more specific than other, or as specific and a
 // deny while other is an allow.
+// CatchAll reports whether r matches every destination from every client.
+func (r Rule) CatchAll() bool {
+	return r.Host == anyHost && r.Port == anyPort && r.Client == ""
+}
+
 func (r *Rule) beats(other *Rule) bool {
 	if a, b := r.hostRank(), other.hostRank(); a != b {
 		return a > b

@@ -181,7 +181,8 @@ func TestProfilePropose_IntoAppendsAndKeepsTheOtherBlocks(t *testing.T) {
 	want := strings.Replace(proposeExistingProfile,
 		"    - github.com:443\n",
 		"    - github.com:443\n    - objects.githubusercontent.com:443\n", 1)
-	assert.Equal(t, want, string(written), "the other blocks and the comment stay as they were")
+	want = strings.Replace(want, "network:\n", "network:\n  deny_ip_literals: true\n", 1)
+	assert.Equal(t, want, string(written), "the other blocks and the comment stay as they were, and the proposal turns on the IP literal denial")
 
 	out, err = f.run(t, "--last", "--into", target)
 	require.NoError(t, err)
@@ -321,7 +322,7 @@ func TestProfilePropose_IntoASkeletonNetworkKey(t *testing.T) {
 	require.NoError(t, err)
 	written, err := os.ReadFile(target)
 	require.NoError(t, err)
-	assert.Contains(t, string(written), "network:\n  allow_outbound:\n    - cdn.example:443\n")
+	assert.Contains(t, string(written), "network:\n  deny_ip_literals: true\n  allow_outbound:\n    - cdn.example:443\n")
 }
 
 func TestProfilePropose_IntoKeepsTheProfileMode(t *testing.T) {

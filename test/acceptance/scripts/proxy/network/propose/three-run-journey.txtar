@@ -1,8 +1,8 @@
 # guarantee: a daemon run under audit with no profile observes every
 # destination, `pmg proxy env` exports the run id, the stop report names
 # the proposal command, the proposal
-# writes a profile with one allow rule per destination and the catch-all
-# deny, a dry run does not write the file, and a daemon under that profile in enforce refuses a destination
+# writes a profile with one allow rule per destination, the IP literal
+# denial and the catch-all deny, a dry run does not write the file, and a daemon under that profile in enforce refuses a destination
 # the run did not reach.
 
 [windows] skip 'pmg proxy start --daemon is not supported on Windows'
@@ -31,6 +31,7 @@ exec pmg sandbox profile propose --last --new $WORK/ci.yml
 stdout 'Wrote .*ci.yml'
 exists $WORK/ci.yml
 grep 'inherits: exec' $WORK/ci.yml
+grep 'deny_ip_literals: true' $WORK/ci.yml
 grep '    - registry.npmjs.org:443' $WORK/ci.yml
 grep '    - "\*:\*"' $WORK/ci.yml
 exec pmg sandbox profile lint $WORK/ci.yml

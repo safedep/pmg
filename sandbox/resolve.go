@@ -89,6 +89,9 @@ func expandPolicyPaths(p *SandboxPolicy, opts ResolveOptions) (*SandboxPolicy, e
 		DenyOutbound:  append([]string(nil), p.Network.DenyOutbound...),
 		AllowBind:     append([]string(nil), p.Network.AllowBind...),
 	}
+	if p.Network.DenyIPLiterals != nil {
+		out.Network.DenyIPLiterals = utils.PtrTo(*p.Network.DenyIPLiterals)
+	}
 
 	// Environment entries are variable-name globs, not paths, so they are
 	// deep-copied without expansion so the caller can safely mutate the result.

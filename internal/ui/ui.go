@@ -50,6 +50,11 @@ func SetVerbosityLevel(level VerbosityLevel) {
 	verbosityLevel = level
 }
 
+// Verbose reports whether --verbose or the verbosity config is in effect.
+func Verbose() bool {
+	return verbosityLevel == VerbosityLevelVerbose
+}
+
 func ClearStatus() {
 	StopSpinner()
 	fmt.Fprint(os.Stderr, "\r")

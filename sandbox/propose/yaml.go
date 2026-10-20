@@ -10,15 +10,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// RenderBlock writes the two outbound lists at two-space indent, the shape
-// the built-in profiles use.
+const (
+	denyIPLiteralsKey = "deny_ip_literals"
+	allowOutboundKey  = "allow_outbound"
+	denyOutboundKey   = "deny_outbound"
+)
+
+// RenderBlock writes the IP literal key and the two outbound lists at
+// two-space indent, the shape the built-in profiles use.
 func RenderBlock(network sandbox.NetworkPolicy) []byte {
 	var b bytes.Buffer
 	b.WriteString("network:\n")
+	if network.DenyIPLiterals != nil {
+		fmt.Fprintf(&b, "  %s: %t\n", denyIPLiteralsKey, *network.DenyIPLiterals)
+	}
 	for _, list := range []struct {
 		key   string
 		rules []string
-	}{{"allow_outbound", network.AllowOutbound}, {"deny_outbound", network.DenyOutbound}} {
+	}{{allowOutboundKey, network.AllowOutbound}, {denyOutboundKey, network.DenyOutbound}} {
 		fmt.Fprintf(&b, "  %s:", list.key)
 		if len(list.rules) == 0 {
 			b.WriteString(" []\n")
@@ -42,11 +51,12 @@ func yamlRule(rule string) string {
 	return rule
 }
 
-// SetBlock replaces the allow_outbound and deny_outbound lists of the
-// network block in doc and leaves every other node as it is. Comments
-// survive, because the edit is on the YAML node tree. A network key with
-// no mapping, such as the `network:` of a skeleton, gets one. A network
-// key that is an alias edits the mapping the alias points at.
+// SetBlock replaces the IP literal key and the allow_outbound and
+// deny_outbound lists of the network block in doc and leaves every other
+// node as it is. Comments survive, because the edit is on the YAML node
+// tree. A network key with no mapping, such as the `network:` of a
+// skeleton, gets one. A network key that is an alias edits the mapping the
+// alias points at.
 func SetBlock(doc []byte, network sandbox.NetworkPolicy) ([]byte, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(doc, &root); err != nil {
@@ -66,8 +76,11 @@ func SetBlock(doc []byte, network sandbox.NetworkPolicy) ([]byte, error) {
 	case networkNode.Kind != yaml.MappingNode:
 		*networkNode = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Anchor: networkNode.Anchor}
 	}
-	setSequence(networkNode, "allow_outbound", network.AllowOutbound)
-	setSequence(networkNode, "deny_outbound", network.DenyOutbound)
+	if network.DenyIPLiterals != nil {
+		setBool(networkNode, denyIPLiteralsKey, *network.DenyIPLiterals)
+	}
+	setSequence(networkNode, allowOutboundKey, network.AllowOutbound)
+	setSequence(networkNode, denyOutboundKey, network.DenyOutbound)
 
 	var out bytes.Buffer
 	enc := yaml.NewEncoder(&out)
@@ -88,6 +101,20 @@ func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
+}
+
+// setBool sets key to value. A new key goes first in the mapping, where
+// the built-in profiles write it. The anchor and the line comment of the
+// old value stay.
+func setBool(mapping *yaml.Node, key string, value bool) {
+	node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprintf("%t", value)}
+	if existing := mappingValue(mapping, key); existing != nil {
+		node.Anchor = existing.Anchor
+		node.LineComment = existing.LineComment
+		*existing = *node
+		return
+	}
+	mapping.Content = append([]*yaml.Node{{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, node}, mapping.Content...)
 }
 
 // setSequence sets key to values. An anchor on the old node stays, so an

@@ -15,6 +15,12 @@ metadata:
 #   Accepted: Codex writes its own config and refuses to run without it.
 # - OPENAI_API_KEY is re-allowed so an API-key login keeps working. See
 #   docs/sandbox-exec.md for the trade-off.
+# - The hosts in the network notes below can carry data out of the sandbox.
+#   api.openai.com accepts any payload under an attacker's own API key,
+#   api.github.com accepts a gist or an issue under any token, and
+#   chatgpt.com is a general-purpose host. Accepted: the agent cannot run
+#   without its API and sign-in hosts. The profile keeps the rest of the
+#   network closed, and a copy of this preset drops api.github.com.
 filesystem:
   allow_write:
     - ${HOME}/.codex/**
@@ -22,3 +28,31 @@ filesystem:
 environment:
   allow:
     - OPENAI_API_KEY
+
+# Network notes. Codex documents no host list, so the hosts come from its
+# documentation pages and its source (github.com/openai/codex, codex-rs).
+# - api.openai.com serves the model requests of an API-key session. It is
+#   the base URL of the built-in openai provider, which openai_base_url in
+#   config.toml overrides: https://learn.chatgpt.com/docs/config-file/config-reference
+#   A ChatGPT sign-in session sends them to chatgpt.com/backend-api/codex:
+#   https://learn.chatgpt.com/docs/enterprise/sign-in-with-chatgpt-through-a-gateway
+# - auth.openai.com is the OAuth issuer for the browser sign-in
+#   (codex-rs/login/src/server.rs).
+# - ab.chatgpt.com receives the default Statsig metrics
+#   (codex-rs/otel/src/config.rs). Set analytics.enabled = false in
+#   config.toml and drop it in a copy of this preset.
+# - api.github.com serves the update check on start
+#   (codex-rs/tui/src/updates.rs). Set check_for_update_on_startup = false
+#   and drop it in a copy. An npm install also reads registry.npmjs.org for
+#   that check. A Homebrew install reads formulae.brew.sh instead. Neither
+#   is listed.
+# - A custom model provider, a gateway or an MCP server over HTTP needs its
+#   own host: --sandbox-allow net-connect=<host>:443 for a run, or
+#   pmg sandbox allow to keep it.
+network:
+  allow_outbound:
+    - api.openai.com:443
+    - chatgpt.com:443
+    - auth.openai.com:443
+    - ab.chatgpt.com:443
+    - api.github.com:443

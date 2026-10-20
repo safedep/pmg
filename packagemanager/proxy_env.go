@@ -33,15 +33,8 @@ const proxyNoProxyList = "localhost,127.0.0.1,::1"
 func EnvVarForProxy(proxyAddr, certPath string) []string {
 	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
 
-	return []string{
+	return append(ProxyEnv(proxyAddr),
 		"PIP_RETRIES=0",
-		"NODE_USE_ENV_PROXY=1",
-		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
-		fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
-		fmt.Sprintf("http_proxy=%s", proxyURL),
-		fmt.Sprintf("https_proxy=%s", proxyURL),
-		fmt.Sprintf("NO_PROXY=%s", proxyNoProxyList),
-		fmt.Sprintf("no_proxy=%s", proxyNoProxyList),
 		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
 		// npm-family clients (npm, aube) read npm config before the standard
 		// proxy vars: npm_config_* in the environment beats HTTPS_PROXY and
@@ -80,6 +73,25 @@ func EnvVarForProxy(proxyAddr, certPath string) []string {
 		// ephemeral MITM leaf certs (no CRL/OCSP endpoints). Elsewhere this
 		// matches cargo's default.
 		"CARGO_HTTP_CHECK_REVOKE=false",
+	)
+}
+
+// ProxyEnv returns the environment variables that route a program through
+// the proxy at proxyAddr: the proxy variables HTTP clients read, in both
+// letter cases, with loopback excluded. Node reads them only with
+// NODE_USE_ENV_PROXY set. The list carries no CA. A proxy that does not
+// terminate TLS needs none.
+func ProxyEnv(proxyAddr string) []string {
+	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
+
+	return []string{
+		"NODE_USE_ENV_PROXY=1",
+		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
+		fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
+		fmt.Sprintf("http_proxy=%s", proxyURL),
+		fmt.Sprintf("https_proxy=%s", proxyURL),
+		fmt.Sprintf("NO_PROXY=%s", proxyNoProxyList),
+		fmt.Sprintf("no_proxy=%s", proxyNoProxyList),
 	}
 }
 

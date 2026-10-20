@@ -1,6 +1,7 @@
 package proxyserver
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -218,6 +219,84 @@ network:
 	err = resolveNetworkPolicyErr(networkConfig("", ""), locked)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot be unset")
+}
+
+func TestResolveNetworkPolicyCompilesDenyIPLiterals(t *testing.T) {
+	profile := writeProfile(t, t.TempDir(), "literals.yml", `
+name: literals
+package_managers: [npm]
+network:
+  deny_ip_literals: true
+  allow_outbound:
+    - registry.npmjs.org:443
+`)
+
+	got, err := resolveNetworkPolicy(networkConfig(profile, ""), NetworkOverrides{})
+	require.NoError(t, err)
+	assert.True(t, got.policy.DeniesIPLiterals())
+	assert.Equal(t, netpolicy.IPLiteralRule, got.policy.Decide("193.32.204.199", 80).Rule.Raw)
+}
+
+func TestRefuseWideningProfileKeepsDenyIPLiterals(t *testing.T) {
+	dir := t.TempDir()
+	configDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(configDir, "profiles"), 0o755))
+	writeProfile(t, filepath.Join(configDir, "profiles"), "locked.yml", `
+name: locked
+inherits: npm-restrictive
+network:
+  deny_ip_literals: true
+`)
+	off := writeProfile(t, dir, "off.yml", `
+name: off
+inherits: npm-restrictive
+network:
+  deny_ip_literals: false
+`)
+	silent := writeProfile(t, dir, "silent.yml", `
+name: silent
+inherits: npm-restrictive
+network:
+  deny_outbound:
+    - pastebin.com:443
+`)
+
+	inherits := writeProfile(t, dir, "inherits.yml", fmt.Sprintf(`
+name: inherits
+inherits: %s
+network:
+  deny_outbound:
+    - pastebin.com:443
+`, filepath.Join(configDir, "profiles", "locked.yml")))
+	explicit := writeProfile(t, dir, "explicit.yml", `
+name: explicit
+inherits: npm-restrictive
+network:
+  deny_ip_literals: true
+`)
+
+	t.Setenv("PMG_CONFIG_DIR", configDir)
+	t.Cleanup(config.Reload)
+	config.Reload()
+	cfg := config.Get()
+	locked := NetworkOverrides{LockedProfile: "profiles/locked.yml"}
+
+	cfg.Config.Proxy.Server.Profile = off
+	err := resolveNetworkPolicyErr(cfg, locked)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not keep deny_ip_literals: true")
+
+	cfg.Config.Proxy.Server.Profile = silent
+	err = resolveNetworkPolicyErr(cfg, locked)
+	require.Error(t, err, "a child that does not inherit the locked profile drops its key")
+	assert.Contains(t, err.Error(), "does not keep deny_ip_literals: true")
+
+	for _, profile := range []string{inherits, explicit} {
+		cfg.Config.Proxy.Server.Profile = profile
+		network, err := resolveNetworkPolicy(cfg, locked)
+		require.NoError(t, err, profile)
+		assert.True(t, network.policy.DeniesIPLiterals(), profile)
+	}
 }
 
 func resolveNetworkPolicyErr(cfg *config.RuntimeConfig, o NetworkOverrides) error {

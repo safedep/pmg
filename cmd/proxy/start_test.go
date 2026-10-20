@@ -121,7 +121,7 @@ func TestWideningNetworkFlagsUnderLockdown(t *testing.T) {
 	assert.Equal(t, []string{"--network-allow", "--network-mode=audit"}, wideningNetworkFlags(fs, srv))
 
 	fs, srv = parse(t, "enforce", "--profile=", "--network-mode=")
-	assert.Equal(t, []string{"--profile=", "--network-mode="}, wideningNetworkFlags(fs, srv), "an empty value unsets the file's profile and mode")
+	assert.Equal(t, []string{"--network-mode=", "--profile="}, wideningNetworkFlags(fs, srv), "an empty value unsets the file's profile and mode")
 }
 
 func TestWideningFlagsUnderLockdown(t *testing.T) {
