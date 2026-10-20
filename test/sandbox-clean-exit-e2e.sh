@@ -6,12 +6,13 @@ set -euo pipefail
 PMG_CACHE_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pmg-clean-exit-e2e.XXXXXX")"
 export PMG_CACHE_DIR
 
-# Prints the primary target of each cached record, one per line. It fails when
-# pmg fails or prints no valid JSON, so a crash cannot look like an empty cache.
+# Prints the primary target of each cached record, one per line. A record with
+# no target prints a placeholder, so it still counts. It fails when pmg fails or
+# prints no valid JSON, so a crash cannot look like an empty cache.
 violation_targets() {
   local out
   out="$(pmg sandbox violations list --json)" || return 1
-  node -e 'for (const e of JSON.parse(process.argv[1]).entries) console.log(e.primary?.target ?? "")' "$out"
+  node -e 'for (const e of JSON.parse(process.argv[1]).entries) console.log(e.primary?.target || "<no target>")' "$out"
 }
 
 pmg --sandbox --sandbox-enforce npm exec -- node -e "console.log('clean run')"
