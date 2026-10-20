@@ -21,6 +21,7 @@ type seatbeltSandbox struct {
 	policyName       string
 	logTag           string
 	startedAt        time.Time
+	stream           *seatbeltLogStream
 }
 
 func newSeatbeltSandbox() (*seatbeltSandbox, error) {
@@ -98,7 +99,28 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 
 	log.Debugf("Sandboxed command: %s %v", cmd.Path, cmd.Args)
 
+	// The stream must be attached before the command starts, or it misses
+	// the first denials. Without a stream, PMG reads the log store after the
+	// run.
+	s.stopStream()
+	stream, err := startSeatbeltLogStream(seatbeltLogStreamCommand(s.logTag), seatbeltStreamReadyTimeout)
+	if err != nil {
+		log.Debugf("Seatbelt log stream unavailable, falling back to log show: %v", err)
+	}
+	s.stream = stream
+
 	return sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(s)), nil
+}
+
+// stopStream ends a log stream that no violation report consumed, such as on
+// an error path or an interrupted run.
+func (s *seatbeltSandbox) stopStream() {
+	if s.stream == nil {
+		return
+	}
+
+	s.stream.stop(0)
+	s.stream = nil
 }
 
 // Name returns the name of this sandbox implementation.
@@ -112,8 +134,10 @@ func (s *seatbeltSandbox) IsAvailable() bool {
 	return err == nil
 }
 
-// Close cleans up the temporary seatbelt profile file.
+// Close stops the log stream and cleans up the temporary seatbelt profile file.
 func (s *seatbeltSandbox) Close() error {
+	s.stopStream()
+
 	if s.cleanupCompleted || s.tempProfilePath == "" {
 		return nil
 	}

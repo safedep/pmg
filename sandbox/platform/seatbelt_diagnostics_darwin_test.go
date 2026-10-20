@@ -300,13 +300,14 @@ func runSeatbeltClean(t *testing.T, policy *sandbox.SandboxPolicy, argv ...strin
 	t.Cleanup(func() {
 		require.NoError(t, result.Close())
 	})
+	require.NotNil(t, sb.stream, "Execute must start the log stream, or the run falls back to the log store")
 
 	require.NoError(t, cmd.Run(), "the command must exit 0")
 	return sb, stdout.String()
 }
 
 // A credential stealer catches the denial and exits 0. The run succeeds, and
-// the denial must still be reported from the unified log.
+// the log stream must still report the denial.
 func TestSeatbeltReportsDenialOnCleanExit(t *testing.T) {
 	requireSandboxExec(t)
 
@@ -335,8 +336,8 @@ func TestSeatbeltReportsDenialOnCleanExit(t *testing.T) {
 }
 
 // /usr/bin/true probes the system on start and hits the catch-all rule. A
-// clean run reports nothing for that noise. It also must not wait for the
-// full query deadline, or every sandboxed run gets slower.
+// clean run reports nothing for that noise. It also must not query the log
+// store, which costs 0.7s or more, or every sandboxed run gets slower.
 func TestSeatbeltCleanRunWithoutRuleDenial(t *testing.T) {
 	requireSandboxExec(t)
 
@@ -351,5 +352,5 @@ func TestSeatbeltCleanRunWithoutRuleDenial(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Nil(t, report)
-	assert.Less(t, elapsed, seatbeltMaxQueryWait)
+	assert.Less(t, elapsed, seatbeltStreamDrainWait+500*time.Millisecond)
 }

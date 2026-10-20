@@ -71,9 +71,21 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 		return nil, nil
 	}
 
-	// A clean run gets one query. Most clean runs have no denial, and a poll
-	// to the deadline would add seatbeltMaxQueryWait to each of them. A failed
-	// run polls, because the user looks for the cause.
+	// The stream saw the run as it happened, so a clean run trusts it. A
+	// failed run with no denial in the stream still polls the log store
+	// below, because the user looks for the cause.
+	if violations, ok := s.streamViolations(err); ok {
+		if len(violations) > 0 {
+			return s.violationReport(violations), nil
+		}
+		if err == nil {
+			return nil, nil
+		}
+	}
+
+	// Without a complete stream, a clean run gets one query. Most clean runs
+	// have no denial, and a poll to the deadline would add
+	// seatbeltMaxQueryWait to each of them.
 	deadline := time.Now()
 	if err != nil {
 		deadline = deadline.Add(seatbeltMaxQueryWait)
@@ -85,19 +97,8 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 		entries, queryErr := s.queryLogs(s.startedAt.Add(-seatbeltLogWindowPadding), end.Add(seatbeltLogWindowPadding))
 		if queryErr != nil {
 			lastQueryErr = queryErr
-		} else {
-			violations := extractSeatbeltViolations(entries, s.logTag)
-			if err == nil {
-				violations = seatbeltRuleDenials(violations)
-			}
-			if len(violations) > 0 {
-				return &sandbox.ViolationReport{
-					SandboxName:   s.Name(),
-					PolicyName:    s.policyName,
-					CorrelationID: s.logTag,
-					Violations:    violations,
-				}, nil
-			}
+		} else if violations := s.runViolations(entries, err); len(violations) > 0 {
+			return s.violationReport(violations), nil
 		}
 
 		if time.Now().After(deadline) {
@@ -112,6 +113,42 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 	}
 
 	return nil, nil
+}
+
+// streamViolations stops the log stream of the run and returns its denials.
+// ok is false when the run has no stream, or when the stream ended early.
+func (s *seatbeltSandbox) streamViolations(runErr error) (violations []sandbox.Violation, ok bool) {
+	if s.stream == nil {
+		return nil, false
+	}
+
+	entries, complete := s.stream.stop(seatbeltStreamDrainWait)
+	s.stream = nil
+	if !complete {
+		return nil, false
+	}
+
+	return s.runViolations(entries, runErr), true
+}
+
+// runViolations extracts the denials of this run. A clean run keeps only the
+// denials of the policy's own deny rules.
+func (s *seatbeltSandbox) runViolations(entries []seatbeltLogEntry, runErr error) []sandbox.Violation {
+	violations := extractSeatbeltViolations(entries, s.logTag)
+	if runErr == nil {
+		violations = seatbeltRuleDenials(violations)
+	}
+
+	return violations
+}
+
+func (s *seatbeltSandbox) violationReport(violations []sandbox.Violation) *sandbox.ViolationReport {
+	return &sandbox.ViolationReport{
+		SandboxName:   s.Name(),
+		PolicyName:    s.policyName,
+		CorrelationID: s.logTag,
+		Violations:    violations,
+	}
 }
 
 // seatbeltRuleDenials drops the denials of the catch-all (deny default) rule
@@ -272,6 +309,12 @@ func extractSeatbeltDeniedToken(raw string, payload *seatbeltLogPayload) string 
 	return strings.Trim(last, "\"',;:()[]{}")
 }
 
+// seatbeltRunPredicate selects the unified log entries of one run by the
+// marker that its deny rules carry.
+func seatbeltRunPredicate(logTag string) string {
+	return fmt.Sprintf(`eventMessage CONTAINS "PMG_SBX|run=%s|"`, logTag)
+}
+
 func (s *seatbeltSandbox) queryLogs(start, end time.Time) ([]seatbeltLogEntry, error) {
 	info, err := os.Stat(macOSUnifiedLogPath)
 	if err != nil {
@@ -281,13 +324,12 @@ func (s *seatbeltSandbox) queryLogs(start, end time.Time) ([]seatbeltLogEntry, e
 		return nil, fmt.Errorf("macOS unified log CLI not available: %s is a directory", macOSUnifiedLogPath)
 	}
 
-	predicate := fmt.Sprintf(`eventMessage CONTAINS "PMG_SBX|run=%s|"`, s.logTag)
 	args := []string{
 		"show",
 		"--style", "json",
 		"--start", start.Format("2006-01-02 15:04:05"),
 		"--end", end.Format("2006-01-02 15:04:05"),
-		"--predicate", predicate,
+		"--predicate", seatbeltRunPredicate(s.logTag),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), seatbeltLogCommandTimeout)
