@@ -40,7 +40,7 @@ fail() {
 # pnpm profile allowed it, pnpm -v failed with EPERM on mkdir.
 test_corepack_pnpm() {
 	echo "== corepack pnpm"
-	local dir shims version
+	local dir shims
 	dir=$(workdir)
 	shims="$dir/shims"
 	mkdir "$shims" "$dir/app"
@@ -49,8 +49,9 @@ test_corepack_pnpm() {
 	cd "$dir/app"
 	printf '{"name":"app","version":"1.0.0","packageManager":"pnpm@9.15.9"}\n' >package.json
 
-	version=$(PATH="$shims:$PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 sandboxed pnpm --version | tail -n 1)
-	[ "$version" = "9.15.9" ] || fail "corepack pnpm printed version '$version'"
+	# PMG prints its own summary after the output of pnpm.
+	PATH="$shims:$PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 sandboxed pnpm --version | tee version.txt
+	grep -qx "9.15.9" version.txt || fail "corepack pnpm did not print version 9.15.9"
 	test -d "$HOME/.cache/node/corepack/v1/pnpm/9.15.9" || fail "corepack did not cache pnpm 9.15.9"
 	cd - >/dev/null
 	rm -rf "$dir"
@@ -231,12 +232,13 @@ test_pip_user_site() {
 	cd "$dir"
 	export PIP_BREAK_SYSTEM_PACKAGES=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 
-	if sandboxed pip3 install --user --no-deps six==1.16.0; then
+	# --ignore-installed makes pip write six even when the system site has it.
+	if sandboxed pip3 install --user --ignore-installed --no-deps six==1.16.0; then
 		fail "pip3 install --user passed without the pip-user preset"
 	fi
 	test ! -e "$user_site/six.py" || fail "six.py is in the user site without the pip-user preset"
 
-	sandboxed --sandbox-allow preset=pip-user pip3 install --user --no-deps six==1.16.0
+	sandboxed --sandbox-allow preset=pip-user pip3 install --user --ignore-installed --no-deps six==1.16.0
 	test -f "$user_site/six.py" || fail "pip3 did not install six into $user_site"
 	"$py" -m pip uninstall --yes six
 	unset PIP_BREAK_SYSTEM_PACKAGES PIP_DISABLE_PIP_VERSION_CHECK
@@ -254,12 +256,21 @@ tests=(
 	test_pip_user_site
 )
 
+# With arguments, the script runs the named tests in this process. Without
+# them, it runs each test in its own process, so one failure does not hide
+# the result of the other tests.
 if [ "$#" -gt 0 ]; then
-	tests=("$@")
+	for t in "$@"; do
+		"$t"
+	done
+	exit 0
 fi
 
+failed=()
 for t in "${tests[@]}"; do
-	"$t"
+	"$0" "$t" || failed+=("$t")
 done
-
+if [ "${#failed[@]}" -gt 0 ]; then
+	fail "these tests failed: ${failed[*]}"
+fi
 echo "All package manager default path tests passed"
