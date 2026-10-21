@@ -59,7 +59,9 @@ test_corepack_pnpm() {
 
 # Without PNPM_HOME, pnpm keeps its store in ~/Library/pnpm/store on macOS
 # and in ~/.local/share/pnpm/store on Linux. pnpm/action-setup sets
-# PNPM_HOME, so the test removes it.
+# PNPM_HOME, so the test removes it. On Linux the profile cannot allow the
+# _tmp_* directory that pnpm links a test file into, so pnpm can keep the
+# store in the project. The test accepts either store on Linux.
 test_pnpm_default_store() {
 	echo "== pnpm default store"
 	local dir store
@@ -76,6 +78,9 @@ test_pnpm_default_store() {
 	env -u PNPM_HOME -u npm_config_store_dir -u NPM_CONFIG_STORE_DIR \
 		pmg --sandbox --sandbox-enforce pnpm add lodash@4.17.21
 	test -d node_modules/lodash || fail "pnpm did not install lodash"
+	if [ "$OS" = Linux ] && [ -d .pnpm-store ]; then
+		store="$dir/.pnpm-store"
+	fi
 	if ! find "$store" -mindepth 1 -maxdepth 1 -name 'v*' 2>/dev/null | grep -q .; then
 		echo "pnpm store path: $(env -u PNPM_HOME pnpm store path 2>&1)"
 		echo "pnpm store-dir: $(env -u PNPM_HOME pnpm config get store-dir 2>&1)"
@@ -164,7 +169,11 @@ test_cargo_credentials() {
 		echo "skip: Bubblewrap does not support the cargo profile"
 		return 0
 	fi
-	local dir created=()
+	local dir
+	created=()
+	# Each test runs in its own process, so the trap removes the files that
+	# this test created also when a step fails.
+	trap 'if [ "${#created[@]}" -gt 0 ]; then rm -f "${created[@]}"; fi' EXIT
 	mkdir -p "$HOME/.cargo"
 	if [ -e "$HOME/.cargo/credentials.toml" ]; then
 		fail "the runner already has ~/.cargo/credentials.toml"
@@ -225,9 +234,6 @@ EOF
 	fi
 	cd - >/dev/null
 	rm -rf "$dir"
-	if [ "${#created[@]}" -gt 0 ]; then
-		rm -f "${created[@]}"
-	fi
 }
 
 # The pip profile does not allow writes to the user site. The pip-user

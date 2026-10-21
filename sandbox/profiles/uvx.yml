@@ -44,8 +44,12 @@ filesystem:
     - ${CWD}/**
     - ${HOME}/.cache/uv/**
     - ${HOME}/Library/Caches/uv/**
-    - ${HOME}/.local/share/uv/**
-    - ${HOME}/Library/Application Support/uv/**
+    # Only the managed Python is writable in the uv data directory. The
+    # directory also holds the environments of installed tools, and their
+    # programs are linked into ~/.local/bin. uv tool run does not write
+    # them.
+    - ${HOME}/.local/share/uv/python/**
+    - ${HOME}/Library/Application Support/uv/python/**
     - ${HOME}/.config/uv/**
     # ~/.local/bin is not writable. uv tool run does not need it, only uv
     # tool install does, and that runs under the uv profile. The directory

@@ -702,7 +702,9 @@ The built-in profiles allow the cache and the store of each package manager at i
 location on macOS and Linux:
 
 - pnpm: the store (`~/Library/pnpm/store`, `~/.local/share/pnpm/store`) and the state directory
-  (`~/.pnpm-state`, `~/.local/state/pnpm`).
+  (`~/.pnpm-state`, `~/.local/state/pnpm`). pnpm uses the store only after it links a test file
+  into a `_tmp_*` directory in the pnpm home. Bubblewrap and Landlock cannot allow that directory,
+  so on Linux pnpm keeps the store in `.pnpm-store` in the project.
 - yarn: the Yarn 2 and later global cache (`~/.yarn/berry`) and the Yarn 1 cache on macOS
   (`~/Library/Caches/Yarn`).
 - pnpm, yarn and pnpx: the corepack cache (`~/.cache/node/corepack`). npm and npx do not get it,
@@ -723,7 +725,8 @@ The built-in profiles also deny some paths that run code or hold a token:
   `~/.local/lib/python3.12`. Every Python loads it, and a `.pth` file there runs at each start.
   Apply the `pip-user` preset for a run that installs there on purpose:
   `pmg --sandbox-allow preset=pip-user pip install --user <pkg>`.
-- uvx cannot write `~/.local/bin`. `uv tool run` does not need it.
+- uvx cannot write `~/.local/bin` or the environments of installed tools in `~/.local/share/uv/tools`.
+  `uv tool run` does not need them. uvx can write the managed Python in `~/.local/share/uv/python`.
 - cargo cannot read `~/.cargo/credentials.toml` or `~/.cargo/credentials`. A registry that needs
   the token to download takes an exact opt-out:
   `pmg --sandbox-allow "read=$HOME/.cargo/credentials.toml" cargo build`.

@@ -50,7 +50,7 @@ func TestProfilePathContract(t *testing.T) {
 		{
 			profile:    "pnpx",
 			inherits:   "npx",
-			allowWrite: []string{corepack, "${CWD}/**"},
+			allowWrite: []string{corepack, "${CWD}/**", "${HOME}/Library/pnpm/store/**", "${HOME}/.local/share/pnpm/store/**"},
 		},
 		{
 			// Corepack does not manage npm, npx or bun by default.
@@ -73,7 +73,8 @@ func TestProfilePathContract(t *testing.T) {
 		},
 		{
 			profile:       "uvx",
-			notAllowWrite: []string{"${HOME}/.local/bin/**", userSite},
+			allowWrite:    []string{"${HOME}/.local/share/uv/python/**"},
+			notAllowWrite: []string{"${HOME}/.local/bin/**", "${HOME}/.local/share/uv/**", userSite},
 			allowOutbound: append([]string{"releases.astral.sh:443"}, releaseHosts...),
 		},
 		{profile: "pip", notAllowWrite: []string{userSite}},

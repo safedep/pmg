@@ -39,6 +39,12 @@ filesystem:
     # PATH, so only the store subtree is listed.
     - ${HOME}/Library/pnpm/store/**
     - ${HOME}/.local/share/pnpm/store/**
+    # Before pnpm uses <pnpm home>/store, it links a test file into a
+    # _tmp_* directory in the pnpm home. When the link fails, pnpm keeps the
+    # store in the project. Bubblewrap and Landlock cannot allow a glob for a
+    # path that does not exist, so on Linux the store falls back to the
+    # project.
+    - ${HOME}/Library/pnpm/_tmp_*/**
 
     # The state directory, where pnpm keeps its update check:
     # ~/.pnpm-state on macOS and ~/.local/state/pnpm on Linux.

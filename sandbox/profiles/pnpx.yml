@@ -8,8 +8,20 @@ package_managers:
 filesystem:
   allow_read:
     - ${HOME}/.cache/node/corepack/**
+    - ${HOME}/Library/Caches/pnpm/**
+    - ${HOME}/Library/pnpm/store/**
+    - ${HOME}/.local/share/pnpm/store/**
 
   allow_write:
+    # pnpm dlx installs the package into the pnpm store and keeps its dlx
+    # cache in the pnpm cache, the same paths as the pnpm profile.
+    - ${HOME}/Library/Caches/pnpm/**
+    - ${HOME}/Library/pnpm/store/**
+    - ${HOME}/.local/share/pnpm/store/**
+    - ${HOME}/Library/pnpm/_tmp_*/**
+    - ${HOME}/.pnpm-state/**
+    - ${HOME}/.local/state/pnpm/**
+
     # pnpx runs pnpm dlx, and corepack shims pnpx as it shims pnpm. Corepack
     # downloads the pinned pnpm into COREPACK_HOME, ~/.cache/node/corepack by
     # default on macOS and Linux. npx stays without this rule, because
