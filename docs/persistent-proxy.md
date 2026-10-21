@@ -219,8 +219,8 @@ The daemon applies the network rules of a sandbox profile, the same
 reads only the `network` block. It warns at start when the profile has
 filesystem, process or environment rules, because only a sandbox applies
 those. Without a profile the daemon has no policy and says so at start.
-A profile with only a `network` block still needs `package_managers` or an
-`inherits` line, or it fails to load.
+A profile with only a `network` block must set `package_managers` or inherit
+them from its parent chain, or it fails to load.
 
 ```yaml
 proxy:
