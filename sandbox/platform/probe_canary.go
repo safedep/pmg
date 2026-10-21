@@ -147,6 +147,18 @@ func runCanary(ctx context.Context, name string, driver sandbox.DriverName, fact
 		}
 	}
 
+	// A denied read makes the canary exit with a status. A canary that a
+	// signal stopped, or that did not start, proves nothing about the policy.
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || !exitErr.Exited() {
+		return sandbox.ProbeResult{
+			Name:    name,
+			Status:  sandbox.ProbeStatusFail,
+			Summary: d + " canary did not run to completion",
+			Detail:  err.Error(),
+		}
+	}
+
 	return sandbox.ProbeResult{
 		Name:    name,
 		Status:  sandbox.ProbeStatusOK,

@@ -37,6 +37,14 @@ func (f *fakeSandbox) Close() error             { f.closed = true; return nil }
 func trueCmd(ctx context.Context) *exec.Cmd  { return exec.CommandContext(ctx, "true") }
 func falseCmd(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "false") }
 
+func killedCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", "kill -9 $$")
+}
+
+func missingCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "/nonexistent/pmg-canary")
+}
+
 func maskedCanaryCmd(ctx context.Context) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "printf", "")
 	cmd.Args = []string{"cat", "", canaryTargetPath}
@@ -66,6 +74,18 @@ func TestRunCanary(t *testing.T) {
 			name:    "fail did not block",
 			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
 			cmd:     trueCmd,
+			want:    sandbox.ProbeStatusFail,
+		},
+		{
+			name:    "fail killed by a signal",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     killedCmd,
+			want:    sandbox.ProbeStatusFail,
+		},
+		{
+			name:    "fail did not start",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     missingCmd,
 			want:    sandbox.ProbeStatusFail,
 		},
 		{
