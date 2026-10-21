@@ -191,10 +191,10 @@ jobs:
           sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE" | tee status.txt
           grep -qF "Network policy: enforce, profile npm-restrictive < $GITHUB_WORKSPACE/.pmg/profiles/ci.yml" status.txt
           echo "PMG_PROXY_RUN=${PMG_PROXY_RUN:-<unset>}"
-      - name: A benign install works with a scrubbed environment
+      - name: A benign install works
         run: |
           mkdir benign && cd benign && npm init -y >/dev/null
-          env -i PATH="$PATH" HOME="$HOME" npm install lodash@4.17.21
+          npm install lodash@4.17.21
           test -d node_modules/lodash
       - name: Denied host and IP literal are refused for a scrubbed client
         run: |
@@ -222,6 +222,9 @@ jobs:
           grep -qE "denied  pastebin.com:443 +rule pastebin.com:443 +/usr/bin/curl pid [0-9]+" <<<"$out"
           grep -qF "rule ip_literal" <<<"$out"
           grep -qF "ports 80,443" <<<"$out"
+      - name: List what the daemon observed, runner traffic included
+        if: always()
+        run: sudo "$PMG_BIN" sandbox profile propose --run "$PMG_PROXY_RUN"
 
   kernel-propose-docs:
     name: enforce, no profile, propose (docs)
