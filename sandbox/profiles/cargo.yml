@@ -49,6 +49,8 @@ filesystem:
     - ${CWD}/**
     # Default CARGO_HOME. It holds the registry cache and index, git
     # checkouts, and the cargo install target (bin).
+    # Accepted: ~/.cargo/bin is on PATH, and cargo install must write it. A
+    # build script can also put a program there.
     - ${HOME}/.cargo/**
     # Default RUSTUP_HOME. The rustup shim auto-installs toolchains here on
     # first use (for example, a rust-toolchain.toml pin).
@@ -63,14 +65,25 @@ filesystem:
     - ${HOME}/.cargo/credentials.toml
     - ${HOME}/.cargo/credentials
 
+  # These rules name the default CARGO_HOME. With CARGO_HOME set elsewhere,
+  # add the same rules for that directory in a custom profile.
   deny_write:
     # cargo config can set target.<triple>.runner, build.rustc-wrapper and
     # other commands that the next cargo run executes, also outside the
     # sandbox. cargo itself never writes these files during a build.
+    # Bubblewrap applies a deny only to a file that exists. Without a
+    # config file, a build script can create one under Bubblewrap.
+    # The project rules cover the project root. cargo also reads
+    # .cargo/config.toml in each subdirectory that it runs from.
     - ${HOME}/.cargo/config.toml
     - ${HOME}/.cargo/config
     - ${CWD}/.cargo/config.toml
     - ${CWD}/.cargo/config
+    # rustup adds a line that sources ~/.cargo/env to the shell startup
+    # files. A change to these files runs at each login shell.
+    - ${HOME}/.cargo/env
+    - ${HOME}/.cargo/env.fish
+    - ${HOME}/.cargo/env.nu
     # Additional system directories to protect
     - /etc/**
     - /usr/**

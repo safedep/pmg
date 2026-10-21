@@ -153,10 +153,11 @@ test_cargo_credentials() {
 	echo "== cargo credentials and config"
 	local dir created=()
 	mkdir -p "$HOME/.cargo"
-	if [ ! -e "$HOME/.cargo/credentials.toml" ]; then
-		printf '[registry]\ntoken = "pmg-e2e-canary"\n' >"$HOME/.cargo/credentials.toml"
-		created+=("$HOME/.cargo/credentials.toml")
+	if [ -e "$HOME/.cargo/credentials.toml" ]; then
+		fail "the runner already has ~/.cargo/credentials.toml"
 	fi
+	printf '[registry]\ntoken = "pmg-e2e-canary"\n' >"$HOME/.cargo/credentials.toml"
+	created+=("$HOME/.cargo/credentials.toml")
 	if [ ! -e "$HOME/.cargo/config.toml" ]; then
 		: >"$HOME/.cargo/config.toml"
 		created+=("$HOME/.cargo/config.toml")
@@ -174,19 +175,26 @@ itoa = "=1.0.11"
 EOF
 	mkdir src
 	echo 'fn main() { println!("{}", itoa::Buffer::new().format(1)); }' >src/main.rs
+	# Bubblewrap masks a denied file with /dev/null, so a read can succeed
+	# with no data. The check looks for the token, not for an error.
 	cat >build.rs <<'EOF'
 use std::{env, fs, path::PathBuf};
 
 fn main() {
     let cargo_home = PathBuf::from(env::var("HOME").unwrap()).join(".cargo");
-    if fs::read(cargo_home.join("credentials.toml")).is_ok() {
-        panic!("build script read ~/.cargo/credentials.toml");
+    if let Ok(data) = fs::read_to_string(cargo_home.join("credentials.toml")) {
+        if data.contains("pmg-e2e-canary") {
+            panic!("build script read the token in ~/.cargo/credentials.toml");
+        }
     }
     if fs::OpenOptions::new().append(true).open(cargo_home.join("config.toml")).is_ok() {
         panic!("build script opened ~/.cargo/config.toml for write");
     }
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let _ = fs::write(manifest_dir.join(".cargo").join("config.toml"), "");
 }
 EOF
+	mkdir .cargo
 
 	# Outside the sandbox the build script reads the token, so the build
 	# fails. This proves that the sandboxed build below tests the deny rules.
@@ -197,6 +205,11 @@ EOF
 	# registry again, through the PMG proxy.
 	rm -f Cargo.lock
 	sandboxed cargo build
+	# Bubblewrap applies a deny only to a file that exists, so it lets the
+	# build script create the project config.
+	if [ "${PMG_SANDBOX_DRIVER:-}" != bubblewrap ] && [ -e .cargo/config.toml ]; then
+		fail "the build script created .cargo/config.toml in the project"
+	fi
 	cd - >/dev/null
 	rm -rf "$dir"
 	if [ "${#created[@]}" -gt 0 ]; then
@@ -208,8 +221,11 @@ EOF
 # preset allows them.
 test_pip_user_site() {
 	echo "== pip user site"
-	local dir user_site
-	user_site=$(python3 -m site --user-site)
+	local dir py user_site
+	# pip3 and python3 can be different interpreters on a macOS runner. Take
+	# the user site of the Python that pip3 runs on.
+	py=python$(pip3 --version | sed -n 's/.*(python \([0-9.]*\)).*/\1/p')
+	user_site=$("$py" -m site --user-site)
 	linux_mkdir "$user_site"
 	dir=$(workdir)
 	cd "$dir"
@@ -222,7 +238,7 @@ test_pip_user_site() {
 
 	sandboxed --sandbox-allow preset=pip-user pip3 install --user --no-deps six==1.16.0
 	test -f "$user_site/six.py" || fail "pip3 did not install six into $user_site"
-	python3 -m pip uninstall --yes six
+	"$py" -m pip uninstall --yes six
 	unset PIP_BREAK_SYSTEM_PACKAGES PIP_DISABLE_PIP_VERSION_CHECK
 	cd - >/dev/null
 	rm -rf "$dir"

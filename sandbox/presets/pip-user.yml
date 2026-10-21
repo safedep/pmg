@@ -20,7 +20,10 @@ metadata:
 filesystem:
   allow_write:
     # Linux, and macOS Pythons that are not framework builds (pyenv, mise).
-    - ${HOME}/.local/lib/python*/**
+    # The rule names ~/.local/lib and not ~/.local/lib/python*. Bubblewrap
+    # and Landlock do not expand a glob before the /**, so they would drop a
+    # python* rule.
+    - ${HOME}/.local/lib/**
     - ${HOME}/.local/bin/**
     # macOS framework builds (python.org and Homebrew).
     - ${HOME}/Library/Python/**

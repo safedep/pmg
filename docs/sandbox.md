@@ -719,14 +719,20 @@ for example through `COREPACK_HOME` or `XDG_CACHE_HOME`, needs an allowance, suc
 
 The built-in profiles also deny some paths that run code or hold a token:
 
-- pip, poetry, uv and the other PyPI tools cannot write the user site (`~/.local/lib/python*`).
-  Every Python loads it, and a `.pth` file there runs at each start. Apply the `pip-user` preset
-  for a run that installs there on purpose: `pmg --sandbox-allow preset=pip-user pip install --user <pkg>`.
+- pip, poetry, uv and the other PyPI tools cannot write the user site, for example
+  `~/.local/lib/python3.12`. Every Python loads it, and a `.pth` file there runs at each start.
+  Apply the `pip-user` preset for a run that installs there on purpose:
+  `pmg --sandbox-allow preset=pip-user pip install --user <pkg>`.
 - uvx cannot write `~/.local/bin`. `uv tool run` does not need it.
-- cargo cannot read `~/.cargo/credentials.toml` or `~/.cargo/credentials`, and cannot write
-  `.cargo/config.toml` or `.cargo/config` in the home or the project. A registry that needs the
-  token to download takes an exact opt-out:
+- cargo cannot read `~/.cargo/credentials.toml` or `~/.cargo/credentials`. A registry that needs
+  the token to download takes an exact opt-out:
   `pmg --sandbox-allow "read=$HOME/.cargo/credentials.toml" cargo build`.
+- cargo cannot write `~/.cargo/env`, `~/.cargo/env.fish` or `~/.cargo/env.nu`, which the shell
+  startup files source. It cannot write `.cargo/config.toml` or `.cargo/config` in the home or
+  in the project root. Bubblewrap applies these denies only to a file that exists. A
+  `.cargo/config.toml` in a project subdirectory stays writable.
+- The cargo rules name the default `CARGO_HOME`, `~/.cargo`. For another `CARGO_HOME`, add the
+  same rules in a custom profile.
 
 ### Policy Template
 
