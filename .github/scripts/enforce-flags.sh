@@ -1,19 +1,23 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Turns the enforce-* and network-* inputs of the action into pmg proxy
 # start flags, one argument per line, so the caller can read them into an
-# array. Each input is a comma or newline separated list. Blank items are
-# skipped.
-set -euo pipefail
+# argument list. Each input is a comma or newline separated list. Blank
+# items are skipped. The script is POSIX sh, because the server mode step
+# runs it in job containers that have no bash.
+set -eu
 
 emit() {
-  local flag="$1" raw="${2:-}"
-  local item
+  flag="$1"
+  items=$(printf '%s\n' "${2:-}" | tr ',' '\n')
   while IFS= read -r item; do
     item="${item#"${item%%[![:space:]]*}"}"
     item="${item%"${item##*[![:space:]]}"}"
-    [ -z "$item" ] && continue
-    printf '%s\n%s\n' "$flag" "$item"
-  done < <(printf '%s\n' "$raw" | tr ',' '\n')
+    if [ -n "$item" ]; then
+      printf '%s\n%s\n' "$flag" "$item"
+    fi
+  done <<ITEMS
+$items
+ITEMS
 }
 
 emit --enforce-port              "${INPUT_ENFORCE_PORTS:-}"
