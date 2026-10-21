@@ -57,8 +57,10 @@ filesystem:
     - ${CWD}/.env.*
 
 network:
-  # uvx downloads a managed Python from GitHub release assets when the tool
-  # needs a version that is not installed.
+  # uvx downloads a managed Python when the tool needs a version that is not
+  # installed. The list comes from releases.astral.sh, and the builds come
+  # from GitHub release assets.
   allow_outbound:
+    - releases.astral.sh:443
     - objects.githubusercontent.com:443
     - release-assets.githubusercontent.com:443

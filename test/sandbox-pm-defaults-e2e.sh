@@ -76,7 +76,13 @@ test_pnpm_default_store() {
 	env -u PNPM_HOME -u npm_config_store_dir -u NPM_CONFIG_STORE_DIR \
 		pmg --sandbox --sandbox-enforce pnpm add lodash@4.17.21
 	test -d node_modules/lodash || fail "pnpm did not install lodash"
-	find "$store" -mindepth 1 -maxdepth 1 -name 'v*' | grep -q . || fail "pnpm did not use the store at $store"
+	if ! find "$store" -mindepth 1 -maxdepth 1 -name 'v*' 2>/dev/null | grep -q .; then
+		echo "pnpm store path: $(env -u PNPM_HOME pnpm store path 2>&1)"
+		echo "pnpm store-dir: $(env -u PNPM_HOME pnpm config get store-dir 2>&1)"
+		echo "stores under HOME:"
+		find "$HOME" -maxdepth 6 -type d -name 'v1[0-9]' -path '*store*' -not -path '*/node_modules/*' 2>/dev/null
+		fail "pnpm did not use the store at $store"
+	fi
 	cd - >/dev/null
 	rm -rf "$dir"
 }
@@ -152,6 +158,12 @@ EOF
 # cargo itself must still build a crate with a crates.io dependency.
 test_cargo_credentials() {
 	echo "== cargo credentials and config"
+	# The cargo profile sets network_via_proxy_only, and Bubblewrap does not
+	# support it. pmg refuses to run cargo under Bubblewrap.
+	if [ "${PMG_SANDBOX_DRIVER:-}" = bubblewrap ]; then
+		echo "skip: Bubblewrap does not support the cargo profile"
+		return 0
+	fi
 	local dir created=()
 	mkdir -p "$HOME/.cargo"
 	if [ -e "$HOME/.cargo/credentials.toml" ]; then

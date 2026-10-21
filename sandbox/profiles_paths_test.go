@@ -69,12 +69,12 @@ func TestProfilePathContract(t *testing.T) {
 			profile:       "uv",
 			allowWrite:    []string{"${HOME}/.local/share/uv/python/**"},
 			notAllowWrite: []string{userSite, "${HOME}/.local/share/uv/**"},
-			allowOutbound: releaseHosts,
+			allowOutbound: append([]string{"releases.astral.sh:443"}, releaseHosts...),
 		},
 		{
 			profile:       "uvx",
 			notAllowWrite: []string{"${HOME}/.local/bin/**", userSite},
-			allowOutbound: releaseHosts,
+			allowOutbound: append([]string{"releases.astral.sh:443"}, releaseHosts...),
 		},
 		{profile: "pip", notAllowWrite: []string{userSite}},
 		{

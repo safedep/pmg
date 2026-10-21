@@ -30,7 +30,9 @@ filesystem:
     - ${HOME}/.local/share/uv/python/**
 
 network:
-  # uv downloads the managed Python builds from GitHub release assets.
+  # uv reads the list of managed Python builds from releases.astral.sh and
+  # downloads the builds from GitHub release assets.
   allow_outbound:
+    - releases.astral.sh:443
     - objects.githubusercontent.com:443
     - release-assets.githubusercontent.com:443
