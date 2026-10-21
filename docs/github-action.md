@@ -23,7 +23,7 @@ or `poetry add`. The proxy blocks malicious packages before they run.
 Out of the box the action gives:
 
 - Malware blocking that uses the [SafeDep real-time threat intelligence](https://docs.safedep.io/cloud/malware-analysis).
-- A dependency cooldown. This blocks package versions published within the last 5 days.
+- A dependency cooldown. This blocks package versions published within the last 2 days.
 - Proxy-based interception of [supported package managers](../README.md#supported-package-managers).
 
 ## Quick start
@@ -67,7 +67,7 @@ default.
 | `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `github-actions/<owner>/<repo>` when cloud is enabled |
 | `paranoid` | `PMG_PARANOID` | `false` |
 | `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
-| `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `5` |
+| `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `2` |
 | `proxy-mode` | Removed. Proxy interception cannot be disabled. The value `false` stops the action. Other values cause a warning and are ignored. | unset |
 | `sandbox` | `PMG_SANDBOX_ENABLED`. Also relaxes AppArmor user namespace limits on the runner | `false` |
 | `sandbox-driver` | `PMG_SANDBOX_DRIVER`. Use `landlock` or `bubblewrap` | `landlock` when sandbox is enabled |
