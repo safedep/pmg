@@ -72,11 +72,12 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 		return nil, nil
 	}
 
-	// The stream saw the run as it happened, so a clean run trusts it. A
-	// failed run with no denial in the stream still polls the log store
-	// below, because the user looks for the cause.
-	if violations, ok := s.streamViolations(err); ok {
-		if len(violations) > 0 {
+	// The stream saw the run as it happened, so a clean run trusts a complete
+	// stream. A failed run with no denial in the stream still polls the log
+	// store below, because the user looks for the cause.
+	streamed, complete := s.streamEntries()
+	if complete {
+		if violations := s.runViolations(streamed, err); len(violations) > 0 {
 			return s.violationReport(violations), nil
 		}
 		if err == nil {
@@ -85,8 +86,10 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 	}
 
 	// Without a complete stream, PMG polls the log store, because a denial
-	// can reach the store late. A clean run polls for a shorter time. This
-	// path is rare, because the stream covers almost every run.
+	// can reach the store late. Each query result is merged with what the
+	// stream delivered, so a delivered denial is never lost. A clean run
+	// polls for a shorter time. This path is rare, because the stream covers
+	// almost every run.
 	wait := seatbeltMaxQueryWait
 	if err == nil {
 		wait = seatbeltCleanFallbackWait
@@ -96,10 +99,11 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 
 	for {
 		end := time.Now()
-		entries, queryErr := s.queryLogs(s.startedAt.Add(-seatbeltLogWindowPadding), end.Add(seatbeltLogWindowPadding))
+		stored, queryErr := s.queryLogs(s.startedAt.Add(-seatbeltLogWindowPadding), end.Add(seatbeltLogWindowPadding))
 		if queryErr != nil {
 			lastQueryErr = queryErr
-		} else if violations := s.runViolations(entries, err); len(violations) > 0 {
+		}
+		if violations := s.runViolations(mergeSeatbeltEntries(streamed, stored), err); len(violations) > 0 {
 			return s.violationReport(violations), nil
 		}
 
@@ -117,21 +121,56 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 	return nil, nil
 }
 
-// streamViolations stops the log stream of the run and returns its denials.
-// ok is false when the run has no stream, or when the stream could not
-// confirm that it delivered every denial.
-func (s *seatbeltSandbox) streamViolations(runErr error) (violations []sandbox.Violation, ok bool) {
+// streamEntries stops the log stream of the run and returns what it
+// delivered. complete is false when the run has no stream, or when the stream
+// could not confirm that it delivered every denial. The entries are real
+// denials in both cases.
+func (s *seatbeltSandbox) streamEntries() (entries []seatbeltLogEntry, complete bool) {
 	if s.stream == nil {
 		return nil, false
 	}
 
-	entries, complete := s.stream.end()
+	entries, complete = s.stream.end()
 	s.stream = nil
-	if !complete {
-		return nil, false
+	return entries, complete
+}
+
+// seatbeltDenialKey identifies a denial: the rule kind, the denied operation
+// and its operand. The process is not part of the key, so the same denial in
+// several processes counts once, as on Landlock. The kernel's "N duplicate
+// reports for" line of a denial gets the same key as the denial.
+func seatbeltDenialKey(raw string, payload *seatbeltLogPayload) string {
+	operation := ""
+	if m := seatbeltDenyVerbPattern.FindStringSubmatch(raw); len(m) == 2 {
+		operation = m[1]
 	}
 
-	return s.runViolations(entries, runErr), true
+	return payload.Kind + "\x00" + operation + "\x00" + extractSeatbeltDeniedToken(raw, payload)
+}
+
+// mergeSeatbeltEntries joins entries from the stream and from the log store,
+// and keeps each denial once. Entries without a PMG marker are dropped,
+// because they cannot be violations.
+func mergeSeatbeltEntries(sets ...[]seatbeltLogEntry) []seatbeltLogEntry {
+	seen := make(map[string]bool)
+	var merged []seatbeltLogEntry
+	for _, set := range sets {
+		for _, entry := range set {
+			payload, ok := parseSeatbeltLogPayload(entry.EventMessage)
+			if !ok {
+				continue
+			}
+
+			key := payload.RunID + "\x00" + seatbeltDenialKey(entry.EventMessage, payload)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			merged = append(merged, entry)
+		}
+	}
+
+	return merged
 }
 
 // runViolations extracts the denials of this run. A clean run keeps only the

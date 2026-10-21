@@ -30,8 +30,9 @@ const (
 	// waits for it. A sentinel made before the stream is attached is lost.
 	seatbeltSentinelRetry = 100 * time.Millisecond
 
-	// seatbeltStreamEntryCap bounds the buffer of one run. The predicate
-	// matches only the denials of that run.
+	// seatbeltStreamEntryCap bounds each of the two buffers of one run: the
+	// denials of the policy's own rules, and the catch-all denials. Repeated
+	// denials take one slot.
 	seatbeltStreamEntryCap = 512
 
 	seatbeltStreamStopTimeout = 2 * time.Second
@@ -82,9 +83,14 @@ type seatbeltLogStream struct {
 	endTimeout time.Duration
 	arrived    chan struct{}
 
-	mu        sync.Mutex
-	entries   []seatbeltLogEntry
-	sentinels map[string]bool
+	mu sync.Mutex
+	// ruleEntries and noiseEntries are separate, so catch-all noise cannot
+	// push out a denial of the policy's own rules.
+	ruleEntries  []seatbeltLogEntry
+	noiseEntries []seatbeltLogEntry
+	seen         map[string]bool
+	truncated    bool
+	sentinels    map[string]bool
 }
 
 // seatbeltStreamCommand runs argv under seatbeltStreamWrapper, in a process
@@ -149,6 +155,7 @@ func startSeatbeltLogStream(cmd *exec.Cmd, logTag string, trigger seatbeltSentin
 		trigger:    trigger,
 		endTimeout: seatbeltStreamEndTimeout,
 		arrived:    make(chan struct{}, 1),
+		seen:       make(map[string]bool),
 		sentinels:  make(map[string]bool),
 	}
 	go st.read(stdout)
@@ -161,15 +168,14 @@ func startSeatbeltLogStream(cmd *exec.Cmd, logTag string, trigger seatbeltSentin
 	return st, nil
 }
 
-// read buffers the entries of the stream and notes the sentinels. Lines that
-// are not JSON, such as the header, are skipped.
+// read buffers the denials of the run and notes the sentinels. Lines that are
+// not JSON, such as the header, and entries of other runs are skipped.
 func (st *seatbeltLogStream) read(r io.Reader) {
 	defer close(st.done)
 
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 
-	dropped := false
 	for scanner.Scan() {
 		var entry seatbeltLogEntry
 		if err := json.Unmarshal(bytes.TrimSpace(scanner.Bytes()), &entry); err != nil {
@@ -177,7 +183,11 @@ func (st *seatbeltLogStream) read(r io.Reader) {
 		}
 
 		payload, ok := parseSeatbeltLogPayload(entry.EventMessage)
-		if ok && payload.RunID == st.logTag && payload.Kind == seatbeltKindSentinel {
+		if !ok || payload.RunID != st.logTag {
+			continue
+		}
+
+		if payload.Kind == seatbeltKindSentinel {
 			st.mu.Lock()
 			st.sentinels[payload.Target] = true
 			st.mu.Unlock()
@@ -189,19 +199,42 @@ func (st *seatbeltLogStream) read(r io.Reader) {
 			continue
 		}
 
-		st.mu.Lock()
-		if len(st.entries) < seatbeltStreamEntryCap {
-			st.entries = append(st.entries, entry)
-		} else if !dropped {
-			dropped = true
-			log.Warnf("seatbelt log stream: entry buffer full (%d), dropping further entries", seatbeltStreamEntryCap)
-		}
-		st.mu.Unlock()
+		st.keep(entry, payload)
 	}
 
 	if err := scanner.Err(); err != nil {
 		log.Debugf("seatbelt log stream read: %v", err)
 	}
+}
+
+// keep buffers a denial unless an equal one is already buffered. A full
+// buffer marks the stream as truncated, so the run also reads the log store.
+func (st *seatbeltLogStream) keep(entry seatbeltLogEntry, payload *seatbeltLogPayload) {
+	key := seatbeltDenialKey(entry.EventMessage, payload)
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if st.seen[key] {
+		return
+	}
+
+	buffer := &st.ruleEntries
+	if payload.Kind == seatbeltKindDefault {
+		buffer = &st.noiseEntries
+	}
+
+	if len(*buffer) >= seatbeltStreamEntryCap {
+		if !st.truncated {
+			st.truncated = true
+			log.Warnf("seatbelt log stream: buffer full (%d), the run also reads the log store", seatbeltStreamEntryCap)
+		}
+		return
+	}
+
+	// seen grows only with the buffers, so it stays bounded.
+	st.seen[key] = true
+	*buffer = append(*buffer, entry)
 }
 
 // confirm makes the sentinel target until it comes through the stream, and
@@ -243,15 +276,19 @@ func (st *seatbeltLogStream) hasSentinel(target string) bool {
 }
 
 // end confirms that every denial made before the call came through the
-// stream, then stops it. complete is false when the stream ended early or did
-// not deliver the end sentinel, so it can miss entries.
+// stream, then stops it. complete is false when the stream ended early, did
+// not deliver the end sentinel, or dropped a denial at a full buffer. The
+// entries are real denials in every case.
 func (st *seatbeltLogStream) end() (entries []seatbeltLogEntry, complete bool) {
-	complete = st.confirm("end", st.endTimeout)
+	delivered := st.confirm("end", st.endTimeout)
 	st.shutdown()
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return append([]seatbeltLogEntry(nil), st.entries...), complete
+	entries = make([]seatbeltLogEntry, 0, len(st.ruleEntries)+len(st.noiseEntries))
+	entries = append(entries, st.ruleEntries...)
+	entries = append(entries, st.noiseEntries...)
+	return entries, delivered && !st.truncated
 }
 
 // shutdown stops the stream. The wrapper ends it when its standard input

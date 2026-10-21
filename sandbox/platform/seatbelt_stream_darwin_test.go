@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -156,6 +158,117 @@ func TestSeatbeltLogStreamStartFailures(t *testing.T) {
 			assert.NotNil(t, cmd.ProcessState, "a failed start must not leave the process running")
 		})
 	}
+}
+
+// fakeDenialLine is the stream line of a denial of fakeStreamTag by process
+// pid. A catch-all denial carries no rule target.
+func fakeDenialLine(t *testing.T, pid int, kind, operation, operand string) string {
+	t.Helper()
+	target := operand
+	if kind == seatbeltKindDefault {
+		target = ""
+	}
+	line, err := json.Marshal(seatbeltLogEntry{
+		EventMessage:     fmt.Sprintf("Sandbox: node(%d) deny(1) %s %s\n%s", pid, operation, operand, seatbeltLogMessage(fakeStreamTag, kind, target)),
+		ProcessImagePath: "/kernel",
+	})
+	require.NoError(t, err)
+	return string(line)
+}
+
+// startFakeStream starts a fake stream that prints lines. The stream then
+// waits when wait is true, and ends early when it is false.
+func startFakeStream(t *testing.T, lines []string, wait bool) *seatbeltLogStream {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stream.ndjson")
+	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600))
+
+	tail := "exec sleep 30"
+	if !wait {
+		tail = "sleep 0.1"
+	}
+	st, err := startSeatbeltLogStream(fakeLogStream(`cat '`+path+`'; `+tail), fakeStreamTag, noopSentinel, time.Second)
+	require.NoError(t, err)
+	t.Cleanup(st.shutdown)
+	return st
+}
+
+func fakeSeatbeltSandbox(st *seatbeltLogStream) *seatbeltSandbox {
+	return &seatbeltSandbox{logTag: fakeStreamTag, policyName: "exec", startedAt: time.Now(), stream: st}
+}
+
+func violationTargets(report *sandbox.ViolationReport) []string {
+	targets := make([]string, 0, len(report.Violations))
+	for _, v := range report.Violations {
+		targets = append(targets, v.Target)
+	}
+	return targets
+}
+
+// Catch-all noise has a buffer of its own, so it cannot push out a denial of
+// the policy's own rules, which a clean run must record.
+func TestSeatbeltCleanRunKeepsRuleDenialAfterNoise(t *testing.T) {
+	lines := []string{fakeSentinelLine(t, "start")}
+	for i := 0; i < seatbeltStreamEntryCap+100; i++ {
+		lines = append(lines, fakeDenialLine(t, 7, seatbeltKindDefault, "sysctl-read", fmt.Sprintf("kern.noise%d", i)))
+	}
+	lines = append(lines,
+		fakeDenialLine(t, 8, "file-read", "file-read-data", "/Users/dev/.ssh/id_rsa"),
+		fakeSentinelLine(t, "end"))
+
+	report, err := fakeSeatbeltSandbox(startFakeStream(t, lines, true)).BestEffortViolation(nil)
+	require.NoError(t, err)
+	require.NotNil(t, report, "the credential read must not be lost behind the noise")
+	assert.Contains(t, violationTargets(report), "/Users/dev/.ssh/id_rsa")
+}
+
+// The same denial from several processes, and the kernel's duplicate report
+// of it, take one buffer slot.
+func TestSeatbeltLogStreamDeduplicatesDenials(t *testing.T) {
+	duplicate := strings.Replace(fakeDenialLine(t, 9, "file-read", "file-read-data", "/x"),
+		`Sandbox: node`, `3 duplicate reports for Sandbox: node`, 1)
+	st := startFakeStream(t, []string{
+		fakeSentinelLine(t, "start"),
+		fakeDenialLine(t, 7, "file-read", "file-read-data", "/x"),
+		fakeDenialLine(t, 8, "file-read", "file-read-data", "/x"),
+		duplicate,
+		fakeDenialLine(t, 7, "file-read", "file-read-data", "/y"),
+		fakeSentinelLine(t, "end"),
+	}, true)
+
+	entries, complete := st.end()
+	assert.True(t, complete)
+	assert.Len(t, entries, 2)
+}
+
+// A dropped entry makes the stream incomplete, so the run also reads the log
+// store and does not miss the dropped denial.
+func TestSeatbeltLogStreamDroppedEntryMakesItIncomplete(t *testing.T) {
+	lines := []string{fakeSentinelLine(t, "start")}
+	for i := 0; i <= seatbeltStreamEntryCap; i++ {
+		lines = append(lines, fakeDenialLine(t, 7, "file-read", "file-read-data", fmt.Sprintf("/secret/%d", i)))
+	}
+	lines = append(lines, fakeSentinelLine(t, "end"))
+
+	entries, complete := startFakeStream(t, lines, true).end()
+	assert.False(t, complete)
+	assert.Len(t, entries, seatbeltStreamEntryCap)
+}
+
+// An incomplete stream still delivered real denials. The run keeps them when
+// the log store does not have them yet.
+func TestSeatbeltIncompleteStreamKeepsCapturedDenial(t *testing.T) {
+	requireSandboxExec(t)
+
+	st := startFakeStream(t, []string{
+		fakeSentinelLine(t, "start"),
+		fakeDenialLine(t, 8, "file-read", "file-read-data", "/Users/dev/.ssh/id_rsa"),
+	}, false)
+
+	report, err := fakeSeatbeltSandbox(st).BestEffortViolation(nil)
+	require.NoError(t, err)
+	require.NotNil(t, report, "a denial that the stream delivered must not be lost")
+	assert.Contains(t, violationTargets(report), "/Users/dev/.ssh/id_rsa")
 }
 
 // A sentinel denial is PMG's own probe, so it never becomes a violation, also
