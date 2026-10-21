@@ -12,14 +12,11 @@ or `poetry add`. The proxy blocks malicious packages before they run.
 > the action to a full commit SHA. This improves supply chain security. See the
 > [GitHub security hardening guide](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions).
 
-> **Action version.** Do not use the `v1` tag. It points to an action from
-> June 2026. That action installs the latest PMG release, but it adds an old
-> shim directory to `PATH`. In shim mode `npm` and `pip` then run without PMG,
-> and the job does not fail. Use `safedep/pmg@v0.33.0` or a later release tag.
->
-> The `enforce`, `enforce-*` and `expose-to-job-network` inputs need
-> `safedep/pmg@v0.31.0` or later. The `network-profile` and `network-mode`
-> inputs need `safedep/pmg@v0.33.0` or later. GitHub warns about an unknown
+> **Action version.** Use the latest release tag, such as
+> `safedep/pmg@v0.33.0`. The `enforce`, `enforce-*` and
+> `expose-to-job-network` inputs need `safedep/pmg@v0.31.0` or later. The
+> `network-profile` and `network-mode` inputs need `safedep/pmg@v0.33.0` or
+> later. GitHub warns about an unknown
 > input and runs the job without it. A job on `v0.30.0` with `enforce: true`
 > runs without kernel enforcement. A job on `v0.32.0` with `network-profile`
 > runs without a network policy.
