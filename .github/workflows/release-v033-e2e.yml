@@ -188,7 +188,7 @@ jobs:
           pmg sandbox exec -- npm install lodash@4.17.21
       - name: exec enforces an allow list
         env:
-          npm_config_cache: ${{ github.workspace }}/.npm-cache
+          npm_config_cache: ${{ github.workspace }}/app/.npm-cache
         run: |
           mkdir app && cd app && npm init -y >/dev/null
           pmg sandbox exec --network-mode enforce --network-deny '*:*' --network-allow registry.npmjs.org:443 -- npm install lodash@4.17.21
