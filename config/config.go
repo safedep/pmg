@@ -359,6 +359,11 @@ var legacyProfileAliases = map[string]map[string]string{
 	"pnpm-restrictive": {
 		"pnpm": "pnpm",
 	},
+	// pnpx mapped to the npx profile until pnpx got its own leaf with the
+	// corepack cache. npx keeps the npx profile.
+	"npx": {
+		"pnpx": "pnpx",
+	},
 	"pypi-restrictive": {
 		"pip":    "pip",
 		"pip3":   "pip",

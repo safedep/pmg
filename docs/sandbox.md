@@ -696,6 +696,38 @@ that are used to enforce the policies for the package manager. See [sandbox/prof
 Custom profiles can be created by copying a built-in profile and modifying the rules to suit the needs.
 See [sandbox/profiles/README.md](../sandbox/profiles/README.md) for more details.
 
+#### What the built-in profiles allow and deny
+
+The built-in profiles allow the cache and the store of each package manager at its default
+location on macOS and Linux:
+
+- pnpm: the store (`~/Library/pnpm/store`, `~/.local/share/pnpm/store`) and the state directory
+  (`~/.pnpm-state`, `~/.local/state/pnpm`).
+- yarn: the Yarn 2 and later global cache (`~/.yarn/berry`) and the Yarn 1 cache on macOS
+  (`~/Library/Caches/Yarn`).
+- pnpm, yarn and pnpx: the corepack cache (`~/.cache/node/corepack`). npm and npx do not get it,
+  because corepack does not manage them by default.
+- The npm ecosystem: the node-gyp header cache (`~/.cache/node-gyp`, `~/Library/Caches/node-gyp`).
+- poetry: its cache and virtualenvs on macOS (`~/Library/Caches/pypoetry`).
+- uv and uvx: the managed Python downloads (`~/.local/share/uv/python`).
+
+Some of these caches hold programs or build files that run later, outside the sandbox: corepack
+runs the pnpm and yarn it cached, uv runs its managed Python, and node-gyp builds include the
+cached `common.gypi`. Each profile notes this as an accepted risk. A cache at another location,
+for example through `COREPACK_HOME` or `XDG_CACHE_HOME`, needs an allowance, such as
+`pmg sandbox allow "write=$COREPACK_HOME/**"`.
+
+The built-in profiles also deny some paths that run code or hold a token:
+
+- pip, poetry, uv and the other PyPI tools cannot write the user site (`~/.local/lib/python*`).
+  Every Python loads it, and a `.pth` file there runs at each start. Apply the `pip-user` preset
+  for a run that installs there on purpose: `pmg --sandbox-allow preset=pip-user pip install --user <pkg>`.
+- uvx cannot write `~/.local/bin`. `uv tool run` does not need it.
+- cargo cannot read `~/.cargo/credentials.toml` or `~/.cargo/credentials`, and cannot write
+  `.cargo/config.toml` or `.cargo/config` in the home or the project. A registry that needs the
+  token to download takes an exact opt-out:
+  `pmg --sandbox-allow "read=$HOME/.cargo/credentials.toml" cargo build`.
+
 ### Policy Template
 
 Policy template is a configuration primitive for overriding a built-in profile or creating a custom profile. It is used to map a profile name to a path.

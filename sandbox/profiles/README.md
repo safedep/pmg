@@ -12,6 +12,13 @@ Restrictive policy for the npm ecosystem (npm, pnpm, yarn, bun).
 
 Restrictive policy for the PyPI ecosystem (pip, pip3, pipx, poetry, uv, uvx).
 
+### Package manager leaf profiles
+
+Each package manager maps to a leaf profile that inherits one of the bases above and adds its
+own environment variables and paths: `npm`, `npx`, `pnpx`, `pnpm`, `yarn`, `bun`, `aube`,
+`aubx`, `pip`, `pipx`, `poetry`, `uv`, `uvx`. The `pnpx` leaf inherits `npx` and adds the corepack
+cache. See [docs/sandbox.md](../../docs/sandbox.md#what-the-built-in-profiles-allow-and-deny).
+
 ### go
 
 Policy for the Go module ecosystem (go). Standalone profile: Go has a single

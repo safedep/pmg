@@ -23,12 +23,35 @@ filesystem:
     # pnpm cache on macOS lives under ~/Library/Caches (lockfile verification,
     # metadata). The base profile only covers the XDG path ~/.cache/pnpm.
     - ${HOME}/Library/Caches/pnpm/**
+    - ${HOME}/Library/pnpm/store/**
+    - ${HOME}/.local/share/pnpm/store/**
+    - ${HOME}/.cache/node/corepack/**
 
   allow_write:
     # pnpm needs write access here
     - ${HOME}/Library/pnpm/.tools/**
     - ${HOME}/.pnpm-store/**
     - ${HOME}/Library/Caches/pnpm/**
+
+    # The default content-addressable store: ~/Library/pnpm/store on macOS
+    # and ~/.local/share/pnpm/store on Linux (https://pnpm.io/settings/store).
+    # ~/Library/pnpm itself also holds the global bin directory, which is on
+    # PATH, so only the store subtree is listed.
+    - ${HOME}/Library/pnpm/store/**
+    - ${HOME}/.local/share/pnpm/store/**
+
+    # The state directory, where pnpm keeps its update check:
+    # ~/.pnpm-state on macOS and ~/.local/state/pnpm on Linux.
+    - ${HOME}/.pnpm-state/**
+    - ${HOME}/.local/state/pnpm/**
+
+    # Corepack downloads the pnpm version that package.json pins into
+    # COREPACK_HOME, ~/.cache/node/corepack by default on macOS and Linux.
+    # Accepted: corepack later runs the pnpm that it cached here, also
+    # outside the sandbox, so a package can rewrite that pnpm. The same
+    # holds for ~/Library/pnpm/.tools above. A COREPACK_HOME elsewhere needs
+    # pmg sandbox allow "write=$COREPACK_HOME/**".
+    - ${HOME}/.cache/node/corepack/**
 
     # `pnpm i` creates the tmp files in local dir, at least on MacOS
     - ${CWD}/_tmp_*

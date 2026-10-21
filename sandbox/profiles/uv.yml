@@ -15,3 +15,22 @@ environment:
   allow:
     - UV_*
     - PIP_*
+
+filesystem:
+  allow_read:
+    - ${HOME}/.local/share/uv/python/**
+
+  allow_write:
+    # uv sync and uv run download a managed Python into this directory when
+    # the project needs a version that is not installed. uv uses this path
+    # on macOS and Linux. Only the python subtree is listed. The rest of
+    # ~/.local/share/uv holds installed tools, which uv tool install writes.
+    # Accepted: uv later runs the Python that it keeps here, also outside the
+    # sandbox, so a package can rewrite that Python.
+    - ${HOME}/.local/share/uv/python/**
+
+network:
+  # uv downloads the managed Python builds from GitHub release assets.
+  allow_outbound:
+    - objects.githubusercontent.com:443
+    - release-assets.githubusercontent.com:443

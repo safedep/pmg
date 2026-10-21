@@ -53,7 +53,11 @@ filesystem:
     - ${HOME}/.cache/poetry/**
     - ${HOME}/.cache/uv/**
     - ${HOME}/Library/Caches/pip/**
-    - ${HOME}/.local/lib/python*/**
+    # The user site (pip install --user) is not writable. Every Python on
+    # the machine loads it, and a .pth file there runs at each start, also
+    # outside the sandbox. An install into a project virtualenv must not
+    # reach it. Apply the pip-user preset for a run that installs into the
+    # user site: pmg --sandbox-allow preset=pip-user pip install --user ...
 
   # Additional deny rules (optional - credentials are automatically blocked)
   # Automatically blocked for security:

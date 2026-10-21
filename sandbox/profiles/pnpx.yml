@@ -1,0 +1,19 @@
+name: pnpx
+description: Profile for pnpx generators, extending npx with the corepack cache
+inherits: npx
+
+package_managers:
+  - pnpx
+
+filesystem:
+  allow_read:
+    - ${HOME}/.cache/node/corepack/**
+
+  allow_write:
+    # pnpx runs pnpm dlx, and corepack shims pnpx as it shims pnpm. Corepack
+    # downloads the pinned pnpm into COREPACK_HOME, ~/.cache/node/corepack by
+    # default on macOS and Linux. npx stays without this rule, because
+    # corepack does not shim npm or npx by default.
+    # Accepted: corepack later runs the pnpm that it cached here, also
+    # outside the sandbox, so a package can rewrite that pnpm.
+    - ${HOME}/.cache/node/corepack/**

@@ -54,9 +54,23 @@ filesystem:
     # first use (for example, a rust-toolchain.toml pin).
     - ${HOME}/.rustup/**
 
-  deny_read: []
+  deny_read:
+    # The registry token. cargo reads it to publish, and for a registry that
+    # sets auth-required. A build.rs or a proc macro runs with the same
+    # access, so a crate could send the token out. A registry that needs the
+    # token on download needs an exact opt-out:
+    #   pmg --sandbox-allow "read=$HOME/.cargo/credentials.toml" cargo build
+    - ${HOME}/.cargo/credentials.toml
+    - ${HOME}/.cargo/credentials
 
   deny_write:
+    # cargo config can set target.<triple>.runner, build.rustc-wrapper and
+    # other commands that the next cargo run executes, also outside the
+    # sandbox. cargo itself never writes these files during a build.
+    - ${HOME}/.cargo/config.toml
+    - ${HOME}/.cargo/config
+    - ${CWD}/.cargo/config.toml
+    - ${CWD}/.cargo/config
     # Additional system directories to protect
     - /etc/**
     - /usr/**
@@ -69,6 +83,11 @@ network:
     - index.crates.io:443
     - static.crates.io:443
     - crates.io:443
+    # rustup downloads the toolchain that rust-toolchain.toml pins.
+    - static.rust-lang.org:443
+    # A git dependency fetches over HTTPS from its host. GitHub is the
+    # common case.
+    - github.com:443
 
   deny_outbound:
     - "*:*"

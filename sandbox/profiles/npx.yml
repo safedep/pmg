@@ -1,5 +1,5 @@
 name: npx
-description: Profile for npx/pnpx generators with write access to current directory
+description: Profile for npx generators with write access to current directory
 inherits: npm-restrictive
 
 package_managers:

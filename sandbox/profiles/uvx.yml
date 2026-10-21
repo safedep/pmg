@@ -47,9 +47,18 @@ filesystem:
     - ${HOME}/.local/share/uv/**
     - ${HOME}/Library/Application Support/uv/**
     - ${HOME}/.config/uv/**
-    - ${HOME}/.local/bin/**
+    # ~/.local/bin is not writable. uv tool run does not need it, only uv
+    # tool install does, and that runs under the uv profile. The directory
+    # is usually on PATH, so a write there is a program for the next shell.
 
   # Additional deny rules for extra security
   deny_write:
     - ${CWD}/.env
     - ${CWD}/.env.*
+
+network:
+  # uvx downloads a managed Python from GitHub release assets when the tool
+  # needs a version that is not installed.
+  allow_outbound:
+    - objects.githubusercontent.com:443
+    - release-assets.githubusercontent.com:443

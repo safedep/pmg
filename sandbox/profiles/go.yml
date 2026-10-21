@@ -74,6 +74,9 @@ network:
     - proxy.golang.org:443
     - sum.golang.org:443
     - index.golang.org:443
+    # A module in GOPRIVATE, GONOPROXY or GOPROXY=direct is fetched with git
+    # over HTTPS from its host. GitHub is the common case.
+    - github.com:443
 
   deny_outbound:
     - "*:*"
