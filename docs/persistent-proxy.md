@@ -70,7 +70,7 @@ GitHub Actions with the [safedep/pmg action](../action.yml), described in
 [github-action.md](./github-action.md):
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.33.0
   with:
     server-mode: true
     api-key: ${{ secrets.SAFEDEP_API_KEY }}

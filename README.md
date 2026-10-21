@@ -288,7 +288,7 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 `pip install`, etc. in the job.
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.33.0
   with:
     server-mode: true
 
@@ -313,7 +313,7 @@ that make the Linux kernel route every eligible process through the proxy. A
 step cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own.
 Enforcement needs passwordless `sudo`, which GitHub-hosted Ubuntu runners have.
 npm needs Node 22.19 or later. The `enforce` input needs action version
-`v0.31.0` or later. The `v1` tag does not have it.
+`v0.31.0` or later.
 
 ```yaml
 - uses: safedep/pmg@v0.31.0
