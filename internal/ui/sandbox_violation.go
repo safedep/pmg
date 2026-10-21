@@ -37,6 +37,20 @@ func FormatSandboxAllowCommand(o *pmgsandbox.OverrideSuggestion) string {
 	return "pmg sandbox allow " + arg
 }
 
+// rememberCommand renders the command that saves an override for this
+// repository. `pmg sandbox allow --last` does not promote a network denial,
+// so a network override names its destination. Returns "" for sensitive
+// targets, which `pmg sandbox allow` refuses without --force.
+func rememberCommand(o *pmgsandbox.OverrideSuggestion) string {
+	if o == nil || pmgsandbox.NeedsForceToPersist(o) {
+		return ""
+	}
+	if o.Kind == pmgsandbox.ViolationKindNetworkConnect {
+		return FormatSandboxAllowCommand(o)
+	}
+	return "pmg sandbox allow --last --all"
+}
+
 func sandboxAllowArg(o *pmgsandbox.OverrideSuggestion) string {
 	if o == nil {
 		return ""
@@ -208,10 +222,8 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 		if _, err := fmt.Fprintln(out); err != nil {
 			return err
 		}
-		// `pmg sandbox allow` refuses sensitive targets without --force, so
-		// do not suggest a command that would immediately fail.
-		if !pmgsandbox.NeedsForceToPersist(exp.Override) {
-			if _, err := fmt.Fprintln(out, Colors.Dim("Remember for this project: pmg sandbox allow --last --all")); err != nil {
+		if remember := rememberCommand(exp.Override); remember != "" {
+			if _, err := fmt.Fprintln(out, Colors.Dim("Remember for this project: "+remember)); err != nil {
 				return err
 			}
 			if _, err := fmt.Fprintln(out); err != nil {
