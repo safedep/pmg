@@ -1,0 +1,549 @@
+name: Release check - network policy through the action
+
+# Scratch workflow for the release check. It runs the action of this branch
+# with the network-profile and network-mode inputs, as the docs show them.
+
+on:
+  push:
+    branches: [ccr-c7f282e1-5g6hud]
+    paths:
+      - .github/workflows/release-network-e2e.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PMG_VERSION: v0.33.0-edge.1
+
+jobs:
+  advisory-audit:
+    name: server-mode, profile, audit (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Write the docs profile
+        run: |
+          mkdir -p .pmg/profiles
+          cat > .pmg/profiles/ci.yml <<'EOF'
+          name: ci
+          inherits: npm-restrictive
+          network:
+            deny_ip_literals: true
+            allow_outbound:
+              - "*.actions.githubusercontent.com:443"
+              - "*.githubapp.com:443"
+            deny_outbound:
+              - pastebin.com:443
+          EOF
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          network-profile: .pmg/profiles/ci.yml
+      - name: Status names the policy
+        run: |
+          pmg proxy status | tee status.txt
+          grep -qF "Network policy: audit, profile npm-restrictive < $GITHUB_WORKSPACE/.pmg/profiles/ci.yml, enforce: off, policy advisory" status.txt
+          echo "PMG_PROXY_RUN=${PMG_PROXY_RUN:-<unset>}"
+          test -n "$PMG_PROXY_RUN"
+      - name: A benign install works
+        run: |
+          mkdir benign && cd benign && npm init -y >/dev/null
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+      - name: Audit lets a denied host through
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_connect}' --cacert "$SSL_CERT_FILE" https://pastebin.com/ || true)
+          echo "CONNECT status: $code"
+          test "$code" = "200"
+      - name: Stop passes and reports the would-deny
+        run: |
+          out="$(pmg proxy stop --fail-on-violation 2>&1)"
+          echo "$out"
+          grep -qF "Network policy: audit, 0 denied, 1 would deny" <<<"$out"
+          grep -qF "would deny  pastebin.com:443  rule pastebin.com:443" <<<"$out"
+          grep -qF "Propose a profile with: pmg sandbox profile propose --run $PMG_PROXY_RUN" <<<"$out"
+      - name: Propose without enforce, as the docs show
+        run: |
+          pmg sandbox profile propose --run "$PMG_PROXY_RUN" --new pmg-network.yml | tee propose.txt
+          cat pmg-network.yml
+          grep -qF -- "- registry.npmjs.org:443" pmg-network.yml
+          pmg sandbox profile lint pmg-network.yml
+
+  advisory-enforce:
+    name: server-mode, profile, enforce (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Write the docs profile
+        run: |
+          mkdir -p .pmg/profiles
+          cat > .pmg/profiles/ci.yml <<'EOF'
+          name: ci
+          inherits: npm-restrictive
+          network:
+            deny_ip_literals: true
+            allow_outbound:
+              - "*.actions.githubusercontent.com:443"
+              - "*.githubapp.com:443"
+            deny_outbound:
+              - pastebin.com:443
+          EOF
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          network-profile: .pmg/profiles/ci.yml
+          network-mode: enforce
+      - name: Status names the policy
+        run: |
+          pmg proxy status | tee status.txt
+          grep -qF "Network policy: enforce, profile npm-restrictive < $GITHUB_WORKSPACE/.pmg/profiles/ci.yml, enforce: off, policy advisory" status.txt
+      - name: A benign install works
+        run: |
+          mkdir benign && cd benign && npm init -y >/dev/null
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+      - name: A malicious install is still blocked
+        run: |
+          mkdir mal && cd mal && npm init -y >/dev/null
+          if npm --no-cache --prefer-online install safedep-test-pkg@0.1.3; then
+            echo "::error::malicious install succeeded"; exit 1
+          fi
+      - name: Denied host and IP literal get a 403
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_connect}' --cacert "$SSL_CERT_FILE" https://pastebin.com/ || true)
+          echo "pastebin CONNECT: $code"; test "$code" = "403"
+          code=$(curl -s -o /dev/null -w '%{http_connect}' --cacert "$SSL_CERT_FILE" https://1.1.1.1/ || true)
+          echo "1.1.1.1 CONNECT: $code"; test "$code" = "403"
+          code=$(curl -s -o /dev/null -w '%{http_connect}' --cacert "$SSL_CERT_FILE" https://example.com/ || true)
+          echo "example.com CONNECT: $code"; test "$code" = "403"
+      - name: Stop fails and names the denials
+        run: |
+          set +e
+          out="$(pmg proxy stop --fail-on-violation 2>&1)"
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          grep -qF "denied  pastebin.com:443  rule pastebin.com:443" <<<"$out"
+          grep -qF "rule ip_literal" <<<"$out"
+          grep -qF "rule *:*" <<<"$out"
+          grep -qF "were blocked" <<<"$out"
+
+  kernel-enforce-docs:
+    name: enforce, docs profile, enforce
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Write the docs profile
+        run: |
+          mkdir -p .pmg/profiles
+          cat > .pmg/profiles/ci.yml <<'EOF'
+          name: ci
+          inherits: npm-restrictive
+          network:
+            deny_ip_literals: true
+            allow_outbound:
+              # The runner reports the job to GitHub through the proxy.
+              - "*.actions.githubusercontent.com:443"
+              - "*.githubapp.com:443"
+            deny_outbound:
+              - pastebin.com:443
+          EOF
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          enforce: true
+          network-profile: .pmg/profiles/ci.yml
+          network-mode: enforce
+      - name: Status names the policy
+        run: |
+          sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE" | tee status.txt
+          grep -qF "Network policy: enforce, profile npm-restrictive < $GITHUB_WORKSPACE/.pmg/profiles/ci.yml" status.txt
+          echo "PMG_PROXY_RUN=${PMG_PROXY_RUN:-<unset>}"
+      - name: A benign install works with a scrubbed environment
+        run: |
+          mkdir benign && cd benign && npm init -y >/dev/null
+          env -i PATH="$PATH" HOME="$HOME" npm install lodash@4.17.21
+          test -d node_modules/lodash
+      - name: Denied host and IP literal are refused for a scrubbed client
+        run: |
+          if env -i /usr/bin/curl -sS -o /dev/null https://pastebin.com/; then echo "::error::pastebin reached"; exit 1; fi
+          if env -i /usr/bin/curl -sS -o /dev/null https://1.1.1.1/; then echo "::error::IP literal reached"; exit 1; fi
+          if env -i /usr/bin/curl -sS -o /dev/null https://example.com/; then echo "::error::example.com reached"; exit 1; fi
+      - name: Upload while the daemon enforces (docs say it fails without the blob rule)
+        id: upload-during
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: during-enforce
+          path: .pmg/profiles/ci.yml
+      - name: Report the upload outcome
+        run: echo "upload during enforcement outcome=${{ steps.upload-during.outcome }}"
+      - name: Stop fails and names the program
+        if: always()
+        run: |
+          set +e
+          out="$(sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation 2>&1)"
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          grep -qE "denied  pastebin.com:443 +rule pastebin.com:443 +/usr/bin/curl pid [0-9]+" <<<"$out"
+          grep -qF "rule ip_literal" <<<"$out"
+          grep -qF "ports 80,443" <<<"$out"
+
+  kernel-propose-docs:
+    name: enforce, no profile, propose (docs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Write a project with a lockfile
+        run: |
+          mkdir -p app && cd app
+          npm init -y >/dev/null
+          npm install --package-lock-only lodash@4.17.21 express@4.21.2
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          enforce: true
+      - run: npm ci
+        working-directory: app
+      - name: Stop PMG
+        if: always()
+        run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
+      - name: Propose the network profile
+        if: always()
+        run: sudo "$PMG_BIN" sandbox profile propose --run "$PMG_PROXY_RUN" --new pmg-network.yml
+      - name: Show the proposal
+        if: always()
+        run: cat pmg-network.yml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: pmg-network-profile
+          path: pmg-network.yml
+
+  kernel-apply-proposed:
+    name: enforce, the proposed profile, enforce
+    needs: kernel-propose-docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pmg-network-profile
+      - name: Commit the proposal as the docs say
+        run: |
+          mkdir -p .pmg/profiles
+          mv pmg-network.yml .pmg/profiles/ci.yml
+          cat .pmg/profiles/ci.yml
+          mkdir -p app && cd app
+          npm init -y >/dev/null
+          npm install --package-lock-only lodash@4.17.21 express@4.21.2
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          enforce: true
+          network-profile: .pmg/profiles/ci.yml
+          network-mode: enforce
+      - run: npm ci
+        working-directory: app
+      - name: A destination the run did not reach is refused
+        run: |
+          if env -i /usr/bin/curl -sS -o /dev/null https://pastebin.com/; then echo "::error::pastebin reached"; exit 1; fi
+      - name: Stop fails on the refused destination only
+        if: always()
+        run: |
+          set +e
+          out="$(sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation 2>&1)"
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          grep -qE "denied  pastebin.com:443 +rule \*:\*" <<<"$out"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: after-stop
+          path: .pmg/profiles/ci.yml
+
+  container-expose:
+    name: job container, expose, profile, enforce
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: node:24
+      options: --init
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Write the profile
+        run: |
+          mkdir -p .pmg/profiles
+          cat > .pmg/profiles/ci.yml <<'EOF'
+          name: ci
+          inherits: npm-restrictive
+          network:
+            deny_ip_literals: true
+            deny_outbound:
+              - pastebin.com:443
+          EOF
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          expose-to-job-network: true
+          network-profile: .pmg/profiles/ci.yml
+          network-mode: enforce
+      - name: Status names the policy
+        run: pmg proxy status
+      - name: The job container is refused
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_connect}' --cacert "$SSL_CERT_FILE" https://pastebin.com/ || true)
+          echo "pastebin CONNECT: $code"; test "$code" = "403"
+      - name: Write the check for the Docker action
+        run: |
+          cat > pmg-docker-check.sh <<'EOF'
+          set -euo pipefail
+          echo "HTTPS_PROXY=${HTTPS_PROXY}"
+          cd "$(mktemp -d)"
+          npm init -y >/dev/null
+          npm install lodash@4.17.21
+          code=$(curl -s -o /dev/null -w '%{http_connect}' --cacert "$NODE_EXTRA_CA_CERTS" https://pastebin.com/ || true)
+          echo "pastebin CONNECT from the Docker action: $code"
+          test "$code" = "403"
+          EOF
+      - name: A Docker action is refused too
+        uses: docker://node:24@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+        with:
+          entrypoint: bash
+          args: /github/workspace/pmg-docker-check.sh
+      - name: Stop fails and names the container
+        if: always()
+        run: |
+          set +e
+          out="$(pmg proxy stop --fail-on-violation 2>&1)"
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          grep -qF "denied  pastebin.com:443" <<<"$out"
+
+  alpine-server:
+    name: Alpine job container, profile, enforce
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: node:24-alpine
+      options: --init
+    defaults:
+      run:
+        shell: sh
+    steps:
+      - name: Get the action without git
+        env:
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/pmg-action"
+          wget -q -O - "https://github.com/${REPO}/archive/${SHA}.tar.gz" | tar -xz --strip-components=1 -C "$GITHUB_WORKSPACE/pmg-action"
+          mkdir -p .pmg/profiles
+          printf '%s\n' 'name: ci' 'inherits: npm-restrictive' 'network:' '  deny_outbound:' '    - pastebin.com:443' > .pmg/profiles/ci.yml
+      - uses: ./pmg-action
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          network-profile: .pmg/profiles/ci.yml
+          network-mode: enforce
+      - name: Status names the policy
+        run: pmg proxy status
+      - name: A benign install works
+        run: |
+          mkdir benign && cd benign && npm init -y >/dev/null
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+      - name: busybox wget through the proxy is refused
+        run: |
+          if wget -q -O /dev/null https://pastebin.com/; then echo "::error::pastebin reached"; exit 1; fi
+      - name: Stop fails
+        if: always()
+        run: |
+          if pmg proxy stop --fail-on-violation; then echo "::error::stop passed"; exit 1; fi
+
+  config-file-network:
+    name: config-file names the profile and mode
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Write the config and the profile
+        run: |
+          mkdir -p .pmg/profiles
+          printf '%s\n' 'name: ci' 'inherits: npm-restrictive' 'network:' '  deny_outbound:' '    - pastebin.com:443' > .pmg/profiles/ci.yml
+          printf '%s\n' 'proxy:' '  server:' '    profile: .pmg/profiles/ci.yml' '    network_mode: enforce' > .pmg/config.yml
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          config-file: .pmg/config.yml
+      - name: Status names the policy from the config
+        run: |
+          pmg proxy status | tee status.txt
+          grep -qF "Network policy: enforce, profile npm-restrictive <" status.txt
+      - name: The denied host gets a 403
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_connect}' --cacert "$SSL_CERT_FILE" https://pastebin.com/ || true)
+          echo "pastebin CONNECT: $code"; test "$code" = "403"
+      - name: Stop fails
+        if: always()
+        run: |
+          if pmg proxy stop --fail-on-violation; then echo "::error::stop passed"; exit 1; fi
+
+  config-file-kernel:
+    name: config-file and enforce name the profile and mode
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Write the config and the profile
+        run: |
+          mkdir -p .pmg/profiles
+          printf '%s\n' 'name: ci' 'inherits: npm-restrictive' 'network:' '  allow_outbound:' '    - "*.actions.githubusercontent.com:443"' '    - "*.githubapp.com:443"' '  deny_outbound:' '    - pastebin.com:443' > .pmg/profiles/ci.yml
+          printf '%s\n' 'proxy:' '  server:' '    profile: .pmg/profiles/ci.yml' '    network_mode: enforce' > .pmg/config.yml
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          enforce: true
+          config-file: .pmg/config.yml
+      - name: Status names the policy from the config
+        run: |
+          sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE" | tee status.txt
+          grep -qF "Network policy: enforce, profile npm-restrictive <" status.txt
+      - name: The denied host is refused
+        run: |
+          if env -i /usr/bin/curl -sS -o /dev/null https://pastebin.com/; then echo "::error::pastebin reached"; exit 1; fi
+      - name: Stop fails, and propose reads the daemon's event log
+        if: always()
+        run: |
+          if sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation; then echo "::error::stop passed"; exit 1; fi
+          sudo env PMG_CONFIG_DIR="$PMG_PROXY_CONFIG_DIR" "$PMG_BIN" sandbox profile propose --run "$PMG_PROXY_RUN"
+
+  edge-inputs:
+    name: built-in profile name, skip-event-logging, missing profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          network-profile: npm-restrictive
+          skip-event-logging: true
+      - name: A built-in name loads and no run id is set
+        run: |
+          pmg proxy status | tee status.txt
+          grep -qF "Network policy: audit, profile npm-restrictive, enforce: off, policy advisory" status.txt
+          echo "PMG_PROXY_RUN=${PMG_PROXY_RUN:-<unset>}"
+          test -z "${PMG_PROXY_RUN:-}"
+          pmg proxy stop --fail-on-violation
+      - name: A missing profile fails the action
+        id: missing
+        continue-on-error: true
+        uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          server-mode: true
+          network-profile: .pmg/profiles/missing.yml
+      - name: Check the outcome
+        run: |
+          echo "missing profile outcome=${{ steps.missing.outcome }}"
+          test "${{ steps.missing.outcome }}" = "failure"
+
+  shim-with-network-inputs:
+    name: network inputs without server-mode warn
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./
+        with:
+          version: ${{ env.PMG_VERSION }}
+          network-profile: .pmg/profiles/ci.yml
+          network-mode: enforce
+      - name: Shim mode still guards npm
+        run: |
+          mkdir m && cd m && npm init -y >/dev/null
+          if npm --prefer-online --no-cache i safedep-test-pkg@0.1.3 > out.log 2>&1; then cat out.log; exit 1; fi
+          cat out.log
+          grep -qi "Malicious package blocked" out.log
