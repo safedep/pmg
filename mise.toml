@@ -1,0 +1,10 @@
+[tools]
+go = "1.27.3"
+node = "26"
+pnpm = "12"
+golangci-lint = "2.15"
+gitleaks = "8.21.2"
+
+[settings]
+lockfile = true
+lockfile_auto_prune = true
