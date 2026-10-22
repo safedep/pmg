@@ -5,6 +5,7 @@ package ghasummary
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/safedep/pmg/internal/proxyserver"
@@ -94,9 +95,13 @@ func writeOverview(b *strings.Builder, in Input) {
 	if in.Workspace != "" {
 		profile = strings.ReplaceAll(profile, strings.TrimSuffix(in.Workspace, "/")+"/", "")
 	}
+	blocked := strconv.Itoa(in.Stop.BlockedCount)
+	if !in.Stop.StateVerified {
+		blocked = "unknown"
+	}
 	b.WriteString("| Packages blocked | Network mode | Network profile | Destinations observed |\n")
 	b.WriteString("|---|---|---|---|\n")
-	fmt.Fprintf(b, "| %d | %s | %s | %d |\n\n", in.Stop.BlockedCount, cell(mode), code(profile), in.Stop.Observed)
+	fmt.Fprintf(b, "| %s | %s | %s | %d |\n\n", blocked, cell(mode), code(profile), in.Stop.Observed)
 }
 
 func writeDenials(b *strings.Builder, in Input) {
@@ -171,11 +176,17 @@ func writeProposal(b *strings.Builder, in Input) {
 		}
 		b.WriteString(" Later runs report each destination the profile does not name. Set `network-mode: enforce` to refuse them.\n\n")
 	case len(p.Added) == 0:
-		if refused := refusedCount(p); refused > 0 {
-			fmt.Fprintf(b, "%s does not allow %d destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.\n\n", path, refused)
+		refused, keptDenied := deniedCounts(p)
+		if refused == 0 && keptDenied == 0 {
+			fmt.Fprintf(b, "%s allows every destination this job reached.\n\n", path)
 			return
 		}
-		fmt.Fprintf(b, "%s allows every destination this job reached.\n\n", path)
+		if refused > 0 {
+			fmt.Fprintf(b, "%s refused %d destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.\n\n", path, refused)
+		}
+		if keptDenied > 0 {
+			fmt.Fprintf(b, "A deny rule of %s matches %d destination(s) that this job reached. PMG keeps the deny rule, because a maintainer wrote it.\n\n", path, keptDenied)
+		}
 		return
 	default:
 		fmt.Fprintf(b, "This job reached %d destination(s) that %s does not allow. Review each one before you add it:\n\n", len(p.Added), path)
@@ -194,14 +205,16 @@ func writeProposal(b *strings.Builder, in Input) {
 	b.WriteString("Add the profile to CODEOWNERS, so that a security reviewer approves each change to it.\n")
 }
 
-func refusedCount(p *propose.Report) int {
-	n := 0
+func deniedCounts(p *propose.Report) (refused, keptDenied int) {
 	for _, row := range p.Destinations {
-		if row.Verdict == propose.VerdictRefused || row.Verdict == propose.VerdictKeptDenied {
-			n++
+		switch row.Verdict {
+		case propose.VerdictRefused:
+			refused++
+		case propose.VerdictKeptDenied:
+			keptDenied++
 		}
 	}
-	return n
+	return refused, keptDenied
 }
 
 // cell keeps text from the network from changing the table or adding a

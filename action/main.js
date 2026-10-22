@@ -82,12 +82,24 @@ function startProxy(binDir, profile, enforce, jobContainer) {
     INPUT_NETWORK_MODE: network.mode,
   };
 
+  if (enforce && jobContainer) {
+    throw new Error('enforce attaches kernel programs on the runner host, and this job runs in a job container (jobs.<job_id>.container). Run the job on the runner, or use server-mode without enforce.');
+  }
+
   let result;
+  try {
+    result = runStartScript(binDir, enforce, jobContainer, env);
+  } catch (err) {
+    stopAfterFailedStart(binDir, enforce);
+    throw err;
+  }
+
+  saveProxyState(binDir, enforce, result);
+}
+
+function runStartScript(binDir, enforce, jobContainer, env) {
   if (enforce) {
-    if (jobContainer) {
-      throw new Error('enforce attaches kernel programs on the runner host, and this job runs in a job container (jobs.<job_id>.container). Run the job on the runner, or use server-mode without enforce.');
-    }
-    result = lib.group('Start the PMG proxy with kernel enforcement', () => lib.run('bash', 'enforce.sh', {
+    return lib.group('Start the PMG proxy with kernel enforcement', () => lib.run('bash', 'enforce.sh', {
       ...env,
       PMG_BIN_DIR: binDir,
       INPUT_CONFIG_FILE: lib.input('config-file'),
@@ -97,14 +109,28 @@ function startProxy(binDir, profile, enforce, jobContainer) {
       INPUT_ENFORCE_SKIP_DESTINATIONS: lib.input('enforce-skip-destinations'),
       INPUT_ENFORCE_NAMESPACES: lib.input('enforce-namespaces'),
     }));
-  } else {
-    result = lib.group('Start the PMG proxy', () => lib.run('sh', 'server.sh', {
-      ...env,
-      INPUT_EXPOSE_TO_JOB_NETWORK: String(lib.boolInput('expose-to-job-network')),
-      PMG_JOB_CONTAINER: String(jobContainer),
-    }));
   }
+  return lib.group('Start the PMG proxy', () => lib.run('sh', 'server.sh', {
+    ...env,
+    INPUT_EXPOSE_TO_JOB_NETWORK: String(lib.boolInput('expose-to-job-network')),
+    PMG_JOB_CONTAINER: String(jobContainer),
+  }));
+}
 
+// stopAfterFailedStart stops a daemon that a start script started before it
+// failed. main.js saves no state then, so post.js cannot stop it, and a root
+// daemon on a self-hosted runner would outlive the job.
+function stopAfterFailedStart(binDir, enforce) {
+  const bin = path.join(binDir, 'pmg');
+  const res = enforce
+    ? spawnSync('sudo', ['-n', bin, 'proxy', 'stop', '--if-running', '--state', path.join(process.env.RUNNER_TEMP || '', 'pmg-proxy-state.json')], { stdio: 'inherit' })
+    : spawnSync(bin, ['proxy', 'stop', '--if-running'], { stdio: 'inherit' });
+  if (res.error || res.status !== 0) {
+    lib.warning('PMG could not stop the proxy after the start failed. See the log of the main step.');
+  }
+}
+
+function saveProxyState(binDir, enforce, result) {
   // post.js reads these. The proxy variables are the ones it clears after
   // the stop, so a later post step, such as a cache save, does not send its
   // traffic to a stopped proxy.

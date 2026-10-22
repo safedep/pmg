@@ -124,6 +124,7 @@ func TestSummary(t *testing.T) {
 			in: Input{Stop: enforceDenial, Profile: ".pmg/ci.yml", FailOnViolation: true,
 				Proposal: &propose.Report{Added: []string{}, Destinations: []propose.Row{
 					destination("pastebin.com", 443, "node", propose.VerdictRefused, ""),
+					destination("gist.github.com", 443, "curl", propose.VerdictKeptDenied, "gist.github.com:443"),
 				}}},
 			cmds: []string{
 				"::error title=PMG::PMG blocked 1 package(s). See the job summary.",

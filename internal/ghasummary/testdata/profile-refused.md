@@ -19,8 +19,11 @@ To allow a destination, add it to `network.allow_outbound` in `.pmg/ci.yml`.
 | Destination | Program | Count | Proposal |
 |---|---|---|---|
 | `pastebin.com:443` | node | 3 | refused |
+| `gist.github.com:443` | curl | 3 | rule `gist.github.com:443` denies it |
 
 ### Network profile
 
-`.pmg/ci.yml` does not allow 1 destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.
+`.pmg/ci.yml` refused 1 destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.
+
+A deny rule of `.pmg/ci.yml` matches 1 destination(s) that this job reached. PMG keeps the deny rule, because a maintainer wrote it.
 
