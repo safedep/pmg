@@ -444,6 +444,8 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy, rt *
 // ~/.cache/node/corepack. Without this rule mkdir fails with EPERM on the
 // first missing ancestor. The rule allows only file-write-create of each
 // ancestor itself, so a write below an ancestor still needs its own rule.
+// The rule allows only a directory. A symlink at a missing ancestor, for
+// example ~/.local, would redirect every path below it, such as ~/.local/bin.
 func globDoubleStarAutoAllowAncestorCreate(sb *strings.Builder, expanded string) {
 	if !strings.HasSuffix(expanded, "/**") {
 		return
@@ -459,9 +461,9 @@ func globDoubleStarAutoAllowAncestorCreate(sb *strings.Builder, expanded string)
 	home = filepath.Clean(home)
 
 	for dir := filepath.Dir(filepath.Clean(parentDir)); strings.HasPrefix(dir, home+"/"); dir = filepath.Dir(dir) {
-		sb.WriteString("(allow file-write-create (literal \"")
+		sb.WriteString("(allow file-write-create (require-all (literal \"")
 		sb.WriteString(dir)
-		sb.WriteString("\"))\n")
+		sb.WriteString("\") (vnode-type DIRECTORY)))\n")
 	}
 }
 

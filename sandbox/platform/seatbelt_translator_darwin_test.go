@@ -237,11 +237,13 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 				assert.NoError(t, err)
 				homeDir := os.Getenv("HOME")
 				assert.Contains(t, actual, fmt.Sprintf(`(allow file-write* (literal "%s/.cache/node/corepack"))`, homeDir))
-				assert.Contains(t, actual, fmt.Sprintf(`(allow file-write-create (literal "%s/.cache/node"))`, homeDir))
-				assert.Contains(t, actual, fmt.Sprintf(`(allow file-write-create (literal "%s/.cache"))`, homeDir))
-				assert.NotContains(t, actual, fmt.Sprintf(`(allow file-write-create (literal "%s"))`, homeDir))
+				ancestorRule := `(allow file-write-create (require-all (literal "%s") (vnode-type DIRECTORY)))`
+				assert.Contains(t, actual, fmt.Sprintf(ancestorRule, homeDir+"/.cache/node"))
+				assert.Contains(t, actual, fmt.Sprintf(ancestorRule, homeDir+"/.cache"))
+				assert.NotContains(t, actual, fmt.Sprintf(`(allow file-write-create (literal "%s/.cache"))`, homeDir))
+				assert.NotContains(t, actual, fmt.Sprintf(ancestorRule, homeDir))
 				assert.NotContains(t, actual, fmt.Sprintf(`(allow file-write* (literal "%s/.cache/node"))`, homeDir))
-				assert.NotContains(t, actual, `(allow file-write-create (literal "/path/to"))`)
+				assert.NotContains(t, actual, fmt.Sprintf(ancestorRule, "/path/to"))
 			},
 		},
 		{
