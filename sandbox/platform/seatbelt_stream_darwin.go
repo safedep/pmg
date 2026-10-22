@@ -31,8 +31,7 @@ const (
 	seatbeltSentinelRetry = 100 * time.Millisecond
 
 	// seatbeltStreamEntryCap bounds each of the two buffers of one run: the
-	// denials of the policy's own rules, and the catch-all denials. Repeated
-	// denials take one slot.
+	// denials of the policy's own rules, and the catch-all denials.
 	seatbeltStreamEntryCap = 512
 
 	seatbeltStreamStopTimeout = 2 * time.Second
@@ -88,8 +87,8 @@ type seatbeltLogStream struct {
 	// push out a denial of the policy's own rules.
 	ruleEntries  []seatbeltLogEntry
 	noiseEntries []seatbeltLogEntry
-	seen         map[string]bool
-	truncated    bool
+	ruleDropped  bool
+	noiseDropped bool
 	sentinels    map[string]bool
 }
 
@@ -155,7 +154,6 @@ func startSeatbeltLogStream(cmd *exec.Cmd, logTag string, trigger seatbeltSentin
 		trigger:    trigger,
 		endTimeout: seatbeltStreamEndTimeout,
 		arrived:    make(chan struct{}, 1),
-		seen:       make(map[string]bool),
 		sentinels:  make(map[string]bool),
 	}
 	go st.read(stdout)
@@ -207,34 +205,26 @@ func (st *seatbeltLogStream) read(r io.Reader) {
 	}
 }
 
-// keep buffers a denial unless an equal one is already buffered. A full
-// buffer marks the stream as truncated, so the run also reads the log store.
+// keep buffers a denial in the buffer of its kind. When that buffer is full,
+// keep notes the drop, so the run can read the log store for the rest.
 func (st *seatbeltLogStream) keep(entry seatbeltLogEntry, payload *seatbeltLogPayload) {
-	key := seatbeltDenialKey(entry.EventMessage, payload)
-
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	if st.seen[key] {
-		return
-	}
-
-	buffer := &st.ruleEntries
+	buffer, dropped := &st.ruleEntries, &st.ruleDropped
 	if payload.Kind == seatbeltKindDefault {
-		buffer = &st.noiseEntries
+		buffer, dropped = &st.noiseEntries, &st.noiseDropped
 	}
 
-	if len(*buffer) >= seatbeltStreamEntryCap {
-		if !st.truncated {
-			st.truncated = true
-			log.Warnf("seatbelt log stream: buffer full (%d), the run also reads the log store", seatbeltStreamEntryCap)
-		}
+	if len(*buffer) < seatbeltStreamEntryCap {
+		*buffer = append(*buffer, entry)
 		return
 	}
 
-	// seen grows only with the buffers, so it stays bounded.
-	st.seen[key] = true
-	*buffer = append(*buffer, entry)
+	if !*dropped {
+		*dropped = true
+		log.Debugf("seatbelt log stream: buffer full (%d), dropping further entries", seatbeltStreamEntryCap)
+	}
 }
 
 // confirm makes the sentinel target until it comes through the stream, and
@@ -276,19 +266,26 @@ func (st *seatbeltLogStream) hasSentinel(target string) bool {
 }
 
 // end confirms that every denial made before the call came through the
-// stream, then stops it. complete is false when the stream ended early, did
-// not deliver the end sentinel, or dropped a denial at a full buffer. The
-// entries are real denials in every case.
-func (st *seatbeltLogStream) end() (entries []seatbeltLogEntry, complete bool) {
+// stream, then stops it. The run reports catch-all denials only when
+// withNoise is true, so only then does a dropped catch-all denial matter.
+// complete is false when the stream ended early, did not deliver the end
+// sentinel, or dropped a denial that the run reports. The entries are real
+// denials in every case.
+func (st *seatbeltLogStream) end(withNoise bool) (entries []seatbeltLogEntry, complete bool) {
 	delivered := st.confirm("end", st.endTimeout)
 	st.shutdown()
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	entries = make([]seatbeltLogEntry, 0, len(st.ruleEntries)+len(st.noiseEntries))
-	entries = append(entries, st.ruleEntries...)
-	entries = append(entries, st.noiseEntries...)
-	return entries, delivered && !st.truncated
+
+	entries = append([]seatbeltLogEntry(nil), st.ruleEntries...)
+	dropped := st.ruleDropped
+	if withNoise {
+		entries = append(entries, st.noiseEntries...)
+		dropped = dropped || st.noiseDropped
+	}
+
+	return entries, delivered && !dropped
 }
 
 // shutdown stops the stream. The wrapper ends it when its standard input

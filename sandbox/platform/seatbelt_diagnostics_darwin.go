@@ -75,7 +75,7 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 	// The stream saw the run as it happened, so a clean run trusts a complete
 	// stream. A failed run with no denial in the stream still polls the log
 	// store below, because the user looks for the cause.
-	streamed, complete := s.streamEntries()
+	streamed, complete := s.streamEntries(err)
 	if complete {
 		if violations := s.runViolations(streamed, err); len(violations) > 0 {
 			return s.violationReport(violations), nil
@@ -122,52 +122,37 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 }
 
 // streamEntries stops the log stream of the run and returns what it
-// delivered. complete is false when the run has no stream, or when the stream
-// could not confirm that it delivered every denial. The entries are real
-// denials in both cases.
-func (s *seatbeltSandbox) streamEntries() (entries []seatbeltLogEntry, complete bool) {
+// delivered. A clean run reports no catch-all denials, so the stream returns
+// them only for a failed run. complete is false when the run has no stream,
+// or when the stream could not confirm that it delivered every denial that
+// the run reports. The entries are real denials in both cases.
+func (s *seatbeltSandbox) streamEntries(runErr error) (entries []seatbeltLogEntry, complete bool) {
 	if s.stream == nil {
 		return nil, false
 	}
 
-	entries, complete = s.stream.end()
+	entries, complete = s.stream.end(runErr != nil)
 	s.stream = nil
 	return entries, complete
 }
 
-// seatbeltDenialKey identifies a denial: the rule kind, the denied operation
-// and its operand. The process is not part of the key, so the same denial in
-// several processes counts once, as on Landlock. The kernel's "N duplicate
-// reports for" line of a denial gets the same key as the denial.
-func seatbeltDenialKey(raw string, payload *seatbeltLogPayload) string {
-	operation := ""
-	if m := seatbeltDenyVerbPattern.FindStringSubmatch(raw); len(m) == 2 {
-		operation = m[1]
+// mergeSeatbeltEntries returns the entries of the log store, plus the entries
+// of the stream that the store does not have yet. An event that both report
+// counts once. The entries of the store stay as they are, so a run that the
+// store covers reports the same as before the stream existed.
+func mergeSeatbeltEntries(streamed, stored []seatbeltLogEntry) []seatbeltLogEntry {
+	inStore := make(map[string]int, len(stored))
+	for _, entry := range stored {
+		inStore[entry.EventMessage]++
 	}
 
-	return payload.Kind + "\x00" + operation + "\x00" + extractSeatbeltDeniedToken(raw, payload)
-}
-
-// mergeSeatbeltEntries joins entries from the stream and from the log store,
-// and keeps each denial once. Entries without a PMG marker are dropped,
-// because they cannot be violations.
-func mergeSeatbeltEntries(sets ...[]seatbeltLogEntry) []seatbeltLogEntry {
-	seen := make(map[string]bool)
-	var merged []seatbeltLogEntry
-	for _, set := range sets {
-		for _, entry := range set {
-			payload, ok := parseSeatbeltLogPayload(entry.EventMessage)
-			if !ok {
-				continue
-			}
-
-			key := payload.RunID + "\x00" + seatbeltDenialKey(entry.EventMessage, payload)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			merged = append(merged, entry)
+	merged := append([]seatbeltLogEntry(nil), stored...)
+	for _, entry := range streamed {
+		if inStore[entry.EventMessage] > 0 {
+			inStore[entry.EventMessage]--
+			continue
 		}
+		merged = append(merged, entry)
 	}
 
 	return merged

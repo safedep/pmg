@@ -60,7 +60,7 @@ func TestSeatbeltLogStreamCollectsEntriesUntilEndSentinel(t *testing.T) {
 	st, err := startSeatbeltLogStream(cmd, fakeStreamTag, noopSentinel, time.Second)
 	require.NoError(t, err)
 
-	entries, complete := st.end()
+	entries, complete := st.end(false)
 	assert.True(t, complete)
 	require.Len(t, entries, 1, "sentinels are not entries")
 	assert.Equal(t, "/kernel", entries[0].ProcessImagePath)
@@ -84,7 +84,7 @@ func TestSeatbeltLogStreamWithoutEndSentinelIsIncomplete(t *testing.T) {
 			require.NoError(t, err)
 			st.endTimeout = 300 * time.Millisecond
 
-			entries, complete := st.end()
+			entries, complete := st.end(false)
 			assert.False(t, complete)
 			assert.Len(t, entries, 1)
 		})
@@ -206,7 +206,8 @@ func violationTargets(report *sandbox.ViolationReport) []string {
 }
 
 // Catch-all noise has a buffer of its own, so it cannot push out a denial of
-// the policy's own rules, which a clean run must record.
+// the policy's own rules, which a clean run must record. A clean run drops
+// the noise, so a full noise buffer does not send it to the slow log store.
 func TestSeatbeltCleanRunKeepsRuleDenialAfterNoise(t *testing.T) {
 	lines := []string{fakeSentinelLine(t, "start")}
 	for i := 0; i < seatbeltStreamEntryCap+100; i++ {
@@ -216,43 +217,117 @@ func TestSeatbeltCleanRunKeepsRuleDenialAfterNoise(t *testing.T) {
 		fakeDenialLine(t, 8, "file-read", "file-read-data", "/Users/dev/.ssh/id_rsa"),
 		fakeSentinelLine(t, "end"))
 
+	start := time.Now()
 	report, err := fakeSeatbeltSandbox(startFakeStream(t, lines, true)).BestEffortViolation(nil)
+	elapsed := time.Since(start)
+
 	require.NoError(t, err)
 	require.NotNil(t, report, "the credential read must not be lost behind the noise")
-	assert.Contains(t, violationTargets(report), "/Users/dev/.ssh/id_rsa")
+	assert.Equal(t, []string{"/Users/dev/.ssh/id_rsa"}, violationTargets(report))
+	assert.Less(t, elapsed, 500*time.Millisecond, "a clean run must not query the log store for dropped noise")
 }
 
-// The same denial from several processes, and the kernel's duplicate report
-// of it, take one buffer slot.
-func TestSeatbeltLogStreamDeduplicatesDenials(t *testing.T) {
-	duplicate := strings.Replace(fakeDenialLine(t, 9, "file-read", "file-read-data", "/x"),
-		`Sandbox: node`, `3 duplicate reports for Sandbox: node`, 1)
+// The stream keeps every denial as the kernel logged it. The same file read
+// by two programs, and two files whose paths share their last part, stay
+// separate entries.
+func TestSeatbeltLogStreamKeepsEveryDenial(t *testing.T) {
+	lines := []string{
+		fakeSentinelLine(t, "start"),
+		strings.Replace(fakeDenialLine(t, 7, "file-read", "file-read-data", "/Users/dev/.netrc"), "node(7)", "git(7)", 1),
+		fakeDenialLine(t, 8, "file-read", "file-read-data", "/Users/dev/.netrc"),
+		fakeDenialLine(t, 8, "file-read", "file-read-data", "/Users/dev/My Docs/x/.env"),
+		fakeDenialLine(t, 8, "file-read", "file-read-data", "/Users/dev/Old Docs/x/.env"),
+		fakeSentinelLine(t, "end"),
+	}
+
+	entries, complete := startFakeStream(t, lines, true).end(false)
+	assert.True(t, complete)
+	assert.Len(t, entries, 4)
+}
+
+// A dropped denial of the policy's own rules makes the stream incomplete for
+// every run. A dropped catch-all denial matters only to a failed run, which
+// reports catch-all denials. An incomplete stream sends the run to the log
+// store, so the dropped denial is not lost.
+func TestSeatbeltLogStreamDroppedEntryMakesItIncomplete(t *testing.T) {
+	overflow := func(kind, operation string) []string {
+		lines := []string{fakeSentinelLine(t, "start")}
+		for i := 0; i <= seatbeltStreamEntryCap; i++ {
+			lines = append(lines, fakeDenialLine(t, 7, kind, operation, fmt.Sprintf("/secret/%d", i)))
+		}
+		return append(lines, fakeSentinelLine(t, "end"))
+	}
+
+	tests := []struct {
+		name         string
+		lines        []string
+		withNoise    bool
+		wantComplete bool
+		wantEntries  int
+	}{
+		{name: "rule buffer full, clean run", lines: overflow("file-read", "file-read-data"), wantEntries: seatbeltStreamEntryCap},
+		{name: "rule buffer full, failed run", lines: overflow("file-read", "file-read-data"), withNoise: true, wantEntries: seatbeltStreamEntryCap},
+		{name: "noise buffer full, clean run", lines: overflow(seatbeltKindDefault, "file-write-data"), wantComplete: true, wantEntries: 0},
+		{name: "noise buffer full, failed run", lines: overflow(seatbeltKindDefault, "file-write-data"), withNoise: true, wantEntries: seatbeltStreamEntryCap},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entries, complete := startFakeStream(t, tc.lines, true).end(tc.withNoise)
+			assert.Equal(t, tc.wantComplete, complete)
+			assert.Len(t, entries, tc.wantEntries)
+		})
+	}
+}
+
+// A failed run reports every denial, catch-all ones too, each as the kernel
+// logged it, as it did before the stream existed.
+func TestSeatbeltFailedRunReportsEveryDenial(t *testing.T) {
 	st := startFakeStream(t, []string{
 		fakeSentinelLine(t, "start"),
-		fakeDenialLine(t, 7, "file-read", "file-read-data", "/x"),
-		fakeDenialLine(t, 8, "file-read", "file-read-data", "/x"),
-		duplicate,
-		fakeDenialLine(t, 7, "file-read", "file-read-data", "/y"),
+		strings.Replace(fakeDenialLine(t, 7, "file-read", "file-read-data", "/Users/dev/.netrc"), "node(7)", "git(7)", 1),
+		fakeDenialLine(t, 8, "file-read", "file-read-data", "/Users/dev/.netrc"),
+		fakeDenialLine(t, 7, seatbeltKindDefault, "file-write-data", "/dev/dtracehelper"),
+		fakeDenialLine(t, 8, seatbeltKindDefault, "file-write-data", "/dev/dtracehelper"),
 		fakeSentinelLine(t, "end"),
 	}, true)
 
-	entries, complete := st.end()
-	assert.True(t, complete)
-	assert.Len(t, entries, 2)
+	report, err := fakeSeatbeltSandbox(st).BestEffortViolation(errors.New("exit status 1"))
+	require.NoError(t, err)
+	require.NotNil(t, report)
+	assert.Len(t, report.Violations, 4)
 }
 
-// A dropped entry makes the stream incomplete, so the run also reads the log
-// store and does not miss the dropped denial.
-func TestSeatbeltLogStreamDroppedEntryMakesItIncomplete(t *testing.T) {
-	lines := []string{fakeSentinelLine(t, "start")}
-	for i := 0; i <= seatbeltStreamEntryCap; i++ {
-		lines = append(lines, fakeDenialLine(t, 7, "file-read", "file-read-data", fmt.Sprintf("/secret/%d", i)))
+// The log store entries stay as they are, so a failed run reports what it
+// reported before the stream existed. The stream adds only what the store
+// does not have yet, and an event that both report counts once.
+func TestMergeSeatbeltEntries(t *testing.T) {
+	entry := func(line string) seatbeltLogEntry {
+		var e seatbeltLogEntry
+		require.NoError(t, json.Unmarshal([]byte(line), &e))
+		return e
 	}
-	lines = append(lines, fakeSentinelLine(t, "end"))
+	a := entry(fakeDenialLine(t, 7, "file-read", "file-read-data", "/a"))
+	b := entry(fakeDenialLine(t, 7, "file-read", "file-read-data", "/b"))
+	c := entry(fakeDenialLine(t, 7, "file-read", "file-read-data", "/c"))
 
-	entries, complete := startFakeStream(t, lines, true).end()
-	assert.False(t, complete)
-	assert.Len(t, entries, seatbeltStreamEntryCap)
+	tests := []struct {
+		name     string
+		streamed []seatbeltLogEntry
+		stored   []seatbeltLogEntry
+		want     []seatbeltLogEntry
+	}{
+		{name: "store only", stored: []seatbeltLogEntry{a, a, b}, want: []seatbeltLogEntry{a, a, b}},
+		{name: "stream only", streamed: []seatbeltLogEntry{a, b}, want: []seatbeltLogEntry{a, b}},
+		{name: "both report the same events", streamed: []seatbeltLogEntry{a, b}, stored: []seatbeltLogEntry{a, b}, want: []seatbeltLogEntry{a, b}},
+		{name: "store does not have one yet", streamed: []seatbeltLogEntry{a, c}, stored: []seatbeltLogEntry{a, b}, want: []seatbeltLogEntry{a, b, c}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, mergeSeatbeltEntries(tc.streamed, tc.stored))
+		})
+	}
 }
 
 // An incomplete stream still delivered real denials. The run keeps them when
@@ -292,7 +367,7 @@ func TestTriggerSeatbeltSentinelReachesLogStream(t *testing.T) {
 	st, err := startSeatbeltLogStream(seatbeltLogStreamCommand(tag), tag, triggerSeatbeltSentinel, seatbeltStreamReadyTimeout)
 	require.NoError(t, err)
 
-	_, complete := st.end()
+	_, complete := st.end(false)
 	assert.True(t, complete)
 }
 
