@@ -5,25 +5,26 @@ then wraps package manager commands such as `npm install`, `pip install`,
 or `poetry add`. The proxy blocks malicious packages before they run.
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.33.0
 ```
 
-> **Commit SHA pinning.** The examples use the `v1` tag for readability. Pin
+> **Commit SHA pinning.** The examples use the `v0.33.0` tag for readability. Pin
 > the action to a full commit SHA. This improves supply chain security. See the
 > [GitHub security hardening guide](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions).
 
-> **Action version.** The `v1` tag points to an older action. It does not have
-> the `enforce`, `enforce-*` and `expose-to-job-network` inputs. Use
-> `safedep/pmg@v0.31.0` or later for these inputs. The `network-profile` and
-> `network-mode` inputs need `safedep/pmg@v0.33.0` or later. GitHub warns
-> about an unknown input and runs the job without it, so a job on `v1` with
-> `enforce: true` runs without kernel enforcement, and a job on `v0.32.0`
-> with `network-profile` runs without a network policy.
+> **Action version.** Use the latest release tag, such as
+> `safedep/pmg@v0.33.0`. The `enforce`, `enforce-*` and
+> `expose-to-job-network` inputs need `safedep/pmg@v0.31.0` or later. The
+> `network-profile` and `network-mode` inputs need `safedep/pmg@v0.33.0` or
+> later. GitHub warns about an unknown
+> input and runs the job without it. A job on `v0.30.0` with `enforce: true`
+> runs without kernel enforcement. A job on `v0.32.0` with `network-profile`
+> runs without a network policy.
 
 Out of the box the action gives:
 
 - Malware blocking that uses the [SafeDep real-time threat intelligence](https://docs.safedep.io/cloud/malware-analysis).
-- A dependency cooldown. This blocks package versions published within the last 5 days.
+- A dependency cooldown. This blocks package versions published within the last 2 days.
 - Proxy-based interception of [supported package managers](../README.md#supported-package-managers).
 
 ## Quick start
@@ -37,7 +38,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: safedep/pmg@v1
+      - uses: safedep/pmg@v0.33.0
       - run: npm ci
 ```
 
@@ -67,7 +68,7 @@ default.
 | `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `github-actions/<owner>/<repo>` when cloud is enabled |
 | `paranoid` | `PMG_PARANOID` | `false` |
 | `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
-| `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `5` |
+| `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `2` |
 | `proxy-mode` | Removed. Proxy interception cannot be disabled. The value `false` stops the action. Other values cause a warning and are ignored. | unset |
 | `sandbox` | `PMG_SANDBOX_ENABLED`. Also relaxes AppArmor user namespace limits on the runner | `false` |
 | `sandbox-driver` | `PMG_SANDBOX_DRIVER`. Use `landlock` or `bubblewrap` | `landlock` when sandbox is enabled |
@@ -99,7 +100,7 @@ default.
 ### Send audit events to SafeDep Cloud
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.33.0
   with:
     api-key:   ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
@@ -118,7 +119,7 @@ Each workflow on the same repository appears as one endpoint in the
 SafeDep Cloud UI. Override it for per-environment splits:
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.33.0
   with:
     api-key:     ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id:   ${{ secrets.SAFEDEP_TENANT_ID }}
@@ -139,7 +140,7 @@ trusted_packages:
 ```
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.33.0
   with:
     config-file: .github/pmg.yml
 ```
@@ -267,8 +268,7 @@ The proxy records every destination the job reaches, so a run with no
 profile gives the allow list. The action exports the run id as
 `PMG_PROXY_RUN`. After the stop step, `pmg sandbox profile propose` turns
 the run into a profile, and `actions/upload-artifact` keeps it for review.
-The run id and the command need `safedep/pmg@v0.33.0` or later. The `v1`
-tag does not have the `enforce` input.
+The run id and the command need `safedep/pmg@v0.33.0` or later.
 
 ```yaml
 - uses: safedep/pmg@v0.33.0
@@ -435,7 +435,7 @@ it, `pmg proxy stop` waits until its timeout and fails.
 ### Sandbox mode
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.33.0
   with:
     sandbox: true
     sandbox-driver: landlock   # or "bubblewrap"
@@ -453,7 +453,7 @@ You can override any PMG config key with a `PMG_*` environment variable.
 Set it on the job or on the install step:
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.33.0
 - run: npm ci
   env:
     PMG_DEPENDENCY_COOLDOWN_DAYS: 10

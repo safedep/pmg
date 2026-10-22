@@ -504,6 +504,16 @@ jobs:
             throw "Program Files\nodejs is not on the machine PATH, so this job does not test the MSI case"
           }
 
+      # PMG keeps the value kind of the machine PATH. Runner images differ:
+      # some store it as REG_EXPAND_SZ and some as REG_SZ.
+      - name: Record the value kind of the machine PATH
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $key = Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+          $kind = $key.GetValueKind('Path')
+          Write-Host "machine PATH value kind: $kind"
+          "PMG_PATH_KIND=$kind" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build PMG
         run: go build -o bin\pmg.exe .
 
@@ -547,7 +557,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $key = Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
-          if ($key.GetValueKind('Path') -ne 'ExpandString') { throw "the machine PATH is $($key.GetValueKind('Path')), not REG_EXPAND_SZ" }
+          if ("$($key.GetValueKind('Path'))" -ne $env:PMG_PATH_KIND) { throw "the machine PATH is $($key.GetValueKind('Path')), not $env:PMG_PATH_KIND as before the install" }
           $entries = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames') -split ';' | Where-Object { $_ }
           Write-Host ($entries -join "`n")
           if ($entries[0] -ine "$env:PMG_PRODUCT\bin") { throw "the shim directory is not the first machine PATH entry: $($entries[0])" }
