@@ -33,11 +33,11 @@ filesystem:
     - ${HOME}/.bundle
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
-    - ${HOME}/.cache/pnpm/**
-    - ${HOME}/.cache/yarn/**
+    - ${XDG_CACHE_HOME}/pnpm/**
+    - ${XDG_CACHE_HOME}/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/**
-    - ${HOME}/.cache/node-gyp/**
+    - ${XDG_CACHE_HOME}/node-gyp/**
     - ${HOME}/Library/Caches/node-gyp/**
 
   allow_write:
@@ -59,8 +59,8 @@ filesystem:
     # Package manager caches and stores
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
-    - ${HOME}/.cache/pnpm/**
-    - ${HOME}/.cache/yarn/**
+    - ${XDG_CACHE_HOME}/pnpm/**
+    - ${XDG_CACHE_HOME}/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/**
     # node-gyp downloads the Node.js headers here when a package builds a
@@ -68,7 +68,7 @@ filesystem:
     # Accepted: the cache also holds common.gypi, which every later addon
     # build includes. A package can edit it, and a build outside the sandbox
     # then runs the actions that the package wrote.
-    - ${HOME}/.cache/node-gyp/**
+    - ${XDG_CACHE_HOME}/node-gyp/**
     - ${HOME}/Library/Caches/node-gyp/**
 
   # Additional deny rules (optional - credentials are automatically blocked)
@@ -122,8 +122,8 @@ process:
     - /usr/local/bin/node
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
-    - ${HOME}/.cache/pnpm/**
-    - ${HOME}/.cache/yarn/**
+    - ${XDG_CACHE_HOME}/pnpm/**
+    - ${XDG_CACHE_HOME}/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/**
     - ${HOME}/.asdf/shims/npm

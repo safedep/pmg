@@ -24,8 +24,8 @@ filesystem:
     # metadata). The base profile only covers the XDG path ~/.cache/pnpm.
     - ${HOME}/Library/Caches/pnpm/**
     - ${HOME}/Library/pnpm/store/**
-    - ${HOME}/.local/share/pnpm/store/**
-    - ${HOME}/.cache/node/corepack/**
+    - ${XDG_DATA_HOME}/pnpm/store/**
+    - ${XDG_CACHE_HOME}/node/corepack/**
 
   allow_write:
     # pnpm needs write access here
@@ -38,18 +38,19 @@ filesystem:
     # ~/Library/pnpm itself also holds the global bin directory, which is on
     # PATH, so only the store subtree is listed.
     - ${HOME}/Library/pnpm/store/**
-    - ${HOME}/.local/share/pnpm/store/**
+    - ${XDG_DATA_HOME}/pnpm/store/**
     # Before pnpm uses <pnpm home>/store, it links a test file into a
     # _tmp_* directory in the pnpm home. When the link fails, pnpm keeps the
     # store in the project. Bubblewrap and Landlock cannot allow a glob for a
     # path that does not exist, so on Linux the store falls back to the
     # project.
     - ${HOME}/Library/pnpm/_tmp_*/**
+    - ${XDG_DATA_HOME}/pnpm/_tmp_*/**
 
     # The state directory, where pnpm keeps its update check:
     # ~/.pnpm-state on macOS and ~/.local/state/pnpm on Linux.
     - ${HOME}/.pnpm-state/**
-    - ${HOME}/.local/state/pnpm/**
+    - ${XDG_STATE_HOME}/pnpm/**
 
     # Corepack downloads the pnpm version that package.json pins into
     # COREPACK_HOME, ~/.cache/node/corepack by default on macOS and Linux.
@@ -57,7 +58,7 @@ filesystem:
     # outside the sandbox, so a package can rewrite that pnpm. The same
     # holds for ~/Library/pnpm/.tools above. A COREPACK_HOME elsewhere needs
     # pmg sandbox allow "write=$COREPACK_HOME/**".
-    - ${HOME}/.cache/node/corepack/**
+    - ${XDG_CACHE_HOME}/node/corepack/**
 
     # `pnpm i` creates the tmp files in local dir, at least on MacOS
     - ${CWD}/_tmp_*

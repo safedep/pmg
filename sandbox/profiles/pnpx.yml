@@ -7,20 +7,21 @@ package_managers:
 
 filesystem:
   allow_read:
-    - ${HOME}/.cache/node/corepack/**
+    - ${XDG_CACHE_HOME}/node/corepack/**
     - ${HOME}/Library/Caches/pnpm/**
     - ${HOME}/Library/pnpm/store/**
-    - ${HOME}/.local/share/pnpm/store/**
+    - ${XDG_DATA_HOME}/pnpm/store/**
 
   allow_write:
     # pnpm dlx installs the package into the pnpm store and keeps its dlx
     # cache in the pnpm cache, the same paths as the pnpm profile.
     - ${HOME}/Library/Caches/pnpm/**
     - ${HOME}/Library/pnpm/store/**
-    - ${HOME}/.local/share/pnpm/store/**
+    - ${XDG_DATA_HOME}/pnpm/store/**
     - ${HOME}/Library/pnpm/_tmp_*/**
+    - ${XDG_DATA_HOME}/pnpm/_tmp_*/**
     - ${HOME}/.pnpm-state/**
-    - ${HOME}/.local/state/pnpm/**
+    - ${XDG_STATE_HOME}/pnpm/**
 
     # pnpx runs pnpm dlx, and corepack shims pnpx as it shims pnpm. Corepack
     # downloads the pinned pnpm into COREPACK_HOME, ~/.cache/node/corepack by
@@ -28,4 +29,4 @@ filesystem:
     # corepack does not shim npm or npx by default.
     # Accepted: corepack later runs the pnpm that it cached here, also
     # outside the sandbox, so a package can rewrite that pnpm.
-    - ${HOME}/.cache/node/corepack/**
+    - ${XDG_CACHE_HOME}/node/corepack/**

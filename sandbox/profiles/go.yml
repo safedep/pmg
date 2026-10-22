@@ -32,9 +32,9 @@ filesystem:
     - /
     - ${CWD}/**
     - ${HOME}/go/**
-    - ${HOME}/.config/go/**
+    - ${XDG_CONFIG_HOME}/go/**
     - ${HOME}/Library/Caches/go-build/**
-    - ${HOME}/.cache/go-build/**
+    - ${XDG_CACHE_HOME}/go-build/**
 
   allow_write:
     # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
@@ -53,10 +53,10 @@ filesystem:
     - ${HOME}/go/**
     # Default GOCACHE build cache (macOS, Linux)
     - ${HOME}/Library/Caches/go-build/**
-    - ${HOME}/.cache/go-build/**
+    - ${XDG_CACHE_HOME}/go-build/**
     # Local telemetry counters written by the go tool on every invocation
     - ${HOME}/Library/Application Support/go/telemetry/**
-    - ${HOME}/.config/go/telemetry/**
+    - ${XDG_CONFIG_HOME}/go/telemetry/**
 
   deny_read: []
 
@@ -106,7 +106,7 @@ process:
     # go run / go test execute freshly built binaries from the build cache and
     # the per-build temp work directory
     - ${HOME}/Library/Caches/go-build/**
-    - ${HOME}/.cache/go-build/**
+    - ${XDG_CACHE_HOME}/go-build/**
     - /tmp/**
     - ${TMPDIR}/**
     # cgo toolchain and VCS stamping (-buildvcs)

@@ -18,7 +18,7 @@ environment:
 
 filesystem:
   allow_read:
-    - ${HOME}/.local/share/uv/python/**
+    - ${XDG_DATA_HOME}/uv/python/**
 
   allow_write:
     # uv sync and uv run download a managed Python into this directory when
@@ -27,7 +27,7 @@ filesystem:
     # ~/.local/share/uv holds installed tools, which uv tool install writes.
     # Accepted: uv later runs the Python that it keeps here, also outside the
     # sandbox, so a package can rewrite that Python.
-    - ${HOME}/.local/share/uv/python/**
+    - ${XDG_DATA_HOME}/uv/python/**
 
 network:
   # uv reads the list of managed Python builds from releases.astral.sh and

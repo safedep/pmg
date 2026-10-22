@@ -29,28 +29,28 @@ filesystem:
   allow_read:
     # uv cache: ephemeral tool environments are created here. ~/.cache/uv is the
     # Linux default; uv honors UV_CACHE_DIR / XDG_CACHE_HOME otherwise.
-    - ${HOME}/.cache/uv/**
+    - ${XDG_CACHE_HOME}/uv/**
     - ${HOME}/Library/Caches/uv/**
 
     # uv data dir: managed Python interpreters and installed tools.
-    - ${HOME}/.local/share/uv/**
+    - ${XDG_DATA_HOME}/uv/**
     - ${HOME}/Library/Application Support/uv/**
 
     # uv config and the tool bin directory.
-    - ${HOME}/.config/uv/**
+    - ${XDG_CONFIG_HOME}/uv/**
     - ${HOME}/.local/bin/**
 
   allow_write:
     - ${CWD}/**
-    - ${HOME}/.cache/uv/**
+    - ${XDG_CACHE_HOME}/uv/**
     - ${HOME}/Library/Caches/uv/**
     # Only the managed Python is writable in the uv data directory. The
     # directory also holds the environments of installed tools, and their
     # programs are linked into ~/.local/bin. uv tool run does not write
     # them.
-    - ${HOME}/.local/share/uv/python/**
+    - ${XDG_DATA_HOME}/uv/python/**
     - ${HOME}/Library/Application Support/uv/python/**
-    - ${HOME}/.config/uv/**
+    - ${XDG_CONFIG_HOME}/uv/**
     # ~/.local/bin is not writable. uv tool run does not need it, only uv
     # tool install does, and that runs under the uv profile. The directory
     # is usually on PATH, so a write there is a program for the next shell.

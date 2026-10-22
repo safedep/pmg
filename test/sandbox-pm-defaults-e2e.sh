@@ -57,6 +57,36 @@ test_corepack_pnpm() {
 	rm -rf "$dir"
 }
 
+# Corepack keeps its cache in $XDG_CACHE_HOME/node/corepack when the variable
+# is set. The profile rule ${XDG_CACHE_HOME}/node/corepack/** must follow it.
+# A value of $HOME must not widen the rule to all of HOME, so pmg uses the
+# default and the write to $HOME/node is denied.
+test_corepack_xdg_cache() {
+	echo "== corepack with XDG_CACHE_HOME"
+	local dir shims cache
+	dir=$(workdir)
+	shims="$dir/shims"
+	cache="$HOME/pmg-xdg-cache"
+	mkdir "$shims" "$dir/app"
+	corepack enable --install-directory "$shims" pnpm
+	linux_mkdir "$cache/node/corepack"
+	cd "$dir/app"
+	printf '{"name":"app","version":"1.0.0","packageManager":"pnpm@9.15.9"}\n' >package.json
+
+	PATH="$shims:$PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 XDG_CACHE_HOME="$cache" \
+		sandboxed pnpm --version | tee version.txt
+	grep -qx "9.15.9" version.txt || fail "corepack pnpm did not run with XDG_CACHE_HOME=$cache"
+	test -d "$cache/node/corepack/v1/pnpm/9.15.9" || fail "corepack did not cache pnpm in $cache"
+
+	if PATH="$shims:$PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 XDG_CACHE_HOME="$HOME" \
+		sandboxed pnpm --version; then
+		fail "XDG_CACHE_HOME=$HOME widened the corepack rule to HOME"
+	fi
+	test ! -e "$HOME/node" || fail "corepack wrote $HOME/node"
+	cd - >/dev/null
+	rm -rf "$dir" "$cache"
+}
+
 # Without PNPM_HOME, pnpm keeps its store in ~/Library/pnpm/store on macOS
 # and in ~/.local/share/pnpm/store on Linux. pnpm/action-setup sets
 # PNPM_HOME, so the test removes it. On Linux the profile cannot allow the
@@ -266,6 +296,7 @@ test_pip_user_site() {
 
 tests=(
 	test_corepack_pnpm
+	test_corepack_xdg_cache
 	test_pnpm_default_store
 	test_yarn_berry
 	test_node_gyp_cache

@@ -15,8 +15,8 @@ func TestProfilePathContract(t *testing.T) {
 	r, err := newDefaultProfileRegistry()
 	require.NoError(t, err)
 
-	corepack := "${HOME}/.cache/node/corepack/**"
-	nodeGyp := []string{"${HOME}/.cache/node-gyp/**", "${HOME}/Library/Caches/node-gyp/**"}
+	corepack := "${XDG_CACHE_HOME}/node/corepack/**"
+	nodeGyp := []string{"${XDG_CACHE_HOME}/node-gyp/**", "${HOME}/Library/Caches/node-gyp/**"}
 	userSite := "${HOME}/.local/lib/python*/**"
 	releaseHosts := []string{"objects.githubusercontent.com:443", "release-assets.githubusercontent.com:443"}
 
@@ -33,13 +33,13 @@ func TestProfilePathContract(t *testing.T) {
 			profile: "pnpm",
 			allowWrite: append([]string{
 				"${HOME}/Library/pnpm/store/**",
-				"${HOME}/.local/share/pnpm/store/**",
+				"${XDG_DATA_HOME}/pnpm/store/**",
 				"${HOME}/.pnpm-state/**",
-				"${HOME}/.local/state/pnpm/**",
+				"${XDG_STATE_HOME}/pnpm/**",
 				corepack,
 			}, nodeGyp...),
 			// The global bin directory is on PATH.
-			notAllowWrite: []string{"${HOME}/Library/pnpm/**", "${HOME}/.local/share/pnpm/**"},
+			notAllowWrite: []string{"${HOME}/Library/pnpm/**", "${XDG_DATA_HOME}/pnpm/**"},
 			allowOutbound: append([]string{"codeload.github.com:443", "nodejs.org:443"}, releaseHosts...),
 		},
 		{
@@ -50,7 +50,7 @@ func TestProfilePathContract(t *testing.T) {
 		{
 			profile:    "pnpx",
 			inherits:   "npx",
-			allowWrite: []string{corepack, "${CWD}/**", "${HOME}/Library/pnpm/store/**", "${HOME}/.local/share/pnpm/store/**"},
+			allowWrite: []string{corepack, "${CWD}/**", "${HOME}/Library/pnpm/store/**", "${XDG_DATA_HOME}/pnpm/store/**"},
 		},
 		{
 			// Corepack does not manage npm, npx or bun by default.
@@ -67,14 +67,14 @@ func TestProfilePathContract(t *testing.T) {
 		},
 		{
 			profile:       "uv",
-			allowWrite:    []string{"${HOME}/.local/share/uv/python/**"},
-			notAllowWrite: []string{userSite, "${HOME}/.local/share/uv/**"},
+			allowWrite:    []string{"${XDG_DATA_HOME}/uv/python/**"},
+			notAllowWrite: []string{userSite, "${XDG_DATA_HOME}/uv/**"},
 			allowOutbound: append([]string{"releases.astral.sh:443"}, releaseHosts...),
 		},
 		{
 			profile:       "uvx",
-			allowWrite:    []string{"${HOME}/.local/share/uv/python/**"},
-			notAllowWrite: []string{"${HOME}/.local/bin/**", "${HOME}/.local/share/uv/**", userSite},
+			allowWrite:    []string{"${XDG_DATA_HOME}/uv/python/**"},
+			notAllowWrite: []string{"${HOME}/.local/bin/**", "${XDG_DATA_HOME}/uv/**", userSite},
 			allowOutbound: append([]string{"releases.astral.sh:443"}, releaseHosts...),
 		},
 		{profile: "pip", notAllowWrite: []string{userSite}},

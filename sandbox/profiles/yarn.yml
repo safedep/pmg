@@ -23,7 +23,7 @@ filesystem:
   allow_read:
     - ${HOME}/.yarn/berry/**
     - ${HOME}/Library/Caches/Yarn/**
-    - ${HOME}/.cache/node/corepack/**
+    - ${XDG_CACHE_HOME}/node/corepack/**
 
   allow_write:
     # Yarn 2 and later keep the global cache in ~/.yarn/berry/cache
@@ -41,7 +41,7 @@ filesystem:
     # outside the sandbox, so a package can rewrite that Yarn. A
     # COREPACK_HOME elsewhere needs
     # pmg sandbox allow "write=$COREPACK_HOME/**".
-    - ${HOME}/.cache/node/corepack/**
+    - ${XDG_CACHE_HOME}/node/corepack/**
 
 network:
   # Yarn 2 and later download releases and official plugins from

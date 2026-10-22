@@ -21,13 +21,13 @@ filesystem:
     # (.env, .ssh, .aws, .gnupg, etc.) are blocked by mandatory deny patterns.
     - /
     - ${CWD}/**
-    - ${HOME}/.config/pip/**
+    - ${XDG_CONFIG_HOME}/pip/**
     - ${HOME}/.pip/**
     - ${HOME}/.poetry/**
-    - ${HOME}/.cache/pip/**
-    - ${HOME}/.cache/pypoetry/**
-    - ${HOME}/.cache/poetry/**
-    - ${HOME}/.cache/uv/**
+    - ${XDG_CACHE_HOME}/pip/**
+    - ${XDG_CACHE_HOME}/pypoetry/**
+    - ${XDG_CACHE_HOME}/poetry/**
+    - ${XDG_CACHE_HOME}/uv/**
     - /usr/local/**
     - /Library/**
     - /System/Library/**
@@ -48,10 +48,10 @@ filesystem:
     # denies keep credential files and auto-exec directories blocked.
     - ${CWD}
     - ${CWD}/**
-    - ${HOME}/.cache/pip/**
-    - ${HOME}/.cache/pypoetry/**
-    - ${HOME}/.cache/poetry/**
-    - ${HOME}/.cache/uv/**
+    - ${XDG_CACHE_HOME}/pip/**
+    - ${XDG_CACHE_HOME}/pypoetry/**
+    - ${XDG_CACHE_HOME}/poetry/**
+    - ${XDG_CACHE_HOME}/uv/**
     - ${HOME}/Library/Caches/pip/**
     # The user site (pip install --user) is not writable. Every Python on
     # the machine loads it, and a .pth file there runs at each start, also
