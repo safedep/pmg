@@ -33,7 +33,11 @@ const (
 	seatbeltSentinelRetry = 100 * time.Millisecond
 
 	// seatbeltStreamEntryCap bounds each of the two buffers of one run: the
-	// signal denials, and the noise denials that sandbox.IsNoise selects.
+	// signal denials, and the noise denials that sandbox.IsNoise selects. A
+	// failed `go build` makes more than 2000 denials, so a cap of 512 filled
+	// and sent ordinary runs to the slow log store. A dedup of the entries
+	// saved space but merged separate denials, such as one file read by two
+	// programs. A larger cap keeps every denial and uses a few MB at most.
 	seatbeltStreamEntryCap = 8192
 
 	seatbeltStreamStopTimeout = 2 * time.Second
