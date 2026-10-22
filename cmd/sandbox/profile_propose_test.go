@@ -105,17 +105,39 @@ func TestProfilePropose_DryRunPrintsTheTableAndWritesNothing(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(f.userDir, "ci.yml"))
 }
 
-func TestProfilePropose_DaemonRunInheritsExecAndDeniesTheRest(t *testing.T) {
-	f := newProposeFixture(t)
-	f.logObservation(t, proposeNow.Add(-2*time.Hour), netpolicy.Observation{RunID: "run1", RepoRoot: f.repo, Mode: "audit",
-		Destinations: []netpolicy.Destination{dest("registry.npmjs.org", 443, 4), dest("github.com", 443, 1)}})
-
-	out, err := f.run(t, "--last", "--new", "ci", "--dry-run")
-	require.NoError(t, err)
-	assert.Contains(t, out, "inherits: exec")
-	assert.Contains(t, out, "add github.com:443")
-	assert.Contains(t, out, "add registry.npmjs.org:443")
-	assert.Contains(t, out, `- "*:*"`, "exec allows every host, so the proposal denies the rest itself")
+func TestProfilePropose_DaemonRunParent(t *testing.T) {
+	tests := []struct {
+		name          string
+		githubActions bool
+		want          []string
+	}{
+		{
+			name: "a daemon run inherits exec and denies the rest",
+			want: []string{"inherits: exec", "add github.com:443", "add registry.npmjs.org:443", `- "*:*"`},
+		},
+		{
+			name:          "a daemon run on a GitHub Actions runner inherits the runner hosts",
+			githubActions: true,
+			want:          []string{"inherits: github-actions", "parent allows github.com:443", "add registry.npmjs.org:443", `- "*:*"`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newProposeFixture(t)
+			f.logObservation(t, proposeNow.Add(-2*time.Hour), netpolicy.Observation{RunID: "run1", RepoRoot: f.repo, Mode: "audit",
+				Destinations: []netpolicy.Destination{dest("registry.npmjs.org", 443, 4), dest("github.com", 443, 1)}})
+			deps := f.deps()
+			deps.githubActions = func() bool { return tt.githubActions }
+			cmd := newProfileProposeCommand(newTestRegistryFactory(t, f.userDir), deps)
+			cmd.SetArgs([]string{"--last", "--new", "ci", "--dry-run"})
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			require.NoError(t, cmd.Execute())
+			for _, want := range tt.want {
+				assert.Contains(t, out.String(), want)
+			}
+		})
+	}
 }
 
 func TestProfilePropose_WritesANewProfileThatLoads(t *testing.T) {

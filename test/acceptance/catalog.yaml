@@ -200,6 +200,12 @@
   tier: P1
   guarantee: "pmg proxy stop --if-running exits zero when no proxy runs, and --report writes the stop result as JSON."
   labels: [lifecycle, offline]
+- id: proxy/network/github-actions-profile
+  title: "github-actions built-in profile loads as a proxy network profile"
+  category: proxy
+  tier: P1
+  guarantee: "The github-actions built-in loads for the persistent proxy with no filesystem rules warning, and a profile can inherit it."
+  labels: [network, offline]
 - id: proxy/trusted/registry-bypass
   title: "trusted registry traffic bypasses interception"
   category: proxy
