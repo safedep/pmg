@@ -1,7 +1,6 @@
 package util
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,14 +128,7 @@ func resolveXDGDir(env, fallback, home string) string {
 	cleanHome := filepath.Clean(home)
 	if ContainsGlob(clean) || clean == string(filepath.Separator) || PathCoveredBy(cleanHome, clean) {
 		if _, warned := xdgWarned.LoadOrStore(env, true); !warned {
-			msg := fmt.Sprintf("%s=%q is not used for sandbox rules. pmg uses %s instead", env, value, fallback)
-			log.Warnf("%s", msg)
-			// log.Warnf is not shown at the default verbosity. The tool still
-			// writes to the value, and the sandbox denies it, so the user needs
-			// this line to understand the failure.
-			if _, err := fmt.Fprintf(os.Stderr, "pmg: warning: %s\n", msg); err != nil {
-				log.Warnf("write XDG warning: %v", err)
-			}
+			log.Warnf("%s=%q is not used for sandbox rules. pmg uses %s instead", env, value, fallback)
 		}
 		return fallback
 	}
