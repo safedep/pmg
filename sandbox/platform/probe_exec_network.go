@@ -45,7 +45,7 @@ func (p *execNetworkProbe) Run(_ context.Context) sandbox.ProbeResult {
 	if !driverConfinesOutbound(sb.Name()) {
 		return sandbox.ProbeResult{
 			Name:    sandbox.ProbeExecNetwork,
-			Status:  sandbox.ProbeStatusFail,
+			Status:  sandbox.ProbeStatusWarn,
 			Summary: fmt.Sprintf("%s cannot confine outbound to the proxy", sb.Name()),
 			Detail:  "The exec profile sets network_via_proxy_only, and this driver does not support it, so pmg sandbox exec refuses to run.",
 			Fixes: []sandbox.ProbeFix{{

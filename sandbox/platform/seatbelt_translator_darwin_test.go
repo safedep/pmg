@@ -227,6 +227,26 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			},
 		},
 		{
+			name: "write glob pattern under HOME allows creating the missing ancestors",
+			policy: &sandbox.SandboxPolicy{
+				Filesystem: sandbox.FilesystemPolicy{
+					AllowWrite: []string{"${HOME}/.cache/node/corepack/**", "/path/to/dir/**"},
+				},
+			},
+			assert: func(t *testing.T, actual string, err error) {
+				assert.NoError(t, err)
+				homeDir := os.Getenv("HOME")
+				assert.Contains(t, actual, fmt.Sprintf(`(allow file-write* (literal "%s/.cache/node/corepack"))`, homeDir))
+				ancestorRule := `(allow file-write-create (require-all (literal "%s") (vnode-type DIRECTORY)))`
+				assert.Contains(t, actual, fmt.Sprintf(ancestorRule, homeDir+"/.cache/node"))
+				assert.Contains(t, actual, fmt.Sprintf(ancestorRule, homeDir+"/.cache"))
+				assert.NotContains(t, actual, fmt.Sprintf(`(allow file-write-create (literal "%s/.cache"))`, homeDir))
+				assert.NotContains(t, actual, fmt.Sprintf(ancestorRule, homeDir))
+				assert.NotContains(t, actual, fmt.Sprintf(`(allow file-write* (literal "%s/.cache/node"))`, homeDir))
+				assert.NotContains(t, actual, fmt.Sprintf(ancestorRule, "/path/to"))
+			},
+		},
+		{
 			name: "multiple /** patterns all auto-allow parents",
 			policy: &sandbox.SandboxPolicy{
 				Filesystem: sandbox.FilesystemPolicy{

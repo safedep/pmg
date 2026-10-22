@@ -331,3 +331,51 @@ func TestExpandVariablesWithVariableReplacement(t *testing.T) {
 		})
 	}
 }
+
+func TestExpandVariablesXDG(t *testing.T) {
+	const home = "/home/dev"
+
+	tests := []struct {
+		name     string
+		value    *string
+		locked   bool
+		input    string
+		expected string
+	}{
+		{name: "unset uses the default", input: "${XDG_CACHE_HOME}/pnpm", expected: "/home/dev/.cache/pnpm"},
+		{name: "absolute value is used", value: ptr("/data/cache"), input: "${XDG_CACHE_HOME}/pnpm", expected: "/data/cache/pnpm"},
+		{name: "value is cleaned", value: ptr("/data/cache/"), input: "${XDG_CACHE_HOME}/pnpm", expected: "/data/cache/pnpm"},
+		{name: "value under HOME is used", value: ptr("/home/dev/.xdg/cache"), input: "${XDG_CACHE_HOME}/pnpm", expected: "/home/dev/.xdg/cache/pnpm"},
+		{name: "empty value uses the default", value: ptr(""), input: "${XDG_CACHE_HOME}/pnpm", expected: "/home/dev/.cache/pnpm"},
+		{name: "relative value uses the default", value: ptr("cache"), input: "${XDG_CACHE_HOME}/pnpm", expected: "/home/dev/.cache/pnpm"},
+		{name: "root uses the default", value: ptr("/"), input: "${XDG_CACHE_HOME}/pnpm", expected: "/home/dev/.cache/pnpm"},
+		{name: "HOME uses the default", value: ptr("/home/dev"), input: "${XDG_CACHE_HOME}/pnpm", expected: "/home/dev/.cache/pnpm"},
+		{name: "ancestor of HOME uses the default", value: ptr("/home"), input: "${XDG_CACHE_HOME}/pnpm", expected: "/home/dev/.cache/pnpm"},
+		{name: "glob uses the default", value: ptr("/home/*"), input: "${XDG_CACHE_HOME}/pnpm", expected: "/home/dev/.cache/pnpm"},
+		{name: "lockdown ignores the value", value: ptr("/data/cache"), locked: true, input: "${XDG_CACHE_HOME}/pnpm", expected: "/home/dev/.cache/pnpm"},
+		{name: "config default", input: "${XDG_CONFIG_HOME}/pnpm", expected: "/home/dev/.config/pnpm"},
+		{name: "data default", input: "${XDG_DATA_HOME}/pnpm/store", expected: "/home/dev/.local/share/pnpm/store"},
+		{name: "state default", input: "${XDG_STATE_HOME}/pnpm", expected: "/home/dev/.local/state/pnpm"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, env := range []string{"XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"} {
+				t.Setenv(env, "")
+			}
+			if tt.value != nil {
+				t.Setenv("XDG_CACHE_HOME", *tt.value)
+			}
+			IgnoreXDGEnvironment(tt.locked)
+			t.Cleanup(func() { IgnoreXDGEnvironment(false) })
+
+			got, err := ExpandVariablesWith(tt.input, "/work", home, "/tmp")
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func ptr(s string) *string {
+	return &s
+}

@@ -165,13 +165,13 @@ func TestProfilePropose_IntoAppendsAndKeepsTheOtherBlocks(t *testing.T) {
 		Destinations: []netpolicy.Destination{
 			dest("registry.npmjs.org", 443, 4),
 			dest("github.com", 443, 1),
-			dest("objects.githubusercontent.com", 443, 2),
+			dest("cdn.jsdelivr.net", 443, 2),
 			{Host: "pastebin.com", Port: 443, Count: 1, Allowed: false, Rule: "pastebin.com:443", Enforced: true, FirstSeen: proposeNow, LastSeen: proposeNow},
 		}})
 
 	out, err := f.run(t, "--last", "--into", target)
 	require.NoError(t, err)
-	assert.Contains(t, out, "+    - objects.githubusercontent.com:443")
+	assert.Contains(t, out, "+    - cdn.jsdelivr.net:443")
 	assert.Contains(t, out, "parent allows registry.npmjs.org:443")
 	assert.Contains(t, out, "already allowed github.com:443")
 	assert.Contains(t, out, "kept denied pastebin.com:443")
@@ -180,7 +180,7 @@ func TestProfilePropose_IntoAppendsAndKeepsTheOtherBlocks(t *testing.T) {
 	require.NoError(t, err)
 	want := strings.Replace(proposeExistingProfile,
 		"    - github.com:443\n",
-		"    - github.com:443\n    - objects.githubusercontent.com:443\n", 1)
+		"    - github.com:443\n    - cdn.jsdelivr.net:443\n", 1)
 	want = strings.Replace(want, "network:\n", "network:\n  deny_ip_literals: true\n", 1)
 	assert.Equal(t, want, string(written), "the other blocks and the comment stay as they were, and the proposal turns on the IP literal denial")
 

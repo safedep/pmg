@@ -316,7 +316,7 @@ npm needs Node 22.19 or later. The `enforce` input needs action version
 `v0.31.0` or later.
 
 ```yaml
-- uses: safedep/pmg@v0.31.0
+- uses: safedep/pmg@v0.33.0
   with:
     server-mode: true
     enforce: true

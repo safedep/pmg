@@ -15,3 +15,14 @@ environment:
   allow:
     - POETRY_*
     - PIP_*
+
+filesystem:
+  allow_read:
+    - ${HOME}/Library/Caches/pypoetry/**
+
+  allow_write:
+    # Poetry keeps its cache and the project virtualenvs in
+    # ~/Library/Caches/pypoetry on macOS. The base profile covers the Linux
+    # path ~/.cache/pypoetry only, so poetry install fails on macOS without
+    # this rule.
+    - ${HOME}/Library/Caches/pypoetry/**
