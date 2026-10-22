@@ -1,0 +1,8 @@
+[tools]
+go = "1.27.3"
+node = "latest"
+pnpm = "latest"
+
+[settings]
+lockfile = true
+lockfile_auto_prune = true
