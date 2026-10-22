@@ -49,6 +49,7 @@ func TestProfileEnvContract(t *testing.T) {
 		{profile: "aube", wantKept: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"}},
 		{profile: "aubx", wantKept: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"}},
 		{profile: "npx", wantKept: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"}},
+		{profile: "pnpx", wantKept: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"}},
 		{profile: "pip", wantKept: []string{}},
 		{profile: "pipx", wantKept: []string{}},
 		{profile: "uv", wantKept: []string{"UV_PUBLISH_TOKEN"}},

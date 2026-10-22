@@ -777,7 +777,7 @@ jobs:
   sandbox-e2e-macos:
     name: Sandbox E2E - macOS
     runs-on: macos-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout Source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -805,6 +805,9 @@ jobs:
         run: |
           npm install -g --ignore-scripts=false @endevco/aube@2.2.4
           aube --version
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Build PMG
         run: make
@@ -865,10 +868,16 @@ jobs:
           grep -q "Hello from sandboxed aubx" aubx-output.txt
           cd - && rm -rf "$AUBE_TESTDIR"
 
+      # Each package manager runs under its built-in profile. The script
+      # checks the default cache and store paths that the profile allows, and
+      # the credential and user-site paths that it denies.
+      - name: Run Package Manager Default Paths E2E Test
+        run: ./test/sandbox-pm-defaults-e2e.sh
+
   sandbox-e2e-linux:
     name: Sandbox E2E - Linux (Bubblewrap)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -907,6 +916,9 @@ jobs:
 
       - name: Verify Bubblewrap Installation
         run: bwrap --version
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Build PMG
         run: make
@@ -975,10 +987,16 @@ jobs:
           grep -q "Hello from sandboxed aubx" aubx-output.txt
           cd - && rm -rf "$AUBE_TESTDIR"
 
+      # Each package manager runs under its built-in profile. The script
+      # checks the default cache and store paths that the profile allows, and
+      # the credential and user-site paths that it denies.
+      - name: Run Package Manager Default Paths E2E Test
+        run: ./test/sandbox-pm-defaults-e2e.sh
+
   sandbox-e2e-linux-landlock:
     name: Sandbox E2E - Linux (Landlock)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -1017,6 +1035,9 @@ jobs:
         run: |
           npm install -g --ignore-scripts=false @endevco/aube@2.2.4
           aube --version
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Build PMG
         run: make
@@ -1096,6 +1117,12 @@ jobs:
           pmg --sandbox --sandbox-enforce aubx cowsay@1.6.0 "Hello from sandboxed aubx" | tee aubx-output.txt
           grep -q "Hello from sandboxed aubx" aubx-output.txt
           cd - && rm -rf "$AUBE_TESTDIR"
+
+      # Each package manager runs under its built-in profile. The script
+      # checks the default cache and store paths that the profile allows, and
+      # the credential and user-site paths that it denies.
+      - name: Run Package Manager Default Paths E2E Test
+        run: ./test/sandbox-pm-defaults-e2e.sh
 
   # Linux system-wide install: root install, ENV PATH (Docker-style), non-root user,
   # managed config, and remove. Profile.d login shells are covered by sourcing the snippet.

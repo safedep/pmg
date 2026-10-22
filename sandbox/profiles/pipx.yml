@@ -30,22 +30,22 @@ filesystem:
     # not exist: ~/.local/share/pipx on Linux, ~/Library/Application Support/pipx
     # on macOS.
     - ${HOME}/.local/pipx/**
-    - ${HOME}/.local/share/pipx/**
+    - ${XDG_DATA_HOME}/pipx/**
     - ${HOME}/Library/Application Support/pipx/**
     - ${HOME}/.local/bin/**
 
     # pipx run caches ephemeral venvs here
-    - ${HOME}/.cache/pipx/**
+    - ${XDG_CACHE_HOME}/pipx/**
     - ${HOME}/Library/Caches/pipx/**
 
   # Add write permissions for pipx-specific paths
   allow_write:
     - ${CWD}/**
     - ${HOME}/.local/pipx/**
-    - ${HOME}/.local/share/pipx/**
+    - ${XDG_DATA_HOME}/pipx/**
     - ${HOME}/Library/Application Support/pipx/**
     - ${HOME}/.local/bin/**
-    - ${HOME}/.cache/pipx/**
+    - ${XDG_CACHE_HOME}/pipx/**
     - ${HOME}/Library/Caches/pipx/**
 
   # Additional deny rules for extra security

@@ -18,3 +18,33 @@ environment:
     - npm_config_*
     - NPM_CONFIG_*
     - NODE_EXTRA_CA_CERTS
+
+filesystem:
+  allow_read:
+    - ${HOME}/.yarn/berry/**
+    - ${HOME}/Library/Caches/Yarn/**
+    - ${XDG_CACHE_HOME}/node/corepack/**
+
+  allow_write:
+    # Yarn 2 and later keep the global cache in ~/.yarn/berry/cache
+    # (enableGlobalCache is on by default in Yarn 4). The base profile only
+    # covers the Yarn 1 cache under ~/.cache/yarn and ~/.yarn/cache.
+    - ${HOME}/.yarn/berry/**
+
+    # Yarn 1 keeps its cache in ~/Library/Caches/Yarn on macOS. Without it,
+    # Yarn 1 falls back to a temporary cache on every install.
+    - ${HOME}/Library/Caches/Yarn/**
+
+    # Corepack downloads the Yarn version that package.json pins into
+    # COREPACK_HOME, ~/.cache/node/corepack by default on macOS and Linux.
+    # Accepted: corepack later runs the Yarn that it cached here, also
+    # outside the sandbox, so a package can rewrite that Yarn. A
+    # COREPACK_HOME elsewhere needs
+    # pmg sandbox allow "write=$COREPACK_HOME/**".
+    - ${XDG_CACHE_HOME}/node/corepack/**
+
+network:
+  # Yarn 2 and later download releases and official plugins from
+  # repo.yarnpkg.com, for example yarn set version and yarn plugin import.
+  allow_outbound:
+    - repo.yarnpkg.com:443
