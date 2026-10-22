@@ -1,0 +1,32 @@
+name: pnpx
+description: Profile for pnpx generators, extending npx with the corepack cache
+inherits: npx
+
+package_managers:
+  - pnpx
+
+filesystem:
+  allow_read:
+    - ${XDG_CACHE_HOME}/node/corepack/**
+    - ${HOME}/Library/Caches/pnpm/**
+    - ${HOME}/Library/pnpm/store/**
+    - ${XDG_DATA_HOME}/pnpm/store/**
+
+  allow_write:
+    # pnpm dlx installs the package into the pnpm store and keeps its dlx
+    # cache in the pnpm cache, the same paths as the pnpm profile.
+    - ${HOME}/Library/Caches/pnpm/**
+    - ${HOME}/Library/pnpm/store/**
+    - ${XDG_DATA_HOME}/pnpm/store/**
+    - ${HOME}/Library/pnpm/_tmp_*/**
+    - ${XDG_DATA_HOME}/pnpm/_tmp_*/**
+    - ${HOME}/.pnpm-state/**
+    - ${XDG_STATE_HOME}/pnpm/**
+
+    # pnpx runs pnpm dlx, and corepack shims pnpx as it shims pnpm. Corepack
+    # downloads the pinned pnpm into COREPACK_HOME, ~/.cache/node/corepack by
+    # default on macOS and Linux. npx stays without this rule, because
+    # corepack does not shim npm or npx by default.
+    # Accepted: corepack later runs the pnpm that it cached here, also
+    # outside the sandbox, so a package can rewrite that pnpm.
+    - ${XDG_CACHE_HOME}/node/corepack/**

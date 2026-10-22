@@ -216,7 +216,7 @@ sandbox:
 
     pnpx:
       enabled: true
-      profile: npx
+      profile: pnpx
 
     yarn:
       enabled: true

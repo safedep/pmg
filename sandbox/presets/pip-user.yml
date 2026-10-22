@@ -1,0 +1,29 @@
+schema_version: 1
+kind: preset
+name: pip-user
+description: User site installs for `pip install --user` and the pip fallback to the user site
+
+metadata:
+  author: SafeDep
+  labels: [python, pip]
+
+# Threat notes:
+# - The pypi-restrictive profile denies writes to the user site, because
+#   every Python on the machine loads it. A .pth file there runs at each
+#   Python start, also outside the sandbox. This preset lifts that deny for
+#   a run that installs into the user site on purpose.
+# - pip also falls back to the user site when the normal site-packages is
+#   not writable, for example a system Python without a virtualenv.
+# - The bin directories hold the console scripts of the installed packages
+#   and are usually on PATH. A package can put any program there.
+# - Prefer a virtualenv in the project. It needs no preset.
+filesystem:
+  allow_write:
+    # Linux, and macOS Pythons that are not framework builds (pyenv, mise).
+    # The rule names ~/.local/lib and not ~/.local/lib/python*. Bubblewrap
+    # and Landlock do not expand a glob before the /**, so they would drop a
+    # python* rule.
+    - ${HOME}/.local/lib/**
+    - ${HOME}/.local/bin/**
+    # macOS framework builds (python.org and Homebrew).
+    - ${HOME}/Library/Python/**

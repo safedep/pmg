@@ -14,6 +14,7 @@ import (
 
 	"github.com/safedep/pmg/internal/fsutil"
 	"github.com/safedep/pmg/internal/platform"
+	sandboxutil "github.com/safedep/pmg/sandbox/util"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -358,6 +359,11 @@ var legacyProfileAliases = map[string]map[string]string{
 	},
 	"pnpm-restrictive": {
 		"pnpm": "pnpm",
+	},
+	// pnpx mapped to the npx profile until pnpx got its own leaf with the
+	// corepack cache. npx keeps the npx profile.
+	"npx": {
+		"pnpx": "pnpx",
 	},
 	"pypi-restrictive": {
 		"pip":    "pip",
@@ -737,6 +743,7 @@ func initConfig() {
 	// global_lockdown, read straight from the file so it cannot be flipped by
 	// env or CLI.
 	globalConfig.configLocked = globalConfig.IsManaged() && globalConfigEnablesLockdown(globalConfigFilePath())
+	sandboxutil.IgnoreXDGEnvironment(globalConfig.IsLocked())
 
 	// When locked, env cannot bypass the config, including the
 	// PMG_INSECURE_INSTALLATION malicious-package block bypass.

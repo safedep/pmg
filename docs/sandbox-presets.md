@@ -49,16 +49,17 @@ updates the allowances everywhere the preset is used.
 
 ## Available official presets
 
-| Preset   | For                                    |
-| -------- | -------------------------------------- |
-| `git`    | lint-staged, husky, turbo, changesets  |
-| `astro`  | Astro dev server and build             |
-| `vite`   | Vite dev server and build              |
-| `nextjs` | Next.js dev server and build           |
-| `asdf`   | asdf version manager tool installs     |
-| `claude` | Claude Code under `pmg sandbox exec`   |
-| `codex`  | Codex CLI under `pmg sandbox exec`     |
-| `pi`     | Pi agent under `pmg sandbox exec`      |
+| Preset     | For                                                        |
+| ---------- | ---------------------------------------------------------- |
+| `git`      | lint-staged, husky, turbo, changesets                      |
+| `astro`    | Astro dev server and build                                 |
+| `vite`     | Vite dev server and build                                  |
+| `nextjs`   | Next.js dev server and build                               |
+| `asdf`     | asdf version manager tool installs                         |
+| `claude`   | Claude Code under `pmg sandbox exec`                       |
+| `codex`    | Codex CLI under `pmg sandbox exec`                         |
+| `pi`       | Pi agent under `pmg sandbox exec`                          |
+| `pip-user` | `pip install --user` and the pip fallback to the user site |
 
 ## Creating your own preset
 

@@ -51,6 +51,30 @@ func TestSandboxConfigPolicyFor(t *testing.T) {
 			wantExists:  true,
 		},
 		{
+			name:        "legacy npx default re-mapped for pnpx",
+			policies:    map[string]SandboxPolicyRef{"pnpx": {Enabled: true, Profile: "npx"}},
+			pmName:      "pnpx",
+			wantProfile: "pnpx",
+			wantExists:  true,
+		},
+		{
+			name:        "npx keeps the npx profile",
+			policies:    map[string]SandboxPolicyRef{"npx": {Enabled: true, Profile: "npx"}},
+			pmName:      "npx",
+			wantProfile: "npx",
+			wantExists:  true,
+		},
+		{
+			name:     "npx template override keeps pnpx on it",
+			policies: map[string]SandboxPolicyRef{"pnpx": {Enabled: true, Profile: "npx"}},
+			policyTemplates: map[string]SandboxPolicyTemplate{
+				"npx": {Path: "./custom-npx.yml"},
+			},
+			pmName:      "pnpx",
+			wantProfile: "npx",
+			wantExists:  true,
+		},
+		{
 			name:        "legacy profile for unrelated package manager kept verbatim",
 			policies:    map[string]SandboxPolicyRef{"pip": {Enabled: true, Profile: "npm-restrictive"}},
 			pmName:      "pip",

@@ -33,10 +33,12 @@ filesystem:
     - ${HOME}/.bundle
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
-    - ${HOME}/.cache/pnpm/**
-    - ${HOME}/.cache/yarn/**
+    - ${XDG_CACHE_HOME}/pnpm/**
+    - ${XDG_CACHE_HOME}/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/**
+    - ${XDG_CACHE_HOME}/node-gyp/**
+    - ${HOME}/Library/Caches/node-gyp/**
 
   allow_write:
     # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
@@ -57,10 +59,17 @@ filesystem:
     # Package manager caches and stores
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
-    - ${HOME}/.cache/pnpm/**
-    - ${HOME}/.cache/yarn/**
+    - ${XDG_CACHE_HOME}/pnpm/**
+    - ${XDG_CACHE_HOME}/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/**
+    # node-gyp downloads the Node.js headers here when a package builds a
+    # native addon. Without it, every install with a native module fails.
+    # Accepted: the cache also holds common.gypi, which every later addon
+    # build includes. A package can edit it, and a build outside the sandbox
+    # then runs the actions that the package wrote.
+    - ${XDG_CACHE_HOME}/node-gyp/**
+    - ${HOME}/Library/Caches/node-gyp/**
 
   # Additional deny rules (optional - credentials are automatically blocked)
   # Automatically blocked for security:
@@ -87,6 +96,14 @@ network:
     - registry.yarnpkg.com:443
     - npm.pkg.github.com:443
     - github.com:443
+    # npm and pnpm fetch a github: dependency as a tarball from codeload.
+    - codeload.github.com:443
+    # A GitHub release download redirects from github.com to these hosts.
+    # Prebuilt native binaries come from release assets.
+    - objects.githubusercontent.com:443
+    - release-assets.githubusercontent.com:443
+    # node-gyp downloads the Node.js headers for a native addon build.
+    - nodejs.org:443
 
   deny_outbound:
     - "*:*"
@@ -105,8 +122,8 @@ process:
     - /usr/local/bin/node
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
-    - ${HOME}/.cache/pnpm/**
-    - ${HOME}/.cache/yarn/**
+    - ${XDG_CACHE_HOME}/pnpm/**
+    - ${XDG_CACHE_HOME}/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/**
     - ${HOME}/.asdf/shims/npm

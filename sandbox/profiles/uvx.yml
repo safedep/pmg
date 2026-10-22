@@ -29,27 +29,44 @@ filesystem:
   allow_read:
     # uv cache: ephemeral tool environments are created here. ~/.cache/uv is the
     # Linux default; uv honors UV_CACHE_DIR / XDG_CACHE_HOME otherwise.
-    - ${HOME}/.cache/uv/**
+    - ${XDG_CACHE_HOME}/uv/**
     - ${HOME}/Library/Caches/uv/**
 
     # uv data dir: managed Python interpreters and installed tools.
-    - ${HOME}/.local/share/uv/**
+    - ${XDG_DATA_HOME}/uv/**
     - ${HOME}/Library/Application Support/uv/**
 
     # uv config and the tool bin directory.
-    - ${HOME}/.config/uv/**
+    - ${XDG_CONFIG_HOME}/uv/**
     - ${HOME}/.local/bin/**
 
   allow_write:
     - ${CWD}/**
-    - ${HOME}/.cache/uv/**
+    - ${XDG_CACHE_HOME}/uv/**
     - ${HOME}/Library/Caches/uv/**
-    - ${HOME}/.local/share/uv/**
-    - ${HOME}/Library/Application Support/uv/**
-    - ${HOME}/.config/uv/**
-    - ${HOME}/.local/bin/**
+    # Only the managed Python is writable in the uv data directory. The
+    # directory also holds the environments of installed tools, and their
+    # programs are linked into ~/.local/bin. uv tool run does not write
+    # them.
+    - ${XDG_DATA_HOME}/uv/python/**
+    - ${HOME}/Library/Application Support/uv/python/**
+    # The uv config is not writable. uv tool run only reads it, and a
+    # uv.toml with another index would redirect every later uv run, also
+    # outside the sandbox.
+    # ~/.local/bin is not writable. uv tool run does not need it, only uv
+    # tool install does, and that runs under the uv profile. The directory
+    # is usually on PATH, so a write there is a program for the next shell.
 
   # Additional deny rules for extra security
   deny_write:
     - ${CWD}/.env
     - ${CWD}/.env.*
+
+network:
+  # uvx downloads a managed Python when the tool needs a version that is not
+  # installed. The list comes from releases.astral.sh, and the builds come
+  # from GitHub release assets.
+  allow_outbound:
+    - releases.astral.sh:443
+    - objects.githubusercontent.com:443
+    - release-assets.githubusercontent.com:443

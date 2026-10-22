@@ -438,6 +438,35 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy, rt *
 	return sb.String(), nil
 }
 
+// globDoubleStarAutoAllowAncestorCreate lets mkdir -p create the missing
+// directories between ${HOME} and the parent of a /** write rule. A first
+// run of a tool creates its cache deep in a fresh home, for example
+// ~/.cache/node/corepack. Without this rule mkdir fails with EPERM on the
+// first missing ancestor. The rule allows only file-write-create of each
+// ancestor itself, so a write below an ancestor still needs its own rule.
+// The rule allows only a directory. A symlink at a missing ancestor, for
+// example ~/.local, would redirect every path below it, such as ~/.local/bin.
+func globDoubleStarAutoAllowAncestorCreate(sb *strings.Builder, expanded string) {
+	if !strings.HasSuffix(expanded, "/**") {
+		return
+	}
+	parentDir := strings.TrimSuffix(expanded, "/**")
+	if util.ContainsGlob(parentDir) {
+		return
+	}
+	home, err := util.ExpandVariables("${HOME}")
+	if err != nil || home == "" || home == "/" {
+		return
+	}
+	home = filepath.Clean(home)
+
+	for dir := filepath.Dir(filepath.Clean(parentDir)); strings.HasPrefix(dir, home+"/"); dir = filepath.Dir(dir) {
+		sb.WriteString("(allow file-write-create (require-all (literal \"")
+		sb.WriteString(dir)
+		sb.WriteString("\") (vnode-type DIRECTORY)))\n")
+	}
+}
+
 // translateFilesystem translates filesystem access rules.
 func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
 	sb.WriteString(";; Filesystem access\n")
@@ -495,6 +524,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
 			globDoubleStarAutoAllowParentDirIfNeeded(sb, pattern, expanded, "file-write*")
+			globDoubleStarAutoAllowAncestorCreate(sb, expanded)
 
 			regexPattern := util.GlobToRegex(expanded)
 			sb.WriteString("(allow file-write* (regex #\"")
