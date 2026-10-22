@@ -205,16 +205,18 @@ func violationTargets(report *sandbox.ViolationReport) []string {
 	return targets
 }
 
-// Catch-all noise has a buffer of its own, so it cannot push out a denial of
-// the policy's own rules, which a clean run must record. A clean run drops
-// the noise, so a full noise buffer does not send it to the slow log store.
-func TestSeatbeltCleanRunKeepsRuleDenialAfterNoise(t *testing.T) {
+// Noise has a buffer of its own, so it cannot push out a signal denial, which
+// a clean run must record. A catch-all denial with a path is signal too. A
+// clean run drops the noise, so a full noise buffer does not send it to the
+// slow log store.
+func TestSeatbeltCleanRunKeepsSignalAfterNoise(t *testing.T) {
 	lines := []string{fakeSentinelLine(t, "start")}
 	for i := 0; i < seatbeltStreamEntryCap+100; i++ {
 		lines = append(lines, fakeDenialLine(t, 7, seatbeltKindDefault, "sysctl-read", fmt.Sprintf("kern.noise%d", i)))
 	}
 	lines = append(lines,
 		fakeDenialLine(t, 8, "file-read", "file-read-data", "/Users/dev/.ssh/id_rsa"),
+		fakeDenialLine(t, 8, seatbeltKindDefault, "file-write-data", "/Users/dev/.zshrc"),
 		fakeSentinelLine(t, "end"))
 
 	start := time.Now()
@@ -222,9 +224,23 @@ func TestSeatbeltCleanRunKeepsRuleDenialAfterNoise(t *testing.T) {
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)
-	require.NotNil(t, report, "the credential read must not be lost behind the noise")
-	assert.Equal(t, []string{"/Users/dev/.ssh/id_rsa"}, violationTargets(report))
+	require.NotNil(t, report, "the signal must not be lost behind the noise")
+	assert.Equal(t, []string{"/Users/dev/.ssh/id_rsa", "/Users/dev/.zshrc"}, violationTargets(report))
 	assert.Less(t, elapsed, 500*time.Millisecond, "a clean run must not query the log store for dropped noise")
+}
+
+// A complete stream with no denial is the whole answer, so a failed run does
+// not query the log store either.
+func TestSeatbeltFailedRunWithoutDenialSkipsLogStore(t *testing.T) {
+	st := startFakeStream(t, []string{fakeSentinelLine(t, "start"), fakeSentinelLine(t, "end")}, true)
+
+	start := time.Now()
+	report, err := fakeSeatbeltSandbox(st).BestEffortViolation(errors.New("exit status 1"))
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Nil(t, report)
+	assert.Less(t, elapsed, 500*time.Millisecond)
 }
 
 // The stream keeps every denial as the kernel logged it. The same file read
@@ -245,18 +261,21 @@ func TestSeatbeltLogStreamKeepsEveryDenial(t *testing.T) {
 	assert.Len(t, entries, 4)
 }
 
-// A dropped denial of the policy's own rules makes the stream incomplete for
-// every run. A dropped catch-all denial matters only to a failed run, which
-// reports catch-all denials. An incomplete stream sends the run to the log
-// store, so the dropped denial is not lost.
+// A dropped signal denial makes the stream incomplete for every run. A
+// dropped noise denial matters only to a failed run, which reports noise. An
+// incomplete stream sends the run to the log store, so the dropped denial is
+// not lost.
 func TestSeatbeltLogStreamDroppedEntryMakesItIncomplete(t *testing.T) {
-	overflow := func(kind, operation string) []string {
+	overflow := func(kind, operation, operand string) []string {
 		lines := []string{fakeSentinelLine(t, "start")}
 		for i := 0; i <= seatbeltStreamEntryCap; i++ {
-			lines = append(lines, fakeDenialLine(t, 7, kind, operation, fmt.Sprintf("/secret/%d", i)))
+			lines = append(lines, fakeDenialLine(t, 7, kind, operation, fmt.Sprintf(operand, i)))
 		}
 		return append(lines, fakeSentinelLine(t, "end"))
 	}
+	ruleReads := overflow("file-read", "file-read-data", "/secret/%d")
+	catchAllWrites := overflow(seatbeltKindDefault, "file-write-data", "/Users/dev/.config/%d")
+	sysctlReads := overflow(seatbeltKindDefault, "sysctl-read", "kern.noise%d")
 
 	tests := []struct {
 		name         string
@@ -265,10 +284,11 @@ func TestSeatbeltLogStreamDroppedEntryMakesItIncomplete(t *testing.T) {
 		wantComplete bool
 		wantEntries  int
 	}{
-		{name: "rule buffer full, clean run", lines: overflow("file-read", "file-read-data"), wantEntries: seatbeltStreamEntryCap},
-		{name: "rule buffer full, failed run", lines: overflow("file-read", "file-read-data"), withNoise: true, wantEntries: seatbeltStreamEntryCap},
-		{name: "noise buffer full, clean run", lines: overflow(seatbeltKindDefault, "file-write-data"), wantComplete: true, wantEntries: 0},
-		{name: "noise buffer full, failed run", lines: overflow(seatbeltKindDefault, "file-write-data"), withNoise: true, wantEntries: seatbeltStreamEntryCap},
+		{name: "rule denials fill the signal buffer, clean run", lines: ruleReads, wantEntries: seatbeltStreamEntryCap},
+		{name: "rule denials fill the signal buffer, failed run", lines: ruleReads, withNoise: true, wantEntries: seatbeltStreamEntryCap},
+		{name: "catch-all writes fill the signal buffer, clean run", lines: catchAllWrites, wantEntries: seatbeltStreamEntryCap},
+		{name: "noise fills the noise buffer, clean run", lines: sysctlReads, wantComplete: true, wantEntries: 0},
+		{name: "noise fills the noise buffer, failed run", lines: sysctlReads, withNoise: true, wantEntries: seatbeltStreamEntryCap},
 	}
 
 	for _, tc := range tests {

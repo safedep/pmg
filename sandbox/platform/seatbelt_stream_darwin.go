@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/sandbox"
 )
 
 const (
@@ -31,8 +33,8 @@ const (
 	seatbeltSentinelRetry = 100 * time.Millisecond
 
 	// seatbeltStreamEntryCap bounds each of the two buffers of one run: the
-	// denials of the policy's own rules, and the catch-all denials.
-	seatbeltStreamEntryCap = 512
+	// signal denials, and the noise denials that sandbox.IsNoise selects.
+	seatbeltStreamEntryCap = 8192
 
 	seatbeltStreamStopTimeout = 2 * time.Second
 
@@ -83,13 +85,13 @@ type seatbeltLogStream struct {
 	arrived    chan struct{}
 
 	mu sync.Mutex
-	// ruleEntries and noiseEntries are separate, so catch-all noise cannot
-	// push out a denial of the policy's own rules.
-	ruleEntries  []seatbeltLogEntry
-	noiseEntries []seatbeltLogEntry
-	ruleDropped  bool
-	noiseDropped bool
-	sentinels    map[string]bool
+	// signalEntries and noiseEntries are separate, so noise cannot push out
+	// a signal denial.
+	signalEntries []seatbeltLogEntry
+	noiseEntries  []seatbeltLogEntry
+	signalDropped bool
+	noiseDropped  bool
+	sentinels     map[string]bool
 }
 
 // seatbeltStreamCommand runs argv under seatbeltStreamWrapper, in a process
@@ -197,7 +199,7 @@ func (st *seatbeltLogStream) read(r io.Reader) {
 			continue
 		}
 
-		st.keep(entry, payload)
+		st.keep(entry)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -205,14 +207,19 @@ func (st *seatbeltLogStream) read(r io.Reader) {
 	}
 }
 
-// keep buffers a denial in the buffer of its kind. When that buffer is full,
-// keep notes the drop, so the run can read the log store for the rest.
-func (st *seatbeltLogStream) keep(entry seatbeltLogEntry, payload *seatbeltLogPayload) {
+// keep buffers a denial as signal or noise, by the rule that a clean run
+// reports by. When that buffer is full, keep notes the drop, so the run can
+// read the log store for the rest.
+func (st *seatbeltLogStream) keep(entry seatbeltLogEntry) {
+	noise := slices.ContainsFunc(extractSeatbeltViolations([]seatbeltLogEntry{entry}, st.logTag), func(v sandbox.Violation) bool {
+		return sandbox.IsNoise(sandbox.DriverSeatbelt, v)
+	})
+
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	buffer, dropped := &st.ruleEntries, &st.ruleDropped
-	if payload.Kind == seatbeltKindDefault {
+	buffer, dropped := &st.signalEntries, &st.signalDropped
+	if noise {
 		buffer, dropped = &st.noiseEntries, &st.noiseDropped
 	}
 
@@ -266,8 +273,8 @@ func (st *seatbeltLogStream) hasSentinel(target string) bool {
 }
 
 // end confirms that every denial made before the call came through the
-// stream, then stops it. The run reports catch-all denials only when
-// withNoise is true, so only then does a dropped catch-all denial matter.
+// stream, then stops it. The run reports noise denials only when withNoise is
+// true, so only then does a dropped noise denial matter.
 // complete is false when the stream ended early, did not deliver the end
 // sentinel, or dropped a denial that the run reports. The entries are real
 // denials in every case.
@@ -278,8 +285,8 @@ func (st *seatbeltLogStream) end(withNoise bool) (entries []seatbeltLogEntry, co
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	entries = append([]seatbeltLogEntry(nil), st.ruleEntries...)
-	dropped := st.ruleDropped
+	entries = append([]seatbeltLogEntry(nil), st.signalEntries...)
+	dropped := st.signalDropped
 	if withNoise {
 		entries = append(entries, st.noiseEntries...)
 		dropped = dropped || st.noiseDropped

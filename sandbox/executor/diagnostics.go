@@ -49,6 +49,7 @@ func ObserveViolations(result *sandbox.ExecutionResult, runErr error) int {
 	if report == nil || len(report.Violations) == 0 {
 		return 0
 	}
+	report.CleanExit = runErr == nil
 
 	persistViolationReport(report)
 	return len(report.Violations)

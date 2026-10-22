@@ -335,10 +335,42 @@ func TestSeatbeltReportsDenialOnCleanExit(t *testing.T) {
 	assert.Contains(t, targets, secret)
 }
 
+// Only the catch-all rule blocks a write to a shell startup file. A program
+// that catches that denial and exits 0 must still be reported.
+func TestSeatbeltReportsCatchAllWriteOnCleanExit(t *testing.T) {
+	requireSandboxExec(t)
+
+	// The profile allows writes under TMPDIR, so the target is under HOME.
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	dir, err := os.MkdirTemp(home, ".pmg-seatbelt-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+	dir, err = filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+	zshrc := filepath.Join(dir, ".zshrc")
+
+	sb, _ := runSeatbeltClean(t, seatbeltCleanExitPolicy(filepath.Join(dir, ".env")),
+		"/bin/sh", "-c", `echo payload >> "$1" 2>/dev/null; exit 0`, "sh", zshrc)
+	assert.NoFileExists(t, zshrc)
+
+	report, err := sb.BestEffortViolation(nil)
+	require.NoError(t, err)
+	require.NotNil(t, report, "the write must be reported although the command exited 0")
+
+	var targets []string
+	for _, v := range report.Violations {
+		if v.Kind == sandbox.ViolationKindFSWrite {
+			targets = append(targets, v.Target)
+		}
+	}
+	assert.Contains(t, targets, zshrc)
+}
+
 // /usr/bin/true probes the system on start and hits the catch-all rule. A
 // clean run reports nothing for that noise. It also must not query the log
 // store, which costs 0.7s or more, or every sandboxed run gets slower.
-func TestSeatbeltCleanRunWithoutRuleDenial(t *testing.T) {
+func TestSeatbeltCleanRunWithoutDenial(t *testing.T) {
 	requireSandboxExec(t)
 
 	dir, err := filepath.EvalSymlinks(t.TempDir())

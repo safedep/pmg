@@ -72,17 +72,14 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 		return nil, nil
 	}
 
-	// The stream saw the run as it happened, so a clean run trusts a complete
-	// stream. A failed run with no denial in the stream still polls the log
-	// store below, because the user looks for the cause.
+	// The stream saw the run as it happened, so the run trusts a complete
+	// stream.
 	streamed, complete := s.streamEntries(err)
 	if complete {
 		if violations := s.runViolations(streamed, err); len(violations) > 0 {
 			return s.violationReport(violations), nil
 		}
-		if err == nil {
-			return nil, nil
-		}
+		return nil, nil
 	}
 
 	// Without a complete stream, PMG polls the log store, because a denial
@@ -122,8 +119,8 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 }
 
 // streamEntries stops the log stream of the run and returns what it
-// delivered. A clean run reports no catch-all denials, so the stream returns
-// them only for a failed run. complete is false when the run has no stream,
+// delivered. A clean run does not report noise, so the stream returns noise
+// only for a failed run. complete is false when the run has no stream,
 // or when the stream could not confirm that it delivered every denial that
 // the run reports. The entries are real denials in both cases.
 func (s *seatbeltSandbox) streamEntries(runErr error) (entries []seatbeltLogEntry, complete bool) {
@@ -158,12 +155,14 @@ func mergeSeatbeltEntries(streamed, stored []seatbeltLogEntry) []seatbeltLogEntr
 	return merged
 }
 
-// runViolations extracts the denials of this run. A clean run keeps only the
-// denials of the policy's own deny rules.
+// runViolations extracts the denials of this run. A clean run does not
+// report noise.
 func (s *seatbeltSandbox) runViolations(entries []seatbeltLogEntry, runErr error) []sandbox.Violation {
 	violations := extractSeatbeltViolations(entries, s.logTag)
 	if runErr == nil {
-		violations = seatbeltRuleDenials(violations)
+		violations = slices.DeleteFunc(violations, func(v sandbox.Violation) bool {
+			return sandbox.IsNoise(sandbox.DriverSeatbelt, v)
+		})
 	}
 
 	return violations
@@ -176,19 +175,6 @@ func (s *seatbeltSandbox) violationReport(violations []sandbox.Violation) *sandb
 		CorrelationID: s.logTag,
 		Violations:    violations,
 	}
-}
-
-// seatbeltRuleDenials drops the denials of the catch-all (deny default) rule
-// and keeps the denials of the policy's own deny rules. A clean run reports
-// only these. Ordinary tools cross the allow-list edge on start, for example
-// to register DTrace helpers, read sysctls or look up system services, so the
-// catch-all fires on almost every clean run. This leaves a known gap. On a
-// clean run, PMG does not report a write that only the catch-all blocks, such
-// as one to a shell startup file.
-func seatbeltRuleDenials(violations []sandbox.Violation) []sandbox.Violation {
-	return slices.DeleteFunc(violations, func(v sandbox.Violation) bool {
-		return v.RawKind == seatbeltKindDefault
-	})
 }
 
 func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandbox.Violation {

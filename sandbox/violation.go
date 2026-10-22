@@ -39,13 +39,13 @@ type OverrideSuggestion struct {
 	Target string
 }
 
-// BuildExplanation produces an Explanation for the given report. An
-// OutputDerived report yields no Override, since its evidence is forgeable.
+// BuildExplanation produces an Explanation for the given report. A report that
+// is not Promotable yields no Override.
 func BuildExplanation(report *ViolationReport) Explanation {
 	primary := primaryViolation(report)
 	exp := Explanation{Primary: primary}
 	if primary != nil {
-		if !report.OutputDerived {
+		if report.Promotable() {
 			exp.Override = overrideSuggestion(*primary)
 		}
 
@@ -164,11 +164,22 @@ func scoreViolation(driver DriverName, v Violation, cwd string) int {
 		score -= 120
 	}
 
-	if v.Kind == ViolationKindGenericDeny && v.Target == "" {
+	if isUntargetedDeny(v) {
 		score -= 40
 	}
 
 	return score
+}
+
+// IsNoise reports whether v is a denial that ordinary tools cause on almost
+// every run, such as a DTrace helper registration or a sysctl read. The
+// ranking puts such a denial last, and a run that exits 0 does not report it.
+func IsNoise(driver DriverName, v Violation) bool {
+	return isNoisySystemPath(driver, v.Target) || isUntargetedDeny(v)
+}
+
+func isUntargetedDeny(v Violation) bool {
+	return v.Kind == ViolationKindGenericDeny && v.Target == ""
 }
 
 func isSafeOverrideTarget(value string) bool {

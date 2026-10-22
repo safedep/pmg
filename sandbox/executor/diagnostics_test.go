@@ -136,6 +136,7 @@ func TestObserveViolationsPersistsEnvScrubToCache(t *testing.T) {
 	report := entry.Record.Report
 	assert.Equal(t, sandbox.DriverLandlock, report.SandboxName)
 	assert.Equal(t, "pipx", report.PolicyName)
+	assert.False(t, report.CleanExit)
 	require.Len(t, report.Violations, 1)
 	assert.Equal(t, sandbox.ViolationKindEnvScrub, report.Violations[0].Kind)
 	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", report.Violations[0].Target)
@@ -213,6 +214,7 @@ func TestObserveViolationsOnCleanRun(t *testing.T) {
 				kinds = append(kinds, v.Kind)
 			}
 			assert.ElementsMatch(t, tc.wantKinds, kinds)
+			assert.True(t, entry.Record.Report.CleanExit)
 		})
 	}
 }

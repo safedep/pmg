@@ -282,13 +282,18 @@ Linux, by the Landlock driver's seccomp supervisor or the Bubblewrap driver's re
 sandboxed command's output.
 
 PMG records violations after every sandboxed run, also when the command exits 0. A program can
-catch a denial and exit 0, so a clean run can still carry one.
+catch a denial and exit 0, so a clean run can still carry one. `violations list` and `explain` show
+the report of a clean run, but it never becomes an override suggestion, and
+`pmg sandbox allow --last` will not persist it. The command did not fail, so nothing needs an
+allowance, and a program that catches a denial can be an attack.
 
 Coverage differs by platform. On macOS, PMG reads denials from the Seatbelt entries in the unified
 log. After a failed run, it records every denial, including denials at the default-deny allow-list
-boundary. After a clean run, it records only the denials of the profile's own deny rules, such as
-the mandatory credential denies and `deny_*` entries. Ordinary tools cross the allow-list boundary
-on every start, so recording those denials would fill the cache on every run. The Landlock driver
+boundary. After a clean run, it does not record the denials that ordinary tools make on every
+start. These are the denials with no path, such as sysctl reads and service lookups, and the
+access to `/dev/dtracehelper` and the terminal. `explain` ranks the same denials last. PMG records
+every other denial, also a write that only the allow-list boundary blocks, such as a write to a
+shell startup file. The Landlock driver
 only reports denials made by its seccomp deny-list layer (reads and
 writes of `deny_*` paths, blocked `deny_exec` binaries): denials made by the Landlock LSM itself
 (operations outside the allow-list, delete/rename, network rules) fail in-kernel with `EACCES` and

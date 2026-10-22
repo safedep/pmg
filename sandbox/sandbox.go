@@ -101,6 +101,18 @@ type ViolationReport struct {
 	// likes, so these violations are shown as diagnostics but never converted
 	// into an override suggestion the user could be talked into persisting.
 	OutputDerived bool
+
+	// CleanExit marks a report of a run that exited 0. Nothing failed, so
+	// nothing needs an allowance, and a program that catches a denial can be
+	// an attack. Like an OutputDerived report, it describes the denials but
+	// never becomes an override suggestion.
+	CleanExit bool
+}
+
+// Promotable reports whether the denials of the report may become an override
+// suggestion or a persisted allowance.
+func (r *ViolationReport) Promotable() bool {
+	return !r.OutputDerived && !r.CleanExit
 }
 
 // Violation captures one sandbox denial event.
