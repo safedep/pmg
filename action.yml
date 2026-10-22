@@ -33,7 +33,7 @@ inputs:
     required: false
     default: ""
   cooldown-days:
-    description: Cooldown window in days (PMG_DEPENDENCY_COOLDOWN_DAYS). Empty = use PMG default (5).
+    description: Cooldown window in days (PMG_DEPENDENCY_COOLDOWN_DAYS). Empty = use PMG default (2).
     required: false
     default: ""
   proxy-mode:
