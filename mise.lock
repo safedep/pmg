@@ -2,10 +2,53 @@
 
 lockfile_version = 3
 
+[[tools.gitleaks]]
+version = "8.21.2"
+backend = "aqua:gitleaks/gitleaks"
+specifiers = ["8.21.2"]
+
+[tools.gitleaks."platforms.linux-arm64"]
+checksum = "sha256:654c935542c89f565aabe7bf7c6c500830f116c114f0aeb509d2460c1ac2e6da"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/202338450"
+
+[tools.gitleaks."platforms.linux-arm64-musl"]
+checksum = "sha256:654c935542c89f565aabe7bf7c6c500830f116c114f0aeb509d2460c1ac2e6da"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/202338450"
+
+[tools.gitleaks."platforms.linux-x64"]
+checksum = "sha256:5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/202338480"
+
+[tools.gitleaks."platforms.linux-x64-musl"]
+checksum = "sha256:5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/202338480"
+
+[tools.gitleaks."platforms.macos-arm64"]
+checksum = "sha256:cad3de5dc9a4d5447d967a70a4d49499c557f04db028274cc324f9ff983f6502"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_darwin_arm64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/202338448"
+
+[tools.gitleaks."platforms.macos-x64"]
+checksum = "sha256:5b42c6e4b1fd693eaeb2b5b7faa5f17a1434299d4deb2de63d4b2efd7c753128"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_darwin_x64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/202338453"
+
+[tools.gitleaks."platforms.windows-x64"]
+checksum = "sha256:f238c85e5f47e18fac779ce71ee11091cf70a0a8fb4415f165efba2800eef133"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_windows_x64.zip"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/202338461"
+
 [[tools.go]]
 version = "1.27.3"
 backend = "core:go"
-specifiers = ["1.27.3"]
+specifiers = [
+    "1.27",
+    "1.27.3",
+]
 
 [tools.go."platforms.linux-arm64"]
 checksum = "sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49"
@@ -35,10 +78,60 @@ url = "https://dl.google.com/go/go1.27.3.darwin-amd64.tar.gz"
 checksum = "sha256:f26081f438319757f8a1b46d7d0b2c5ec7583d4038e485e0aa725cfde7885fff"
 url = "https://dl.google.com/go/go1.27.3.windows-amd64.zip"
 
+[[tools.golangci-lint]]
+version = "2.15.0"
+backend = "aqua:golangci/golangci-lint"
+specifiers = ["2.15"]
+
+[tools.golangci-lint."platforms.linux-arm64"]
+checksum = "sha256:b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132775"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.linux-arm64-musl"]
+checksum = "sha256:b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132775"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.linux-x64"]
+checksum = "sha256:9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132535"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.linux-x64-musl"]
+checksum = "sha256:9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132535"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.macos-arm64"]
+checksum = "sha256:d1e409481a8ca846c4bc97e781eb5cb1bd5c23353a0b3977a1cbda1b1b6447d5"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132534"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.macos-x64"]
+checksum = "sha256:767b899a28285e88ded2823d5dcc4bc5ef681173eb2d80f029a7b17ee4ece3b8"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132753"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.windows-x64"]
+checksum = "sha256:cd7ea6063c95de245e17e5246e42bdc14bb221792c429dbd239ab3a6ade6ca6a"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-windows-amd64.zip"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/647132900"
+provenance = "github-attestations"
+
 [[tools.node]]
 version = "26.12.0"
 backend = "core:node"
-specifiers = ["latest"]
+specifiers = [
+    "26",
+    "latest",
+]
 
 [tools.node."platforms.linux-arm64"]
 checksum = "sha256:ec53c915c3fdd8786c5685abd25ae3fe9fba0692307f9811d7caaadea1bcaf03"
@@ -71,7 +164,10 @@ url = "https://nodejs.org/dist/v26.12.0/node-v26.12.0-win-x64.zip"
 [[tools.pnpm]]
 version = "12.10.1"
 backend = "aqua:pnpm/pnpm"
-specifiers = ["latest"]
+specifiers = [
+    "12",
+    "latest",
+]
 
 [tools.pnpm."platforms.linux-arm64"]
 checksum = "sha256:18dbb118de1dbef0e4516c17bf847d6ee206fc4deffb2bb488ec8e1d2814e078"
