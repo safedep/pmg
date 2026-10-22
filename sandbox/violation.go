@@ -173,7 +173,7 @@ func scoreViolation(driver DriverName, v Violation, cwd string) int {
 
 // IsNoise reports whether v is a denial that ordinary tools cause on almost
 // every run, such as a DTrace helper registration or a sysctl read. The
-// ranking puts such a denial last, and a run that exits 0 does not report it.
+// ranking puts such a denial last, and a clean Seatbelt run does not report it.
 func IsNoise(driver DriverName, v Violation) bool {
 	return isNoisySystemPath(driver, v.Target) || isUntargetedDeny(v)
 }

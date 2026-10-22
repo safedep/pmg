@@ -69,9 +69,9 @@ see what was removed.
 
 When a sandboxed command fails, or when a clean run records a denial, the scrubbed names are also
 recorded to the violation cache as `env_scrub` violations, so `pmg sandbox violations list` and
-`pmg sandbox explain --last` can name them after the run. For a conventionally named variable, `explain` suggests
-`pmg sandbox allow env=NAME`, and `pmg sandbox allow --last` persists it. Only names are recorded;
-values never reach the cache.
+`pmg sandbox explain --last` can name them after the run. After a failed run, for a conventionally
+named variable, `explain` suggests `pmg sandbox allow env=NAME`, and `pmg sandbox allow --last`
+persists it. Only names are recorded; values never reach the cache.
 
 A variable whose value is a secret gets no suggestion to save it. PMG treats a name as secret
 when one of its underscore-separated segments is `SECRET`, `TOKEN`, `KEY`, `APIKEY`,
@@ -293,11 +293,10 @@ boundary. After a clean run, it does not record the denials that ordinary tools 
 start. These are the denials with no path, such as sysctl reads and service lookups, and the
 access to `/dev/dtracehelper` and the terminal. `explain` ranks the same denials last. PMG records
 every other denial, also a write that only the allow-list boundary blocks, such as a write to a
-shell startup file. The Landlock driver
-only reports denials made by its seccomp deny-list layer (reads and
-writes of `deny_*` paths, blocked `deny_exec` binaries): denials made by the Landlock LSM itself
-(operations outside the allow-list, delete/rename, network rules) fail in-kernel with `EACCES` and
-produce no report. `deny_write` entries outside writable areas are enforced by Landlock rather than
+shell startup file. The Landlock driver only reports denials made by its seccomp deny-list layer
+(reads and writes of `deny_*` paths, blocked `deny_exec` binaries): denials made by the Landlock
+LSM itself (operations outside the allow-list, delete/rename, network rules) fail in-kernel with
+`EACCES` and produce no report. `deny_write` entries outside writable areas are enforced by Landlock rather than
 seccomp, so they are likewise not reported. Operational degradation events on the audit socket
 (`namespace_isolation_unavailable`, `memfd_open_failed`) are not included in violation reports
 today; they may be added later. The Bubblewrap driver reports denials it can recognise in the

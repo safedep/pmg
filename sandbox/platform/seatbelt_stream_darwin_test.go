@@ -226,7 +226,9 @@ func TestSeatbeltCleanRunKeepsSignalAfterNoise(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, report, "the signal must not be lost behind the noise")
 	assert.Equal(t, []string{"/Users/dev/.ssh/id_rsa", "/Users/dev/.zshrc"}, violationTargets(report))
-	assert.Less(t, elapsed, 500*time.Millisecond, "a clean run must not query the log store for dropped noise")
+	// The fallback polls the log store for seatbeltCleanFallbackWait. A full
+	// buffer takes a slow runner about 0.5s to read.
+	assert.Less(t, elapsed, seatbeltCleanFallbackWait*3/4, "a clean run must not query the log store for dropped noise")
 }
 
 // A complete stream with no denial is the whole answer, so a failed run does
