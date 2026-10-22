@@ -39,7 +39,9 @@ function main() {
   clearProxyVars();
 
   if (!fs.existsSync(reportPath)) {
-    lib.error('PMG could not stop the proxy, so the job has no verdict. See the log of the post step.');
+    const message = 'PMG could not stop the proxy, so the job has no verdict. See the log of the post step.';
+    lib.error(message);
+    lib.appendFile('GITHUB_STEP_SUMMARY', `## PMG\n\n**Failed.** ${message}\n`);
     return stop.status || 1;
   }
 

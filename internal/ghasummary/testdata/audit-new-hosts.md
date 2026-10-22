@@ -20,8 +20,11 @@ To allow a destination, add it to `network.allow_outbound` in `.pmg/ci.yml`.
 |---|---|---|---|
 | `registry.npmjs.org:443` | node | 3 | parent rule `registry.npmjs.org:443` allows it |
 | `api.example.com:443` | curl | 3 | add `api.example.com:443` |
+| `pastebin.com:443` | curl | 3 | refused |
 
 ### Network profile
+
+`.pmg/ci.yml` refused 1 destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.
 
 This job reached 2 destination(s) that `.pmg/ci.yml` does not allow. Review each one before you add it:
 

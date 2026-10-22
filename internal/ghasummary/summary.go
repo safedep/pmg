@@ -176,22 +176,12 @@ func writeProposal(b *strings.Builder, in Input) {
 		}
 		b.WriteString(" Later runs report each destination the profile does not name. Set `network-mode: enforce` to refuse them.\n\n")
 	case len(p.Added) == 0:
-		n := countVerdicts(p)
-		if n[propose.VerdictRefused]+n[propose.VerdictKeptDenied]+n[propose.VerdictInvalid] == 0 {
+		if !writeUnproposed(b, p, path) {
 			fmt.Fprintf(b, "%s allows every destination this job reached.\n\n", path)
-			return
-		}
-		if c := n[propose.VerdictRefused]; c > 0 {
-			fmt.Fprintf(b, "%s refused %d destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.\n\n", path, c)
-		}
-		if c := n[propose.VerdictKeptDenied]; c > 0 {
-			fmt.Fprintf(b, "A deny rule in the profile chain of %s matches %d destination(s). PMG keeps the deny rule, because a maintainer wrote it.\n\n", path, c)
-		}
-		if c := n[propose.VerdictInvalid]; c > 0 {
-			fmt.Fprintf(b, "PMG cannot write a rule for %d destination(s), because the name is not a valid host and port.\n\n", c)
 		}
 		return
 	default:
+		writeUnproposed(b, p, path)
 		fmt.Fprintf(b, "This job reached %d destination(s) that %s does not allow. Review each one before you add it:\n\n", len(p.Added), path)
 		for _, rule := range p.Added {
 			fmt.Fprintf(b, "- %s\n", code(rule))
@@ -206,6 +196,22 @@ func writeProposal(b *strings.Builder, in Input) {
 	}
 	fmt.Fprintf(b, "%s\n\n</details>\n\n", fence)
 	b.WriteString("Add the profile to CODEOWNERS, so that a security reviewer approves each change to it.\n")
+}
+
+// writeUnproposed explains each destination that gets no proposed rule and
+// no allow rule. It reports whether it wrote anything.
+func writeUnproposed(b *strings.Builder, p *propose.Report, path string) bool {
+	n := countVerdicts(p)
+	if c := n[propose.VerdictRefused]; c > 0 {
+		fmt.Fprintf(b, "%s refused %d destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.\n\n", path, c)
+	}
+	if c := n[propose.VerdictKeptDenied]; c > 0 {
+		fmt.Fprintf(b, "A deny rule in the profile chain of %s matches %d destination(s). PMG keeps the deny rule, because a maintainer wrote it.\n\n", path, c)
+	}
+	if c := n[propose.VerdictInvalid]; c > 0 {
+		fmt.Fprintf(b, "PMG cannot write a rule for %d destination(s), because the name is not a valid host and port.\n\n", c)
+	}
+	return n[propose.VerdictRefused]+n[propose.VerdictKeptDenied]+n[propose.VerdictInvalid] > 0
 }
 
 func countVerdicts(p *propose.Report) map[propose.Verdict]int {

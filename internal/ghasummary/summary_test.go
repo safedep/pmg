@@ -56,6 +56,8 @@ func TestSummary(t *testing.T) {
 	newHosts := bootstrap()
 	newHosts.New = false
 	newHosts.Added = []string{"api.example.com:443", "cdn.example.com:443"}
+	newHosts.Destinations = append(newHosts.Destinations,
+		destination("pastebin.com", 443, "curl", propose.VerdictRefused, ""))
 
 	unverified := clean()
 	unverified.StateVerified = false
