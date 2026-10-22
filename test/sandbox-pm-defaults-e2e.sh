@@ -87,6 +87,35 @@ test_corepack_xdg_cache() {
 	rm -rf "$dir"
 }
 
+# On macOS a /** write rule also allows writes to the directory itself, so
+# mkdir of that directory works. The directory may only be created as a
+# directory. A symlink there would send every later write to dir/**, also
+# from a tool that runs outside the sandbox, to where the link points.
+# Bubblewrap and Landlock do not allow a missing directory, so the test runs
+# on macOS only.
+test_parent_dir_symlink() {
+	echo "== parent of a /** write rule"
+	if [ "$OS" != Darwin ]; then
+		echo "skip: macOS only"
+		return
+	fi
+	local dir
+	dir=$(workdir)
+	mkdir "$dir/app" "$dir/elsewhere"
+	cd "$dir/app"
+
+	if pmg sandbox exec --sandbox-allow "write=$dir/cache/**" -- ln -s "$dir/elsewhere" "$dir/cache"; then
+		fail "the sandbox let a process create a symlink at the parent of a /** write rule"
+	fi
+	test ! -L "$dir/cache" || fail "a symlink exists at $dir/cache"
+
+	pmg sandbox exec --sandbox-allow "write=$dir/cache/**" -- mkdir "$dir/cache" ||
+		fail "the sandbox denied mkdir of the parent of a /** write rule"
+	test -d "$dir/cache" || fail "mkdir did not create $dir/cache"
+	cd - >/dev/null
+	rm -rf "$dir"
+}
+
 # Without PNPM_HOME, pnpm keeps its store in ~/Library/pnpm/store on macOS
 # and in ~/.local/share/pnpm/store on Linux. pnpm/action-setup sets
 # PNPM_HOME, so the test removes it. On Linux the profile cannot allow the
@@ -303,6 +332,7 @@ tests=(
 	test_uv_managed_python
 	test_cargo_credentials
 	test_pip_user_site
+	test_parent_dir_symlink
 )
 
 # With arguments, the script runs the named tests in this process. Without

@@ -121,6 +121,10 @@ func getAncestorDirectories(pathStr string) []string {
 // (Bubblewrap) or the glob's expansion/parent (Landlock) read-write. Deny rules
 // are emitted after allows and override them, so mandatory credential denies
 // are unaffected.
+//
+// For a write rule, the parent may only be created as a directory. A symlink
+// there would redirect dir/** for every later run outside the sandbox, so a
+// tool that runs unsandboxed would write its cache wherever the link points.
 func globDoubleStarAutoAllowParentDirIfNeeded(sb *strings.Builder, pattern string, expanded string, operation string) {
 	if !strings.HasSuffix(expanded, "/**") {
 		return
@@ -132,21 +136,25 @@ func globDoubleStarAutoAllowParentDirIfNeeded(sb *strings.Builder, pattern strin
 		parentDir = "/"
 	}
 
+	matcher := "(literal \"" + parentDir + "\")"
+	if util.ContainsGlob(parentDir) {
+		matcher = "(regex #\"" + util.GlobToRegex(parentDir) + "\")"
+	}
+
 	sb.WriteString(";; Auto-allow parent directory for ")
 	sb.WriteString(pattern)
 	sb.WriteString("\n")
-	sb.WriteString("(allow ")
-	sb.WriteString(operation)
-	if util.ContainsGlob(parentDir) {
-		sb.WriteString(" (regex #\"")
-		sb.WriteString(util.GlobToRegex(parentDir))
-		sb.WriteString("\"))\n")
+	if operation != "file-write*" {
+		sb.WriteString("(allow " + operation + " " + matcher + ")\n")
 		return
 	}
-	sb.WriteString(" (literal \"")
-	sb.WriteString(parentDir)
-	sb.WriteString("\"))\n")
+	sb.WriteString("(allow file-write-create (require-all " + matcher + " (vnode-type DIRECTORY)))\n")
+	sb.WriteString("(allow " + seatbeltWriteOpsExceptCreate + " " + matcher + ")\n")
 }
+
+// seatbeltWriteOpsExceptCreate is file-write* without file-write-create.
+const seatbeltWriteOpsExceptCreate = "file-write-data file-write-flags file-write-mode file-write-owner " +
+	"file-write-setugid file-write-times file-write-unlink file-write-xattr"
 
 func writeSeatbeltDenyRule(sb *strings.Builder, operation, matcher, value, message string) {
 	sb.WriteString("(deny ")
