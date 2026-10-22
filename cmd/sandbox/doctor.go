@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/safedep/pmg/internal/ui"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
@@ -14,14 +15,18 @@ import (
 type doctorOptions struct {
 	jsonOut bool
 	driver  string
+
+	// activeDriver names the driver that PMG uses on this host. Without
+	// --driver, doctor checks only that driver. Nil checks every driver.
+	activeDriver func() (pmgsandbox.DriverName, bool)
 }
 
 func NewDoctorCommand() *cobra.Command {
-	return newDoctorCommand(platform.DefaultProbes)
+	return newDoctorCommand(platform.DefaultProbes, platform.ActiveDriver)
 }
 
-func newDoctorCommand(probes func() []pmgsandbox.Probe) *cobra.Command {
-	opts := &doctorOptions{}
+func newDoctorCommand(probes func() []pmgsandbox.Probe, activeDriver func() (pmgsandbox.DriverName, bool)) *cobra.Command {
+	opts := &doctorOptions{activeDriver: activeDriver}
 
 	cmd := &cobra.Command{
 		Use:           "doctor",
@@ -57,15 +62,19 @@ func runDoctor(ctx context.Context, out io.Writer, opts *doctorOptions, probes f
 		ctx = context.Background()
 	}
 
-	all := probes()
-	filtered := filterByDriver(all, opts.driver)
-	results := pmgsandbox.RunProbes(ctx, filtered)
+	selected, active := selectProbes(probes(), opts)
+	results := pmgsandbox.RunProbes(ctx, selected)
 
 	if opts.jsonOut {
 		if err := writeJSON(out, results); err != nil {
 			return err
 		}
 	} else {
+		if active != "" {
+			if _, err := fmt.Fprintln(out, ui.Colors.Dim(fmt.Sprintf("Checking the %s driver, which PMG uses on this host. Use --driver to check another driver.", active))); err != nil {
+				return err
+			}
+		}
 		if err := renderHuman(out, results); err != nil {
 			return err
 		}
@@ -111,14 +120,34 @@ var driverProbeNames = map[pmgsandbox.DriverName]map[string]struct{}{
 	},
 }
 
-func filterByDriver(probes []pmgsandbox.Probe, driver string) []pmgsandbox.Probe {
+// selectProbes returns the probes to run. Without --driver, it selects the
+// probes of the active driver, so a missing driver that PMG does not use does
+// not fail the check. The exec network probe always reports the active driver,
+// so it stays. When no driver is available, every probe runs, so the user sees
+// what each driver needs. active is the driver selected this way, if any.
+func selectProbes(all []pmgsandbox.Probe, opts *doctorOptions) (selected []pmgsandbox.Probe, active pmgsandbox.DriverName) {
+	if opts.driver != "" || opts.activeDriver == nil {
+		return filterByDriver(all, opts.driver), ""
+	}
+
+	active, ok := opts.activeDriver()
+	if !ok {
+		return all, ""
+	}
+
+	return filterByDriver(all, string(active), pmgsandbox.ProbeExecNetwork), active
+}
+
+// filterByDriver keeps the probes of driver and the probes named in shared.
+// An empty driver keeps every probe.
+func filterByDriver(probes []pmgsandbox.Probe, driver string, shared ...string) []pmgsandbox.Probe {
 	if driver == "" {
 		return probes
 	}
 	want := driverProbeNames[pmgsandbox.DriverName(driver)]
 	out := make([]pmgsandbox.Probe, 0, len(probes))
 	for _, p := range probes {
-		if _, ok := want[p.Name()]; ok {
+		if _, ok := want[p.Name()]; ok || slices.Contains(shared, p.Name()) {
 			out = append(out, p)
 		}
 	}
