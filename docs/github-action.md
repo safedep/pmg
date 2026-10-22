@@ -164,7 +164,7 @@ hosted Ubuntu runners meet the
 describes how enforcement works.
 
 ```yaml
-- uses: safedep/pmg@v0.31.0
+- uses: safedep/pmg@v0.33.0
   with:
     server-mode: true
     enforce: true
@@ -196,7 +196,7 @@ defaults: ports 80 and 443 plus the ports of the configured registries. The
 daemon log and `pmg proxy status` name the file it loaded.
 
 ```yaml
-- uses: safedep/pmg@v0.31.0
+- uses: safedep/pmg@v0.33.0
   with:
     server-mode: true
     enforce: true
@@ -330,7 +330,7 @@ A redirected container must trust the PMG CA, which the action exports as
 `PMG_CA_BUNDLE`:
 
 ```yaml
-- uses: safedep/pmg@v0.31.0
+- uses: safedep/pmg@v0.33.0
   with:
     server-mode: true
     enforce: true
@@ -395,7 +395,7 @@ jobs:
       options: --init
     steps:
       - uses: actions/checkout@v4
-      - uses: safedep/pmg@v0.31.0
+      - uses: safedep/pmg@v0.33.0
         with:
           server-mode: true
           expose-to-job-network: true
