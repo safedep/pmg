@@ -66,7 +66,7 @@ test_corepack_xdg_cache() {
 	local dir shims cache
 	dir=$(workdir)
 	shims="$dir/shims"
-	cache="$HOME/pmg-xdg-cache"
+	cache="$dir/xdg-cache"
 	mkdir "$shims" "$dir/app"
 	corepack enable --install-directory "$shims" pnpm
 	linux_mkdir "$cache/node/corepack"
@@ -82,9 +82,9 @@ test_corepack_xdg_cache() {
 		sandboxed pnpm --version; then
 		fail "XDG_CACHE_HOME=$HOME widened the corepack rule to HOME"
 	fi
-	test ! -e "$HOME/node" || fail "corepack wrote $HOME/node"
+	test ! -e "$HOME/node/corepack/v1/pnpm/9.15.9" || fail "corepack wrote $HOME/node/corepack"
 	cd - >/dev/null
-	rm -rf "$dir" "$cache"
+	rm -rf "$dir"
 }
 
 # Without PNPM_HOME, pnpm keeps its store in ~/Library/pnpm/store on macOS

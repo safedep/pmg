@@ -30,12 +30,14 @@ via an exact match entry in `allow_read` or `allow_write` (in the policy or via 
 - **Profile inheritance is a chain**: A profile inherits from one parent, and the parent can inherit in turn. A built-in profile inherits only from a built-in. A custom profile inherits from a built-in profile, a policy template (by name), a user profile (by name) or a file path, in that order. A relative path is read from the directory of the file that names it. A built-in name wins over a template of the same name, so a template that overrides a built-in is reached only through `policies.<pm>.profile`. Lists merge by union from the base down. A child without `package_managers` takes them from its parent. Boolean fields (`allow_pty`, `allow_git_config`, `allow_unix_sockets`) in the child override the parent. A chain that loops is an error. `pmg sandbox profile show <name> --resolved --json` prints the chain as `lineage`.
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, `${TMPDIR}` and the XDG Base Directory variables `${XDG_CACHE_HOME}`, `${XDG_CONFIG_HOME}`, `${XDG_DATA_HOME}` and `${XDG_STATE_HOME}`. PMG expands them when it sets up the sandbox, not when it reads the policy. An XDG variable expands to its value in the environment, or to its default below `$HOME` (see the table below). Presets cannot use the XDG variables.
 
-  | Variable | Default | PMG uses the default when the value is |
-  | --- | --- | --- |
-  | `${XDG_CACHE_HOME}` | `$HOME/.cache` | unset, empty or relative |
-  | `${XDG_CONFIG_HOME}` | `$HOME/.config` | `/`, `$HOME` or a parent of `$HOME` (with a warning) |
-  | `${XDG_DATA_HOME}` | `$HOME/.local/share` | a glob pattern (with a warning) |
-  | `${XDG_STATE_HOME}` | `$HOME/.local/state` | any value, when `global_lockdown` is set |
+  | Variable | Default |
+  | --- | --- |
+  | `${XDG_CACHE_HOME}` | `$HOME/.cache` |
+  | `${XDG_CONFIG_HOME}` | `$HOME/.config` |
+  | `${XDG_DATA_HOME}` | `$HOME/.local/share` |
+  | `${XDG_STATE_HOME}` | `$HOME/.local/state` |
+
+  Each variable takes its default when its value is unset, empty or relative. It also takes its default, with a warning, when its value is `/`, `$HOME`, a parent of `$HOME` or a glob pattern. Under `global_lockdown`, each variable always takes its default.
 
   The XDG spec treats an empty or relative value as unset, so the tool uses the default too. For `/`, `$HOME` and a glob, the tool still uses the value. The sandbox then denies its writes, and the warning names the variable.
 - **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. Set `allow_unix_sockets: true` in a profile to open them. See [Unix Sockets](#unix-sockets).

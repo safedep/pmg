@@ -50,7 +50,9 @@ filesystem:
     # them.
     - ${XDG_DATA_HOME}/uv/python/**
     - ${HOME}/Library/Application Support/uv/python/**
-    - ${XDG_CONFIG_HOME}/uv/**
+    # The uv config is not writable. uv tool run only reads it, and a
+    # uv.toml with another index would redirect every later uv run, also
+    # outside the sandbox.
     # ~/.local/bin is not writable. uv tool run does not need it, only uv
     # tool install does, and that runs under the uv profile. The directory
     # is usually on PATH, so a write there is a program for the next shell.
