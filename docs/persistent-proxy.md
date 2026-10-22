@@ -94,13 +94,13 @@ pmg proxy status   # report whether a proxy runs, and which network policy it ap
 ```
 
 `pmg proxy <command> --help` lists the flags. `--daemon` works on Unix only.
+On Windows use the foreground `pmg proxy start`. To run more than one proxy
+on a host, give each its own `--state` path and `--port`.
 
 `pmg proxy stop --if-running` exits `0` when no proxy runs on the state
 file, so a job-end script does not fail after an earlier step stopped the
 proxy. `--report <file>` writes the stop result as JSON, also on a
 violation.
-On Windows use the foreground `pmg proxy start`. To run more than one proxy
-on a host, give each its own `--state` path and `--port`.
 
 ## Bind address
 

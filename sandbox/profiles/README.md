@@ -25,8 +25,8 @@ package manager. See [sandbox-exec.md](../../docs/sandbox-exec.md).
 ### github-actions
 
 Network base for the persistent PMG proxy on a GitHub Actions runner. It allows
-the hosts that the runner and the GitHub actions reach, and has no filesystem
-rules. A proposal from a run in GitHub Actions inherits it. See
+the hosts that the runner and the GitHub actions reach, refuses every other
+host, and has no filesystem rules. A proposal from a run in GitHub Actions inherits it. See
 [github-action.md](../../docs/github-action.md).
 
 ## Custom Policies

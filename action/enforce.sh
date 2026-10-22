@@ -35,7 +35,14 @@ sudo "$pmg_bin" setup cert install --system
 # variable preserved through sudo would not. A list flag adds to the
 # config file's list. sudo keeps the working directory, so a
 # network-profile path in the workspace resolves in the daemon.
-mapfile -t enforce_flags < <("$PMG_ACTION_DIR/enforce-flags.sh")
+# Command substitution, not process substitution, so set -e stops the
+# script when the flags script fails, before the daemon starts with a part
+# of the policy.
+flags_out="$("$PMG_ACTION_DIR/enforce-flags.sh")"
+enforce_flags=()
+if [ -n "$flags_out" ]; then
+  mapfile -t enforce_flags <<<"$flags_out"
+fi
 
 sudo --preserve-env=PMG_CONFIG_DIR,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_ACTOR,GITHUB_REF,GITHUB_REF_NAME,GITHUB_HEAD_REF,GITHUB_WORKFLOW,GITHUB_JOB,GITHUB_SERVER_URL \
   "$pmg_bin" proxy start --daemon --enforce --state "$state" "${enforce_flags[@]}"

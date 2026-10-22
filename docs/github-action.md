@@ -333,7 +333,7 @@ from no profile to `enforce`.
 2. **Commit.** Review every rule in the proposal. One run does not reach
    every destination the job needs. Save the proposal as
    `.pmg/profiles/ci.yml` and commit it. The proposal inherits
-   `github-actions` and ends with a catch-all deny.
+   `github-actions`, which refuses each host that no rule allows.
 
    Each later run in `audit` lists the destinations the profile does not
    allow, in the summary and as a warning on the run. The summary shows the

@@ -118,7 +118,7 @@ func TestProfilePropose_DaemonRunParent(t *testing.T) {
 		{
 			name:          "a daemon run on a GitHub Actions runner inherits the runner hosts",
 			githubActions: true,
-			want:          []string{"inherits: github-actions", "parent allows github.com:443", "add registry.npmjs.org:443", `- "*:*"`},
+			want:          []string{"inherits: github-actions", "parent allows github.com:443", "add registry.npmjs.org:443", "deny_outbound: []"},
 		},
 	}
 	for _, tt := range tests {
