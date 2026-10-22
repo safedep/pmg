@@ -125,6 +125,7 @@ func TestSummary(t *testing.T) {
 				Proposal: &propose.Report{Added: []string{}, Destinations: []propose.Row{
 					destination("pastebin.com", 443, "node", propose.VerdictRefused, ""),
 					destination("gist.github.com", 443, "curl", propose.VerdictKeptDenied, "gist.github.com:443"),
+					destination("bad host", 443, "curl", propose.VerdictInvalid, ""),
 				}}},
 			cmds: []string{
 				"::error title=PMG::PMG blocked 1 package(s). See the job summary.",

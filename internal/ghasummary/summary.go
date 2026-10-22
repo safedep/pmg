@@ -176,16 +176,19 @@ func writeProposal(b *strings.Builder, in Input) {
 		}
 		b.WriteString(" Later runs report each destination the profile does not name. Set `network-mode: enforce` to refuse them.\n\n")
 	case len(p.Added) == 0:
-		refused, keptDenied := deniedCounts(p)
-		if refused == 0 && keptDenied == 0 {
+		n := countVerdicts(p)
+		if n[propose.VerdictRefused]+n[propose.VerdictKeptDenied]+n[propose.VerdictInvalid] == 0 {
 			fmt.Fprintf(b, "%s allows every destination this job reached.\n\n", path)
 			return
 		}
-		if refused > 0 {
-			fmt.Fprintf(b, "%s refused %d destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.\n\n", path, refused)
+		if c := n[propose.VerdictRefused]; c > 0 {
+			fmt.Fprintf(b, "%s refused %d destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.\n\n", path, c)
 		}
-		if keptDenied > 0 {
-			fmt.Fprintf(b, "A deny rule of %s matches %d destination(s) that this job reached. PMG keeps the deny rule, because a maintainer wrote it.\n\n", path, keptDenied)
+		if c := n[propose.VerdictKeptDenied]; c > 0 {
+			fmt.Fprintf(b, "A deny rule in the profile chain of %s matches %d destination(s). PMG keeps the deny rule, because a maintainer wrote it.\n\n", path, c)
+		}
+		if c := n[propose.VerdictInvalid]; c > 0 {
+			fmt.Fprintf(b, "PMG cannot write a rule for %d destination(s), because the name is not a valid host and port.\n\n", c)
 		}
 		return
 	default:
@@ -205,16 +208,12 @@ func writeProposal(b *strings.Builder, in Input) {
 	b.WriteString("Add the profile to CODEOWNERS, so that a security reviewer approves each change to it.\n")
 }
 
-func deniedCounts(p *propose.Report) (refused, keptDenied int) {
+func countVerdicts(p *propose.Report) map[propose.Verdict]int {
+	n := map[propose.Verdict]int{}
 	for _, row := range p.Destinations {
-		switch row.Verdict {
-		case propose.VerdictRefused:
-			refused++
-		case propose.VerdictKeptDenied:
-			keptDenied++
-		}
+		n[row.Verdict]++
 	}
-	return refused, keptDenied
+	return n
 }
 
 // cell keeps text from the network from changing the table or adding a

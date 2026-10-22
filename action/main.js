@@ -86,15 +86,12 @@ function startProxy(binDir, profile, enforce, jobContainer) {
     throw new Error('enforce attaches kernel programs on the runner host, and this job runs in a job container (jobs.<job_id>.container). Run the job on the runner, or use server-mode without enforce.');
   }
 
-  let result;
   try {
-    result = runStartScript(binDir, enforce, jobContainer, env);
+    saveProxyState(binDir, enforce, runStartScript(binDir, enforce, jobContainer, env));
   } catch (err) {
     stopAfterFailedStart(binDir, enforce);
     throw err;
   }
-
-  saveProxyState(binDir, enforce, result);
 }
 
 function runStartScript(binDir, enforce, jobContainer, env) {
@@ -117,8 +114,8 @@ function runStartScript(binDir, enforce, jobContainer, env) {
   }));
 }
 
-// stopAfterFailedStart stops a daemon that a start script started before it
-// failed. main.js saves no state then, so post.js cannot stop it, and a root
+// stopAfterFailedStart stops a daemon after a start script or the state
+// save failed. post.js may then lack the state to stop it, and a root
 // daemon on a self-hosted runner would outlive the job.
 function stopAfterFailedStart(binDir, enforce) {
   const bin = path.join(binDir, 'pmg');
