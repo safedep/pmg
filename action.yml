@@ -78,7 +78,7 @@ inputs:
     required: false
     default: "false"
   fail-on-violation:
-    description: With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state.
+    description: With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state. When PMG cannot stop the proxy, the job fails with every setting.
     required: false
     default: "true"
   auto-stop:

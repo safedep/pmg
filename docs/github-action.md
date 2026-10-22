@@ -15,8 +15,9 @@ or `poetry add`. The proxy blocks malicious packages before they run.
 > **Action version.** Use the latest release tag, such as
 > `safedep/pmg@v0.34.0`. The post step, the job summary and the
 > `fail-on-violation`, `auto-stop` and `baseline` inputs need
-> `safedep/pmg@v0.34.0` or later. On an older version, add a stop step at the
-> end of the job, as the documentation of that version shows. The `enforce`, `enforce-*` and
+> `safedep/pmg@v0.34.0` or later, and a runner that runs Node 24 actions. On an
+> older version, add a stop step at the end of the job, as the documentation
+> of that version shows. The `enforce`, `enforce-*` and
 > `expose-to-job-network` inputs need `safedep/pmg@v0.31.0` or later. The
 > `network-profile` and `network-mode` inputs need `safedep/pmg@v0.33.0` or
 > later. GitHub warns about an unknown
@@ -91,7 +92,7 @@ default.
 | `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config. Passed as `--enforce-exempt-executable`. | unset |
 | `enforce-skip-destinations` | With `enforce`, CIDR prefixes the kernel never routes, in addition to the config. Passed as `--enforce-skip-destination`. | unset |
 | `enforce-namespaces` | With `enforce`, what happens to containers that steps start: `ignore`, `redirect` or `auto`. See [Containers](#containers). Passed as `--enforce-namespaces`. | unset (`ignore`) |
-| `network-profile` | The sandbox profile whose network rules the proxy applies: a path in the workspace or a built-in name. Turns server mode on. A path that does not exist starts the daemon with no profile, and the job summary proposes the profile for that path. See [Network policy](#network-policy). Passed as `--profile`. Needs `safedep/pmg@v0.33.0` or later. | unset (no policy) |
+| `network-profile` | The sandbox profile whose network rules the proxy applies. Give a path in the workspace or a built-in name. Turns server mode on. A path that does not exist starts the daemon with no profile, and the job summary proposes the profile for that path. See [Network policy](#network-policy). Passed as `--profile`. Needs `safedep/pmg@v0.33.0` or later. | unset (no policy) |
 | `network-mode` | With `network-profile`, what the proxy does with a match on a deny rule: `audit` or `enforce`. With `enforce`, a profile path that does not exist fails the action. Passed as `--network-mode`. Needs `safedep/pmg@v0.33.0` or later. | unset (`audit`) |
 
 ## Outputs
@@ -184,7 +185,8 @@ At the end of the job, the post step of the action:
    connection, each destination and the proposed profile. The run also
    gets an annotation for each block and each denial.
 4. Fails the job when PMG blocked a package or denied a connection. Set
-   `fail-on-violation: false` to report only.
+   `fail-on-violation: false` to report only. When PMG cannot stop the
+   daemon, for example after a crash, the job fails with every setting.
 
 The post step runs when an earlier step fails and when the job is
 cancelled. After the stop, it empties the proxy variables, so the post step
@@ -192,7 +194,14 @@ of an earlier action, such as the cache save of `actions/setup-node`, does
 not use the stopped proxy.
 
 A job that still has its own `pmg proxy stop` step keeps working. The post
-step finds no daemon, and writes the summary without a stop result.
+step finds no daemon, warns, and writes the summary without a stop result.
+Set `auto-stop: false` on such a job. When the daemon still runs but its
+state file is gone, the post step fails the job.
+
+The verdict trusts the steps of the job. A step runs as the runner user and
+can use `sudo`, so a hostile step can stop the daemon or replace the `pmg`
+binary before the post step runs. PMG blocks a malicious package before its
+install code runs, so such a step must come from the workflow itself.
 
 The summary lists the destination hosts of the job. On a public repository
 anyone can read the job summary. Set `baseline: false` to leave the
@@ -515,4 +524,4 @@ See [docs/config.md](./config.md) for the full mapping.
 Windows runner support.
 
 The action is a JavaScript action that runs on Node 24. A self-hosted runner
-needs a runner version that runs Node 24 actions.
+needs runner version 2.327.1 or later.

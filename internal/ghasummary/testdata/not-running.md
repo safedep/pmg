@@ -1,6 +1,6 @@
 ## PMG
 
-PMG was not running at the end of the job. A workflow step stopped it first, so this summary has no stop result.
+No PMG proxy ran at the end of the job. A step stopped it or removed its state file, so this summary has no stop result.
 
 ### Observed destinations
 

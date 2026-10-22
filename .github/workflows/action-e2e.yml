@@ -180,6 +180,8 @@ jobs:
         run: |
           set -euo pipefail
           test -z "$(action/enforce-flags.sh)"
+      - name: The action library reads the runner files
+        run: node --test action/lib.test.js
 
   # The jobs below run the action against a build of this pull request, so
   # the post step uses the stop report and the job summary. Each job runs the
@@ -337,7 +339,7 @@ jobs:
             echo "::error::The connection to pastebin.com succeeded." >&2
             exit 1
           fi
-      - name: The post step exits 1 and denies only that host
+      - name: The post step exits 1 and denies no host of the runner
         run: |
           set -euo pipefail
           .github/scripts/action-post.sh 1 "STATE_bin=${PMG_BIN}" STATE_enforce=true "STATE_state=${PMG_PROXY_STATE}" \
@@ -345,8 +347,10 @@ jobs:
           grep -q '### Denied connections' post.log
           grep -q '::error title=PMG::PMG denied pastebin.com:443' post.log
           # The runner reaches GitHub through the proxy. The github-actions
-          # profile must allow each host it reaches.
-          if grep '::error title=PMG::PMG denied' post.log | grep -v 'pastebin.com:443'; then
+          # profile must allow each host it reaches. Other system services
+          # of the image, such as snapd and apt, can be denied, so the check
+          # reads only the runner's own denials.
+          if grep '::error title=PMG::PMG denied' post.log | grep 'Runner\.'; then
             echo "::error::The profile denied a host of the runner." >&2
             exit 1
           fi

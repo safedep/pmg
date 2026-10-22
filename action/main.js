@@ -67,6 +67,9 @@ function warnIgnoredInputs(serverMode, enforce) {
   if (!serverMode && lib.input('network-mode') !== '') {
     lib.warning('network-mode applies only with network-profile or server-mode true. It is ignored.');
   }
+  if (enforce && !serverMode) {
+    lib.warning('enforce applies only with server-mode true or network-profile. It is ignored.');
+  }
   if (lib.boolInput('expose-to-job-network') && (!serverMode || enforce)) {
     lib.warning('expose-to-job-network applies only with server-mode true and enforce false. It is ignored.');
   }
@@ -114,6 +117,21 @@ function startProxy(binDir, profile, enforce, jobContainer) {
   lib.saveState('config_dir', process.env.PMG_PROXY_CONFIG_DIR || '');
   lib.saveState('run', process.env.PMG_PROXY_RUN || '');
   lib.saveState('proxy_vars', [...new Set(proxyVars)].join(','));
+  lib.saveState('pid', daemonPID(path.join(binDir, 'pmg'), enforce));
+}
+
+// daemonPID lets post.js tell a daemon that a step stopped from one whose
+// state file a step removed while it still runs.
+function daemonPID(bin, enforce) {
+  const args = ['proxy', 'status'];
+  if (enforce) {
+    args.push('--state', process.env.PMG_PROXY_STATE || '');
+  }
+  const res = enforce
+    ? spawnSync('sudo', ['-n', bin, ...args], { encoding: 'utf8' })
+    : spawnSync(bin, args, { encoding: 'utf8' });
+  const match = /running \(pid (\d+)/.exec(res.stdout || '');
+  return match ? match[1] : '';
 }
 
 // networkInputs passes the network inputs to the daemon. A profile path

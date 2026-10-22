@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/ghasummary"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/sandbox/propose"
@@ -75,10 +77,18 @@ func runGitHubSummary(out io.Writer, opts *githubSummaryOptions, summaryPath str
 func readJSON(path string, v any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.NotFound).
+			WithHumanError(fmt.Sprintf("Cannot read %s", path)).
+			WithHelp("Pass the file that `pmg proxy stop --report` or `pmg sandbox profile propose --json` wrote.").
+			Wrap(err)
 	}
 	if err := json.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.InvalidArgument).
+			WithHumanError(fmt.Sprintf("%s is not valid JSON", path)).
+			WithHelp("Pass the file that `pmg proxy stop --report` or `pmg sandbox profile propose --json` wrote.").
+			Wrap(err)
 	}
 	return nil
 }

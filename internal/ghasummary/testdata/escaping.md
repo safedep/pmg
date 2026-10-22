@@ -12,7 +12,7 @@
 |---|---|---|---|
 | `registry.npmjs.org:443` | node | 3 | parent rule `registry.npmjs.org:443` allows it |
 | `api.example.com:443` | curl | 3 | add `api.example.com:443` |
-| `x\|<img src=y>':443` | a b | 3 | not a valid rule |
+| `x\|<img src=y>':443` | a \[x\](https://e) | 3 | not a valid rule |
 
 ### Network profile
 

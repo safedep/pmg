@@ -63,7 +63,7 @@ func TestSummary(t *testing.T) {
 
 	injected := bootstrap()
 	injected.Destinations = append(injected.Destinations,
-		destination("x|<img src=y>`", 443, "a\nb", propose.VerdictInvalid, ""))
+		destination("x|<img src=y>`", 443, "a\n[x](https://e)", propose.VerdictInvalid, ""))
 	injected.Content += "# ```\n"
 
 	tests := []struct {

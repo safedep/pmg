@@ -97,7 +97,7 @@ function parseKeyValues(text) {
     if (heredoc) {
       const value = [];
       for (i++; i < lines.length && lines[i].replace(/\r$/, '') !== heredoc[2]; i++) {
-        value.push(lines[i]);
+        value.push(lines[i].replace(/\r$/, ''));
       }
       out.push([heredoc[1], value.join('\n')]);
       continue;

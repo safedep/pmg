@@ -65,7 +65,7 @@ func Markdown(in Input) string {
 func verdict(in Input) string {
 	switch {
 	case !in.Stop.Stopped:
-		return "PMG was not running at the end of the job. A workflow step stopped it first, so this summary has no stop result."
+		return "No PMG proxy ran at the end of the job. A step stopped it or removed its state file, so this summary has no stop result."
 	case in.Stop.Violation != "" && in.FailOnViolation:
 		return "**Failed.** " + sentence(in.Stop.Violation)
 	case in.Stop.Violation != "":
@@ -204,10 +204,10 @@ func refusedCount(p *propose.Report) int {
 	return n
 }
 
-// cell makes text from the network safe in a table cell. A client asks
-// for the host, so a host can hold Markdown or HTML.
+// cell keeps text from the network from changing the table or adding a
+// link or HTML. A client asks for the host, so a host can hold Markdown.
 func cell(s string) string {
-	s = strings.NewReplacer("\r", " ", "\n", " ", "|", `\|`, "<", "&lt;", ">", "&gt;", "`", "'").Replace(s)
+	s = strings.NewReplacer("\r", " ", "\n", " ", "|", `\|`, "<", "&lt;", ">", "&gt;", "`", "'", "[", `\[`, "]", `\]`).Replace(s)
 	if s == "" {
 		return "-"
 	}

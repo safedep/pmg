@@ -44,6 +44,10 @@ function main() {
   }
 
   const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  let status = stop.status ?? 1;
+  if (!report.stopped) {
+    status = Math.max(status, checkNotRunning(failOnViolation));
+  }
   let proposalPath = '';
   if (lib.boolInput('baseline') && (!report.stopped || report.observed > 0)) {
     proposalPath = lib.group('Propose a network profile', () =>
@@ -63,7 +67,41 @@ function main() {
   if (runPMG(bin, summaryArgs).status !== 0) {
     lib.warning('PMG could not write the job summary. See the log of the post step.');
   }
-  return stop.status ?? 1;
+  return status;
+}
+
+// checkNotRunning handles a post step that finds no proxy state. A step that
+// ran pmg proxy stop explains it. A daemon that still runs without its
+// state file means a step removed the file, and the job has no verdict.
+function checkNotRunning(failOnViolation) {
+  const pid = lib.state('pid');
+  if (pid !== '' && pmgRuns(pid)) {
+    lib.error(`The PMG proxy (pid ${pid}) still runs, but its state file is gone. A step of the job removed it, so the job has no verdict.`);
+    return 1;
+  }
+  if (failOnViolation) {
+    lib.warning('The PMG proxy was not running at the end of the job, so the post step has no verdict. When a step of the job stops PMG, set auto-stop to false.');
+  }
+  return 0;
+}
+
+// pmgRuns is true when pid is a live pmg process. A stopped daemon that no
+// init process reaps stays as a zombie, and a new process can reuse the pid.
+function pmgRuns(pid) {
+  let stat;
+  try {
+    stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return false;
+    }
+    throw err;
+  }
+  const open = stat.indexOf('(');
+  const close = stat.lastIndexOf(')');
+  const comm = stat.slice(open + 1, close);
+  const processState = stat.slice(close + 2, close + 3);
+  return comm === 'pmg' && processState !== 'Z';
 }
 
 function stateArgs(enforce) {
