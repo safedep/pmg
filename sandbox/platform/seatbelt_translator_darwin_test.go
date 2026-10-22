@@ -218,9 +218,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				homeDir := os.Getenv("HOME")
-				expectedLiteral := fmt.Sprintf(`(allow file-write* (literal "%s/.npm"))`, homeDir)
-				// Check for the literal parent directory rule
-				assert.Contains(t, actual, expectedLiteral)
+				assertParentDirWriteRules(t, actual, fmt.Sprintf(`(literal "%s/.npm")`, homeDir))
 				// Check for the regex rule (escaped dot)
 				assert.Contains(t, actual, `\.npm/.*$`)
 			},
@@ -308,16 +306,15 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 	}
 }
 
-// assertParentDirWriteRules checks that only a directory can be created or
-// removed at the parent of a /** write rule, and that every other write
-// operation is allowed.
+// assertParentDirWriteRules checks that the write rule on the parent of a /**
+// write rule matches a directory only, and keeps the file-write* form so the
+// deny rules after it still win.
 func assertParentDirWriteRules(t *testing.T, actual, matcher string) {
 	t.Helper()
-	assert.Contains(t, actual, "(allow file-write-create file-write-unlink (require-all "+matcher+" (vnode-type DIRECTORY)))")
-	assert.Contains(t, actual, "(allow "+seatbeltWriteOpsExceptCreateUnlink+" "+matcher+")")
-	assert.NotContains(t, seatbeltWriteOpsExceptCreateUnlink, "file-write-create")
-	assert.NotContains(t, seatbeltWriteOpsExceptCreateUnlink, "file-write-unlink")
+	assert.Contains(t, actual, "(allow file-write* (require-all "+matcher+" (vnode-type DIRECTORY)))")
 	assert.NotContains(t, actual, "(allow file-write* "+matcher+")")
+	assert.NotContains(t, actual, "(allow file-write-create "+matcher+")")
+	assert.NotContains(t, actual, "(allow file-write-data")
 }
 
 func TestSeatbeltTranslatorDarwinProcessTranslation(t *testing.T) {

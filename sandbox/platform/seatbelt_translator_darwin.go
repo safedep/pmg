@@ -122,11 +122,13 @@ func getAncestorDirectories(pathStr string) []string {
 // are emitted after allows and override them, so mandatory credential denies
 // are unaffected.
 //
-// For a write rule, only a directory may be created or removed at the parent.
-// A symlink there would redirect dir/** for every later run outside the
-// sandbox, so a tool that runs unsandboxed would write its cache wherever the
-// link points. Seatbelt checks a rename onto the parent as file-write-unlink,
-// so the unlink rule takes the same filter as the create rule.
+// For a write rule, the rule matches a directory only. A symlink at the
+// parent would redirect dir/** for every later run outside the sandbox, so a
+// tool that runs unsandboxed would write its cache wherever the link points.
+// The filter covers a symlink created in place and one renamed onto the
+// parent. The rule keeps the file-write* form: on macOS a rule that names a
+// single write operation was not overridden by a later file-write* deny, so
+// the deny of a worktree .git pointer stopped working.
 func globDoubleStarAutoAllowParentDirIfNeeded(sb *strings.Builder, pattern string, expanded string, operation string) {
 	if !strings.HasSuffix(expanded, "/**") {
 		return
@@ -150,14 +152,8 @@ func globDoubleStarAutoAllowParentDirIfNeeded(sb *strings.Builder, pattern strin
 		sb.WriteString("(allow " + operation + " " + matcher + ")\n")
 		return
 	}
-	sb.WriteString("(allow file-write-create file-write-unlink (require-all " + matcher + " (vnode-type DIRECTORY)))\n")
-	sb.WriteString("(allow " + seatbeltWriteOpsExceptCreateUnlink + " " + matcher + ")\n")
+	sb.WriteString("(allow file-write* (require-all " + matcher + " (vnode-type DIRECTORY)))\n")
 }
-
-// seatbeltWriteOpsExceptCreateUnlink is file-write* without file-write-create
-// and file-write-unlink.
-const seatbeltWriteOpsExceptCreateUnlink = "file-write-data file-write-flags file-write-mode file-write-owner " +
-	"file-write-setugid file-write-times file-write-xattr"
 
 func writeSeatbeltDenyRule(sb *strings.Builder, operation, matcher, value, message string) {
 	sb.WriteString("(deny ")
