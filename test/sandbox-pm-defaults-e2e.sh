@@ -108,10 +108,11 @@ test_parent_dir_symlink() {
 	if pmg sandbox exec --sandbox-allow "write=$dir/cache/**" -- ln -s "$dir/elsewhere" "$dir/cache"; then
 		fail "the sandbox let a process create a symlink at the parent of a /** write rule"
 	fi
-	if pmg sandbox exec --sandbox-allow "write=$dir/cache/**" -- \
-		sh -c 'ln -s "$1" link && mv link "$2"' sh "$dir/elsewhere" "$dir/cache"; then
+	ln -s "$dir/elsewhere" link
+	if pmg sandbox exec --sandbox-allow "write=$dir/cache/**" -- mv link "$dir/cache"; then
 		fail "the sandbox let a process rename a symlink onto the parent of a /** write rule"
 	fi
+	test -L link || fail "the symlink left the project"
 	test ! -L "$dir/cache" || fail "a symlink exists at $dir/cache"
 
 	pmg sandbox exec --sandbox-allow "write=$dir/cache/**" -- mkdir "$dir/cache" ||
