@@ -88,9 +88,10 @@ test_corepack_xdg_cache() {
 }
 
 # On macOS a /** write rule also allows writes to the directory itself, so
-# mkdir of that directory works. The directory may only be created as a
-# directory. A symlink there would send every later write to dir/**, also
-# from a tool that runs outside the sandbox, to where the link points.
+# mkdir of that directory works. Only a directory may be created there. A
+# symlink there would send every later write to dir/**, also from a tool
+# that runs outside the sandbox, to where the link points. The test also
+# makes the link in the project and renames it into place.
 # Bubblewrap and Landlock do not allow a missing directory, so the test runs
 # on macOS only.
 test_parent_dir_symlink() {
@@ -106,6 +107,10 @@ test_parent_dir_symlink() {
 
 	if pmg sandbox exec --sandbox-allow "write=$dir/cache/**" -- ln -s "$dir/elsewhere" "$dir/cache"; then
 		fail "the sandbox let a process create a symlink at the parent of a /** write rule"
+	fi
+	if pmg sandbox exec --sandbox-allow "write=$dir/cache/**" -- \
+		sh -c 'ln -s "$1" link && mv link "$2"' sh "$dir/elsewhere" "$dir/cache"; then
+		fail "the sandbox let a process rename a symlink onto the parent of a /** write rule"
 	fi
 	test ! -L "$dir/cache" || fail "a symlink exists at $dir/cache"
 

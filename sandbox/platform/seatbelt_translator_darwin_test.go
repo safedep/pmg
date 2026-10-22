@@ -308,14 +308,16 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 	}
 }
 
-// assertParentDirWriteRules checks that the parent of a /** write rule can be
-// created only as a directory, and that every other write operation is allowed.
+// assertParentDirWriteRules checks that only a directory can be created or
+// removed at the parent of a /** write rule, and that every other write
+// operation is allowed.
 func assertParentDirWriteRules(t *testing.T, actual, matcher string) {
 	t.Helper()
-	assert.Contains(t, actual, "(allow file-write-create (require-all "+matcher+" (vnode-type DIRECTORY)))")
-	assert.Contains(t, actual, "(allow "+seatbeltWriteOpsExceptCreate+" "+matcher+")")
+	assert.Contains(t, actual, "(allow file-write-create file-write-unlink (require-all "+matcher+" (vnode-type DIRECTORY)))")
+	assert.Contains(t, actual, "(allow "+seatbeltWriteOpsExceptCreateUnlink+" "+matcher+")")
+	assert.NotContains(t, seatbeltWriteOpsExceptCreateUnlink, "file-write-create")
+	assert.NotContains(t, seatbeltWriteOpsExceptCreateUnlink, "file-write-unlink")
 	assert.NotContains(t, actual, "(allow file-write* "+matcher+")")
-	assert.NotContains(t, actual, "(allow file-write-create "+matcher+")")
 }
 
 func TestSeatbeltTranslatorDarwinProcessTranslation(t *testing.T) {
