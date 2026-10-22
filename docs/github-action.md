@@ -5,15 +5,19 @@ then wraps package manager commands such as `npm install`, `pip install`,
 or `poetry add`. The proxy blocks malicious packages before they run.
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
 ```
 
-> **Commit SHA pinning.** The examples use the `v0.33.0` tag for readability. Pin
+> **Commit SHA pinning.** The examples use the `v0.34.0` tag for readability. Pin
 > the action to a full commit SHA. This improves supply chain security. See the
 > [GitHub security hardening guide](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions).
 
 > **Action version.** Use the latest release tag, such as
-> `safedep/pmg@v0.33.0`. The `enforce`, `enforce-*` and
+> `safedep/pmg@v0.34.0`. The post step, the job summary and the
+> `fail-on-violation`, `auto-stop` and `baseline` inputs need
+> `safedep/pmg@v0.34.0` or later, and a runner that runs Node 24 actions. On an
+> older version, add a stop step at the end of the job, as the documentation
+> of that version shows. The `enforce`, `enforce-*` and
 > `expose-to-job-network` inputs need `safedep/pmg@v0.31.0` or later. The
 > `network-profile` and `network-mode` inputs need `safedep/pmg@v0.33.0` or
 > later. GitHub warns about an unknown
@@ -38,7 +42,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: safedep/pmg@v0.33.0
+      - uses: safedep/pmg@v0.34.0
       - run: npm ci
 ```
 
@@ -77,16 +81,19 @@ default.
 | `skip-event-logging` | `PMG_SKIP_EVENT_LOGGING` | `false` |
 | `config-file` | Path to a YAML file in the repository. The action copies it to the PMG config directory before setup. Use it to override any config key. | unset |
 | `cache` | Reuse a previously extracted PMG binary from `$RUNNER_TOOL_CACHE`. On a cache hit the action fetches `checksums.txt` from upstream and verifies the cached tarball again. | `false` (download each run) |
-| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job, with `PMG_PROXY_RUN`, the id of the run in the event log. Needs a job-end `pmg proxy stop --fail-on-violation` step. | `false` (shims) |
+| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job, with `PMG_PROXY_RUN`, the id of the run in the event log. The post step of the action stops the daemon at the end of the job. See [Server mode](#server-mode). | `false` (shims) |
+| `fail-on-violation` | With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state. | `true` |
+| `auto-stop` | With server mode, stop the daemon in the post step. Set it to `false` only when a step of the job stops the daemon and needs its output. | `true` |
+| `baseline` | With server mode, propose a network profile from the destinations the job reached, and show it in the job summary. | `true` |
 | `expose-to-job-network` | With `server-mode` in a job that has a job container, bind the proxy to the job container's address on the job network. Docker actions and `docker://` steps in the job can then reach the proxy. The action fails when the job has no job container. See [Job containers and Docker actions](#job-containers-and-docker-actions). | `false` |
-| `enforce` | With `server-mode`, route every eligible process through the proxy in the kernel. Needs passwordless `sudo`. The action exports `PMG_BIN` and `PMG_PROXY_STATE`, and the job-end step becomes `sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation`. With `config-file` it also exports `PMG_PROXY_CONFIG_DIR`, the daemon's config directory. | `false` |
+| `enforce` | With `server-mode`, route every eligible process through the proxy in the kernel. Needs passwordless `sudo`. The action exports `PMG_BIN` and `PMG_PROXY_STATE`, so a step can run `sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE"`. With `config-file` it also exports `PMG_PROXY_CONFIG_DIR`, the daemon's config directory. | `false` |
 | `enforce-ports` | With `enforce`, destination ports to route in addition to the config, comma or newline separated. Passed as `--enforce-port`. | unset |
 | `enforce-exempt-users` | With `enforce`, users never routed, in addition to the config. Passed as `--enforce-exempt-user`. | unset |
 | `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config. Passed as `--enforce-exempt-executable`. | unset |
 | `enforce-skip-destinations` | With `enforce`, CIDR prefixes the kernel never routes, in addition to the config. Passed as `--enforce-skip-destination`. | unset |
 | `enforce-namespaces` | With `enforce`, what happens to containers that steps start: `ignore`, `redirect` or `auto`. See [Containers](#containers). Passed as `--enforce-namespaces`. | unset (`ignore`) |
-| `network-profile` | With `server-mode`, the sandbox profile whose network rules the proxy applies: a path in the workspace or a built-in name. See [Network policy](#network-policy). Passed as `--profile`. Needs `safedep/pmg@v0.33.0` or later. | unset (no policy) |
-| `network-mode` | With `server-mode` and `network-profile`, what the proxy does with a match on a deny rule: `audit` or `enforce`. Passed as `--network-mode`. Needs `safedep/pmg@v0.33.0` or later. | unset (`audit`) |
+| `network-profile` | The sandbox profile whose network rules the proxy applies. Give a path in the workspace or a built-in name. Turns server mode on. A path that does not exist starts the daemon with no profile, and the job summary proposes the profile for that path. See [Network policy](#network-policy). Passed as `--profile`. Needs `safedep/pmg@v0.33.0` or later. | unset (no policy) |
+| `network-mode` | With `network-profile`, what the proxy does with a match on a deny rule: `audit` or `enforce`. With `enforce`, a profile path that does not exist fails the action. Passed as `--network-mode`. Needs `safedep/pmg@v0.33.0` or later. | unset (`audit`) |
 
 ## Outputs
 
@@ -100,7 +107,7 @@ default.
 ### Send audit events to SafeDep Cloud
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     api-key:   ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
@@ -110,16 +117,16 @@ default.
   if: always()
 ```
 
-Why the sync step? Composite actions have no clean post-step hook. A
-trailing step with `if: always()` keeps the upload visible in the
-workflow file.
+Why the sync step? In shim mode no daemon runs, so nothing flushes the
+events at the end of the job. In server mode the post step stops the
+daemon, and the daemon flushes the events. That job needs no sync step.
 
 The `endpoint-id` defaults to `github-actions/${{ github.repository }}`.
 Each workflow on the same repository appears as one endpoint in the
 SafeDep Cloud UI. Override it for per-environment splits:
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     api-key:     ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id:   ${{ secrets.SAFEDEP_TENANT_ID }}
@@ -140,7 +147,7 @@ trusted_packages:
 ```
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     config-file: .github/pmg.yml
 ```
@@ -148,6 +155,57 @@ trusted_packages:
 The action copies the file to `~/.config/safedep/pmg/config.yml` before
 `pmg setup install` runs. PMG merges any missing template keys into the
 file. Specify only the keys to override.
+
+### Server mode
+
+With `server-mode`, the action starts the PMG proxy as a daemon and exports
+the proxy variables to the job. Put the action right after
+`actions/checkout`, so the proxy sees the traffic of every later step. The
+job needs no other PMG step.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: safedep/pmg@v0.34.0
+    with:
+      server-mode: true
+  - uses: actions/setup-node@v4
+    with:
+      node-version: 24
+  - run: npm ci
+```
+
+At the end of the job, the post step of the action:
+
+1. Stops the daemon. The daemon flushes its events to SafeDep Cloud when
+   the job sets `api-key`.
+2. Proposes a network profile from the destinations the job reached. See
+   [Build the profile from a run](#build-the-profile-from-a-run).
+3. Writes the job summary. The summary shows the verdict, each denied
+   connection, each destination and the proposed profile. The run also
+   gets an annotation for each block and each denial.
+4. Fails the job when PMG blocked a package or denied a connection. Set
+   `fail-on-violation: false` to report only. When PMG cannot stop the
+   daemon, for example after a crash, the job fails with every setting.
+
+The post step runs when an earlier step fails and when the job is
+cancelled. After the stop, it empties the proxy variables, so the post step
+of an earlier action, such as the cache save of `actions/setup-node`, does
+not use the stopped proxy.
+
+A job that still has its own `pmg proxy stop` step keeps working. The post
+step finds no daemon, warns, and writes the summary without a stop result.
+Set `auto-stop: false` on such a job. When the daemon still runs but its
+state file is gone, the post step fails the job.
+
+The verdict trusts the steps of the job. A step runs as the runner user and
+can use `sudo`, so a hostile step can stop the daemon or replace the `pmg`
+binary before the post step runs. PMG blocks a malicious package before its
+install code runs, so such a step must come from the workflow itself.
+
+The summary lists the destination hosts of the job. On a public repository
+anyone can read the job summary. Set `baseline: false` to leave the
+destinations out.
 
 ### Kernel enforcement
 
@@ -157,14 +215,15 @@ cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own. The
 action installs the PMG CA into the system trust store, starts the daemon as
 root, and exports the trust variables. The daemon runs as root, and `sudo`
 resets `HOME` and `PATH`, so the action exports the binary path as `PMG_BIN`
-and the state file path as `PMG_PROXY_STATE` for the job-end step. GitHub
+and the state file path as `PMG_PROXY_STATE` for a step that runs `pmg` as
+root. The post step stops the root daemon. GitHub
 hosted Ubuntu runners meet the
 [requirements](./persistent-proxy.md#requirements).
 [persistent-proxy.md](./persistent-proxy.md#kernel-enforcement-linux)
 describes how enforcement works.
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     server-mode: true
     enforce: true
@@ -172,10 +231,6 @@ describes how enforcement works.
     tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
 
 - run: npm ci
-
-- name: Enforce PMG policy
-  if: always()
-  run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
 ```
 
 Set `timeout-minutes` on every enforced job. See
@@ -196,7 +251,7 @@ defaults: ports 80 and 443 plus the ports of the configured registries. The
 daemon log and `pmg proxy status` name the file it loaded.
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     server-mode: true
     enforce: true
@@ -219,7 +274,7 @@ variables. See
 [persistent-proxy.md](./persistent-proxy.md#network-policy).
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     server-mode: true
     enforce: true
@@ -230,82 +285,77 @@ variables. See
 ```yaml
 # .pmg/profiles/ci.yml
 name: ci
-inherits: npm-restrictive
+inherits: github-actions
 network:
   deny_ip_literals: true
   allow_outbound:
-    # The runner reports the job to GitHub through the proxy.
-    - "*.actions.githubusercontent.com:443"
-    - "*.githubapp.com:443"
+    - registry.npmjs.org:443
   deny_outbound:
-    - pastebin.com:443
+    - "*:*"
 ```
 
-`npm-restrictive` denies `"*:*"`, so the profile allows the hosts of the
-runner. The runner is not exempt, see [Runner traffic](#runner-traffic).
-Without these rules the proxy refuses the runner's connections to GitHub,
-and `actions/upload-artifact` fails. A step that uploads an artifact or
-saves a cache while the daemon enforces also needs
-`"*.blob.core.windows.net:443"`. That rule allows every Azure storage
-account, so a script can send data to one. Put such a step after the stop
-step if you can, and give it `if: always()`. The stop step fails on a
-denial, and GitHub skips the steps after a failed step. A profile that `pmg sandbox profile propose` builds from a
-run under `enforce` has the hosts the runner reached in that run. See
-[Build the profile from a run](#build-the-profile-from-a-run).
+The runner is not exempt. Its traffic to GitHub goes through the proxy, see
+[Runner traffic](#runner-traffic). The built-in `github-actions` profile
+allows the hosts that the runner and the GitHub actions reach, so a profile
+that inherits it does not list them. Run `pmg sandbox profile show
+github-actions` to see them. A profile that inherits another built-in, such
+as `npm-restrictive`, must allow these hosts itself, or the proxy refuses
+the runner's connections to GitHub.
+
+`github-actions` allows `*.blob.core.windows.net:443`, because the runner,
+`actions/upload-artifact` and `actions/cache` use Azure storage. That rule
+allows every Azure storage account, so a script can send data to one.
 
 `deny_ip_literals` refuses a connection to an IP literal no allow rule
 names. An allow list of names does not stop a workflow that posts to an IP
 literal. See [Network rules](./sandbox.md#network-rules).
 
-The job-end `pmg proxy stop --fail-on-violation` step fails when the proxy
-refused a connection, and its report names the destination, the rule and
-the program. Add a `CODEOWNERS` line for `.pmg/profiles`, because the
-profile is as trusted as the workflow file.
+The post step fails the job when the proxy refused a connection. The job
+summary names the destination, the rule and the program. Add a `CODEOWNERS`
+line for `.pmg/profiles`, because the profile is as trusted as the workflow
+file.
 
 #### Build the profile from a run
 
-The proxy records every destination the job reaches, so a run with no
-profile gives the allow list. The action exports the run id as
-`PMG_PROXY_RUN`. After the stop step, `pmg sandbox profile propose` turns
-the run into a profile, and `actions/upload-artifact` keeps it for review.
-The run id and the command need `safedep/pmg@v0.33.0` or later.
+The proxy records every destination the job reaches. Three runs take a job
+from no profile to `enforce`.
 
-```yaml
-- uses: safedep/pmg@v0.33.0
-  with:
-    server-mode: true
-    enforce: true
+1. **Observe.** Name a profile path that does not exist yet. The action
+   starts the daemon with no profile. The job summary proposes the profile
+   for that path, from the destinations the job reached.
 
-- run: npm ci
+   ```yaml
+   - uses: safedep/pmg@v0.34.0
+     with:
+       network-profile: .pmg/profiles/ci.yml
+   ```
 
-- name: Stop PMG
-  if: always()
-  run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
+2. **Commit.** Review every rule in the proposal. One run does not reach
+   every destination the job needs. Save the proposal as
+   `.pmg/profiles/ci.yml` and commit it. The proposal inherits
+   `github-actions`, which refuses each host that no rule allows.
 
-- name: Propose the network profile
-  if: always()
-  run: sudo "$PMG_BIN" sandbox profile propose --run "$PMG_PROXY_RUN" --new pmg-network.yml
+   Each later run in `audit` lists the destinations the profile does not
+   allow, in the summary and as a warning on the run. The summary shows the
+   rules to add.
 
-- uses: actions/upload-artifact@v7
-  if: always()
-  with:
-    name: pmg-network-profile
-    path: pmg-network.yml
-```
+3. **Enforce.** Set `network-mode: enforce`. The proxy refuses a
+   destination the profile does not allow, and the post step fails the job.
 
-The run id comes from the event log, so `skip-event-logging: true` leaves
-`PMG_PROXY_RUN` unset. The daemon runs as root and writes its event log as
-root, so the proposal runs with `sudo` too. Without `enforce` the daemon and the event log belong
-to the runner user, and the step is `pmg sandbox profile propose --run
-"$PMG_PROXY_RUN" --new pmg-network.yml`. With `config-file` and `enforce`,
-the daemon's event log is under `PMG_PROXY_CONFIG_DIR`. Pass it to the
-proposal: `sudo env PMG_CONFIG_DIR="$PMG_PROXY_CONFIG_DIR" "$PMG_BIN"
-sandbox profile propose ...`.
+   ```yaml
+   - uses: safedep/pmg@v0.34.0
+     with:
+       network-profile: .pmg/profiles/ci.yml
+       network-mode: enforce
+   ```
 
-Download the artifact, review every rule, and commit the file as
-`.pmg/profiles/ci.yml`. Then set `network-profile: .pmg/profiles/ci.yml`
-and `network-mode: enforce`. A later run adds destinations with `--into
-.pmg/profiles/ci.yml` in place of `--new`. See
+Use `enforce: true` with `network-mode: enforce`. Without kernel enforcement
+the policy is advisory, because a process can ignore the proxy variables.
+
+The proposal comes from the event log, so `skip-event-logging: true` leaves
+the summary without a proposal. A proposal adds allow rules and does not
+remove rules. A destination that the proxy refused under `enforce` gets no
+rule, because the job did not reach it. See
 [Build the allow list](./persistent-proxy.md#build-the-allow-list).
 
 #### Runner traffic
@@ -316,7 +366,7 @@ bypass, because the user that runs the jobs can write the runner's folder.
 
 If the daemon stops serving but keeps running, the runner cannot report.
 GitHub cancels the job about 5 minutes after its `timeout-minutes`, and
-later steps, the stop step included, do not run. The GitHub default is 360 minutes.
+later steps, the post step included, do not run. The GitHub default is 360 minutes.
 
 #### Containers
 
@@ -330,7 +380,7 @@ A redirected container must trust the PMG CA, which the action exports as
 `PMG_CA_BUNDLE`:
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     server-mode: true
     enforce: true
@@ -369,7 +419,8 @@ container reach the proxy at `127.0.0.1`.
 The action needs a POSIX shell and userland in the image, such as busybox:
 `sh`, `tar`, `sha256sum`, `grep`, `sed`, `tr`, `cut`, `head`, `uname`,
 `mktemp`, `mkdir`, `chmod`, `cp` and `rm`, and `curl` or `wget`. It does not
-need `bash`. Alpine images, such as `golang:1.26-alpine` and
+need `bash` or Node in the image. The runner runs the action with its own
+Node. Alpine images, such as `golang:1.26-alpine` and
 `node:24-alpine`, work as they are. The action refuses a `wget` that does not
 verify TLS certificates, such as the `wget` of the `busybox` image. Add `curl`
 to such an image. The action at
@@ -395,7 +446,7 @@ jobs:
       options: --init
     steps:
       - uses: actions/checkout@v4
-      - uses: safedep/pmg@v0.33.0
+      - uses: safedep/pmg@v0.34.0
         with:
           server-mode: true
           expose-to-job-network: true
@@ -403,8 +454,6 @@ jobs:
       - uses: docker://node:24
         with:
           args: npm ci
-      - if: always()
-        run: pmg proxy stop --fail-on-violation
 ```
 
 The action binds the proxy to the address of the job container on the job
@@ -435,7 +484,7 @@ it, `pmg proxy stop` waits until its timeout and fails.
 ### Sandbox mode
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     sandbox: true
     sandbox-driver: landlock   # or "bubblewrap"
@@ -453,7 +502,7 @@ You can override any PMG config key with a `PMG_*` environment variable.
 Set it on the job or on the install step:
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
 - run: npm ci
   env:
     PMG_DEPENDENCY_COOLDOWN_DAYS: 10
@@ -466,9 +515,13 @@ See [docs/config.md](./config.md) for the full mapping.
 | Runner | Supported |
 |---|---|
 | `ubuntu-latest`, `ubuntu-24.04`, `ubuntu-22.04` (x86_64 and arm64) | Yes |
-| A job container on a Linux runner, Alpine included | Yes. See [Job containers and Docker actions](#job-containers-and-docker-actions). |
+| A job container on a Linux runner, Alpine on x86_64 included | Yes. See [Job containers and Docker actions](#job-containers-and-docker-actions). |
+| An Alpine job container on arm64 | No. The runner has no Node build for it, and the action needs Node. |
 | `macos-*` | No. The action stops. |
 | `windows-*` | No. The action stops. |
 
 [Issue #248](https://github.com/safedep/pmg/issues/248) tracks macOS and
 Windows runner support.
+
+The action is a JavaScript action that runs on Node 24. A self-hosted runner
+needs runner version 2.327.1 or later.

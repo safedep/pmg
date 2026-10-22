@@ -1,0 +1,10 @@
+name: Check the proxy variables in a later post step
+description: >
+  Its post step runs after the post step of a PMG action that comes after it
+  in the job. It fails when HTTPS_PROXY still names a proxy that does not
+  answer. actions/setup-node with a cache is such a step (#553).
+
+runs:
+  using: node24
+  main: main.js
+  post: post.js

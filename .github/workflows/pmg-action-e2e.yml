@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "action.yml"
+      - "action/**"
       - "cmd/proxy/**"
       - "internal/proxyserver/**"
       - "internal/flows/cert.go"

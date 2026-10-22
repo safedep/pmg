@@ -1,7 +1,9 @@
 package proxyserver
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"syscall"
 	"time"
@@ -18,6 +20,9 @@ const (
 	// drift apart.
 	stopWaitTimeout = daemonShutdownBudget + 15*time.Second
 )
+
+// ErrNoProxy means the state path has no state file, so no proxy runs from it.
+var ErrNoProxy = errors.New("no proxy state found")
 
 // StopResult carries the outcome of stopping the proxy so the caller can render
 // a summary and decide whether to fail (e.g. on policy violations).
@@ -44,6 +49,38 @@ type StopResult struct {
 	Observed int
 }
 
+// StopReport is the machine-readable stop result that `pmg proxy stop
+// --report` writes. The GitHub Action job summary reads it.
+type StopReport struct {
+	Stopped       bool             `json:"stopped"`
+	PID           int              `json:"pid,omitempty"`
+	BlockedCount  int              `json:"blocked_count"`
+	StateVerified bool             `json:"state_verified"`
+	RunID         string           `json:"run_id,omitempty"`
+	Observed      int              `json:"observed"`
+	Network       *NetworkState    `json:"network,omitempty"`
+	CloudSync     *CloudSyncResult `json:"cloud_sync,omitempty"`
+	// Violation names what --fail-on-violation fails on. It is set whether
+	// or not the flag is on.
+	Violation string `json:"violation,omitempty"`
+}
+
+// Report is the result as a StopReport with the violation the caller
+// computed.
+func (r StopResult) Report(violation string) StopReport {
+	return StopReport{
+		Stopped:       true,
+		PID:           r.PID,
+		BlockedCount:  r.BlockedCount,
+		StateVerified: r.StateVerified,
+		RunID:         r.RunID,
+		Observed:      r.Observed,
+		Network:       r.Network,
+		CloudSync:     r.CloudSync,
+		Violation:     violation,
+	}
+}
+
 // Stop signals the running proxy to terminate, waits for it to exit, and
 // removes the state file. It returns a StopResult describing the run. The
 // daemon flushes audit events to the cloud itself during shutdown (it, unlike
@@ -51,8 +88,11 @@ type StopResult struct {
 // signal errors) are returned as errors.
 func Stop(statePath string) (StopResult, error) {
 	state, err := readState(statePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return StopResult{}, fmt.Errorf("%w, is the proxy running? (%w)", ErrNoProxy, err)
+	}
 	if err != nil {
-		return StopResult{}, fmt.Errorf("no proxy state found — is the proxy running? (%w)", err)
+		return StopResult{}, fmt.Errorf("proxy state is unreadable: %w", err)
 	}
 
 	if !state.IsRunning() {

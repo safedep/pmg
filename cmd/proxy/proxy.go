@@ -14,6 +14,7 @@ func NewProxyCommand() *cobra.Command {
 	cmd.AddCommand(newStopCommand())
 	cmd.AddCommand(newEnvCommand())
 	cmd.AddCommand(newStatusCommand())
+	cmd.AddCommand(newGitHubSummaryCommand())
 	cmd.PersistentFlags().StringVar(&stateFlag, "state", "",
 		"Path to the proxy state file (default: <cache-dir>/proxy-state.json)")
 	return cmd

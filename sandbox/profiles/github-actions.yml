@@ -1,0 +1,33 @@
+name: github-actions
+description: Network base for a PMG proxy on a GitHub Actions runner. Allows the hosts the runner and the GitHub actions reach.
+# The persistent proxy serves every package manager of the job, so the
+# profile names the exec workload, as the exec base does.
+package_managers:
+  - exec
+
+# Network rules only. The proxy applies the network block of a profile, so
+# filesystem rules here would only warn at daemon start. Used on its own,
+# the profile allows the runner hosts and nothing else.
+#
+# Under enforce the runner itself goes through the proxy. It sends the job
+# log and the results to GitHub, and the actions download tarballs and
+# containers. A proposal from a run in GitHub Actions inherits this
+# profile, so it does not list these hosts.
+#
+# *.blob.core.windows.net is every Azure storage account. The runner and
+# actions/upload-artifact and actions/cache need it. Accepted: a script can
+# send data to an Azure storage account it controls.
+network:
+  allow_outbound:
+    - "*.actions.githubusercontent.com:443"
+    - "*.blob.core.windows.net:443"
+    - github.com:443
+    - api.github.com:443
+    - codeload.github.com:443
+    - objects.githubusercontent.com:443
+    - ghcr.io:443
+    - pkg-containers.githubusercontent.com:443
+  # A host that no rule names is refused. A specific allow rule of a child
+  # profile beats this rule.
+  deny_outbound:
+    - "*:*"

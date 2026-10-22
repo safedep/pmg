@@ -70,23 +70,19 @@ GitHub Actions with the [safedep/pmg action](../action.yml), described in
 [github-action.md](./github-action.md):
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     server-mode: true
     api-key: ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
 
 - run: npm ci          # intercepted automatically
-
-- name: Enforce PMG policy
-  if: always()
-  run: pmg proxy stop --fail-on-violation
 ```
 
 With `server-mode` the action starts the daemon and sets the variables for
-the job. A composite action cannot run a cleanup step, so the last step is
-yours. It stops the proxy, flushes events to the cloud, and fails the job
-when a package was blocked.
+the job. Its post step stops the proxy at the end of the job, flushes
+events to the cloud, fails the job when a package was blocked, and writes a
+job summary.
 
 ## Commands
 
@@ -100,6 +96,11 @@ pmg proxy status   # report whether a proxy runs, and which network policy it ap
 `pmg proxy <command> --help` lists the flags. `--daemon` works on Unix only.
 On Windows use the foreground `pmg proxy start`. To run more than one proxy
 on a host, give each its own `--state` path and `--port`.
+
+`pmg proxy stop --if-running` exits `0` when no proxy runs on the state
+file, so a job-end script does not fail after an earlier step stopped the
+proxy. `--report <file>` writes the stop result as JSON, also on a
+violation.
 
 ## Bind address
 
@@ -321,7 +322,8 @@ take a daemon from no policy to `enforce`.
    ```
 
    The profile inherits `exec` and holds one allow rule per host and port,
-   plus a catch-all deny. A proposal from a one-shot run inherits the
+   plus a catch-all deny. On a GitHub Actions runner it inherits
+   `github-actions`, which allows the hosts of the runner. A proposal from a one-shot run inherits the
    built-in profile of the package manager and does not repeat the registry
    hosts that profile already allows. Review every rule. Commit the file.
 

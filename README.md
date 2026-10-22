@@ -288,17 +288,18 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 `pip install`, etc. in the job.
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: actions/checkout@v4
+- uses: safedep/pmg@v0.34.0
   with:
     server-mode: true
 
 # intercepted via HTTP_PROXY automatically
 - run: npm ci
-
-- name: Enforce PMG policy
-  if: always()
-  run: pmg proxy stop --fail-on-violation # stops the daemon, fails the job on a block
 ```
+
+At the end of the job, the action stops PMG, fails the job on a block, and
+writes a job summary. The summary proposes a network profile from the
+destinations the job reached.
 
 By default you get malware blocking and dependency cooldown. Sandbox isolation
 is opt-in via the `sandbox` input. Tune behavior via inputs (`paranoid`,
@@ -316,16 +317,12 @@ npm needs Node 22.19 or later. The `enforce` input needs action version
 `v0.31.0` or later.
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
     server-mode: true
     enforce: true
 
 - run: npm ci
-
-- name: Enforce PMG policy
-  if: always()
-  run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
 ```
 
 See [Kernel enforcement](docs/github-action.md#kernel-enforcement) for

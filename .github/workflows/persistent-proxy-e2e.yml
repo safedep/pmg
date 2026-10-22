@@ -15,6 +15,7 @@ on:
       - "sandbox/**"
       - "test/e2e/**"
       - "action.yml"
+      - "action/**"
       - ".github/workflows/persistent-proxy-e2e.yml"
 
 permissions:
