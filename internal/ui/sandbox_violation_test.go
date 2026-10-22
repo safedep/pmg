@@ -193,6 +193,26 @@ func TestRenderSandboxViolationIncludesRememberHint(t *testing.T) {
 	assert.Contains(t, buf.String(), "pmg sandbox allow --last --all")
 }
 
+func TestRenderSandboxViolationRemembersNetworkDenialByDestination(t *testing.T) {
+	var buf bytes.Buffer
+	rec := &pmgsandbox.ViolationCacheRecord{
+		SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
+		Report: &pmgsandbox.ViolationReport{
+			SandboxName: "proxy",
+			PolicyName:  "exec",
+			Violations: []pmgsandbox.Violation{{
+				Kind:      pmgsandbox.ViolationKindNetworkConnect,
+				Target:    "pypi.org:443",
+				RuleLabel: "Connection to pypi.org:443 denied by the network policy (rule *:*)",
+			}},
+		},
+	}
+	require.NoError(t, RenderSandboxViolation(&buf, rec))
+	out := buf.String()
+	assert.Contains(t, out, "Remember for this project: pmg sandbox allow net-connect=pypi.org:443")
+	assert.NotContains(t, out, "pmg sandbox allow --last --all")
+}
+
 func TestRenderSandboxViolationOmitsRememberHintWithoutOverride(t *testing.T) {
 	var buf bytes.Buffer
 	rec := &pmgsandbox.ViolationCacheRecord{

@@ -254,8 +254,9 @@ func suggestionsFromCache(cache *pmgsandbox.ViolationCache, all bool) ([]pmgsand
 }
 
 // overrideTypeForKind maps a ViolationKind to the matching SandboxAllowType.
-// Only FS, exec and env scrubs are handled; network kinds are skipped by
-// BuildAllOverrides and never reach this function.
+// Only FS, exec and env scrubs are handled. A network denial is not
+// promoted, so `--last --all` after an unrelated denial cannot allow a
+// destination the policy refused. The user names it explicitly.
 func overrideTypeForKind(kind pmgsandbox.ViolationKind) config.SandboxAllowType {
 	switch kind {
 	case pmgsandbox.ViolationKindFSRead:

@@ -399,11 +399,10 @@ Presets can also be attached to a profile via a `presets:` list. See
 
 Notes:
 
-- `--last`/`--last --all` only auto-promotes filesystem and exec denials. Network allowances
-  (`net-connect`, `net-bind`) and environment allowances (`env`) must be passed manually as
-  `type=value` because drivers do not classify network denials yet and environment scrubbing is
-  logged rather than recorded as a violation. Run with `--debug` to see scrubbed variable names,
-  then persist with `pmg sandbox allow env=NAME`.
+- `--last`/`--last --all` promotes filesystem, exec and environment denials. It does not
+  promote a network denial, so a save after an unrelated denial cannot allow a destination the
+  policy refused. Pass network allowances (`net-connect`, `net-bind`) as `type=value`.
+  `pmg sandbox explain --last` prints the command for a refused destination.
 - `pmg sandbox allow` refuses sensitive targets (`.env*`, `.npmrc`, `.ssh`, `.aws`, `.kube`,
   `.gnupg`, ...) unless `--force` is given.
 - Applied overlay entries are recorded in the audit event log with a `+overlay` source tag so

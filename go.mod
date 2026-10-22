@@ -1,6 +1,6 @@
 module github.com/safedep/pmg
 
-go 1.27
+go 1.27.3
 
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261015104854-3d3987e0a675.1
