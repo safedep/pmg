@@ -528,28 +528,19 @@ func printProposal(out io.Writer, target *proposeTarget, rendered []byte, result
 	}
 }
 
-type proposeJSON struct {
-	RunIDs       []string                 `json:"run_ids"`
-	Destinations []propose.Row            `json:"destinations"`
-	Network      pmgsandbox.NetworkPolicy `json:"network"`
-	Added        []string                 `json:"added"`
-	Target       string                   `json:"target,omitempty"`
-	Content      string                   `json:"content"`
-	Written      bool                     `json:"written"`
-}
-
 func writeProposeJSON(out io.Writer, records []netobserve.Record, result propose.Result, target *proposeTarget, rendered []byte, write bool, registry pmgsandbox.ProfileRegistry) error {
 	if write {
 		if err := target.write(rendered, registry); err != nil {
 			return err
 		}
 	}
-	report := proposeJSON{
+	report := propose.Report{
 		RunIDs:       make([]string, 0, len(records)),
 		Destinations: result.Rows,
 		Network:      result.Network,
 		Added:        result.Added,
 		Target:       target.path,
+		New:          target.isNew,
 		Content:      string(rendered),
 		Written:      write,
 	}

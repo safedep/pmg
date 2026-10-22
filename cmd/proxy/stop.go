@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -16,7 +18,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var failOnViolation bool
+var (
+	failOnViolation bool
+	ifRunning       bool
+	reportPath      string
+)
 
 func newStopCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -28,7 +34,30 @@ func newStopCommand() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&failOnViolation, "fail-on-violation", false,
 		"Exit non-zero if any package was blocked during the proxy session")
+	cmd.Flags().BoolVar(&ifRunning, "if-running", false,
+		"Exit zero when no proxy runs on the state file")
+	cmd.Flags().StringVar(&reportPath, "report", "",
+		"Write the stop result as JSON to this file")
 	return cmd
+}
+
+func newStopReport(res proxyserver.StopResult) proxyserver.StopReport {
+	violation := ""
+	if verr := stopExitError(res, true); verr != nil {
+		violation = verr.Error()
+	}
+	return res.Report(violation)
+}
+
+func writeStopReport(path string, r proxyserver.StopReport) error {
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal stop report: %w", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write stop report: %w", err)
+	}
+	return nil
 }
 
 func runStop(_ *cobra.Command, _ []string) error {
@@ -36,8 +65,23 @@ func runStop(_ *cobra.Command, _ []string) error {
 	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir())
 
 	res, err := proxyserver.Stop(statePath)
+	if ifRunning && errors.Is(err, proxyserver.ErrNoProxy) {
+		if reportPath != "" {
+			if werr := writeStopReport(reportPath, proxyserver.StopReport{}); werr != nil {
+				ui.ErrorExit(werr)
+			}
+		}
+		_, werr := fmt.Fprintln(os.Stdout, "No PMG proxy runs on this state file. Nothing to stop.")
+		return werr
+	}
 	if err != nil {
 		ui.ErrorExit(err)
+	}
+
+	if reportPath != "" {
+		if werr := writeStopReport(reportPath, newStopReport(res)); werr != nil {
+			ui.ErrorExit(werr)
+		}
 	}
 
 	// Surface the daemon's cloud flush outcome before the violation gate, so it

@@ -17,6 +17,7 @@ import (
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/sandbox/propose"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -221,7 +222,7 @@ func TestProfilePropose_MergesTheRunsOfAWindow(t *testing.T) {
 
 	out, err := f.run(t, "--json")
 	require.NoError(t, err)
-	var report proposeJSON
+	var report propose.Report
 	require.NoError(t, json.Unmarshal([]byte(out), &report))
 	assert.Equal(t, []string{"a", "b"}, report.RunIDs)
 	require.Len(t, report.Destinations, 2)

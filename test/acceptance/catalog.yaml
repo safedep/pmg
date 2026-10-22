@@ -194,6 +194,12 @@
   tier: P2
   guarantee: "pmg proxy starts, serves, and shuts down without a leaked process."
   labels: [lifecycle, offline]
+- id: proxy/lifecycle/stop-if-running
+  title: "pmg proxy stop --if-running and --report"
+  category: proxy
+  tier: P1
+  guarantee: "pmg proxy stop --if-running exits zero when no proxy runs, and --report writes the stop result as JSON."
+  labels: [lifecycle, offline]
 - id: proxy/trusted/registry-bypass
   title: "trusted registry traffic bypasses interception"
   category: proxy
