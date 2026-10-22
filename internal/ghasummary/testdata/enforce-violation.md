@@ -4,7 +4,7 @@
 
 | Packages blocked | Network mode | Network profile | Destinations observed |
 |---|---|---|---|
-| 1 | enforce | `github-actions < ci` | 2 |
+| 1 | enforce | `github-actions < .pmg/ci.yml` | 2 |
 
 ### Denied connections
 

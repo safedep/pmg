@@ -32,6 +32,10 @@ type Input struct {
 	Profile string
 
 	FailOnViolation bool
+
+	// Workspace is the checkout directory. The summary shows a profile path
+	// under it relative to it.
+	Workspace string
 }
 
 func (in Input) profilePath() string {
@@ -86,6 +90,9 @@ func writeOverview(b *strings.Builder, in Input) {
 	mode, profile := "off", "none"
 	if n := in.Stop.Network; n != nil {
 		mode, profile = n.Mode, n.Profile()
+	}
+	if in.Workspace != "" {
+		profile = strings.ReplaceAll(profile, strings.TrimSuffix(in.Workspace, "/")+"/", "")
 	}
 	b.WriteString("| Packages blocked | Network mode | Network profile | Destinations observed |\n")
 	b.WriteString("|---|---|---|---|\n")
@@ -164,6 +171,10 @@ func writeProposal(b *strings.Builder, in Input) {
 		}
 		b.WriteString(" Later runs report each destination the profile does not name. Set `network-mode: enforce` to refuse them.\n\n")
 	case len(p.Added) == 0:
+		if refused := refusedCount(p); refused > 0 {
+			fmt.Fprintf(b, "%s does not allow %d destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.\n\n", path, refused)
+			return
+		}
 		fmt.Fprintf(b, "%s allows every destination this job reached.\n\n", path)
 		return
 	default:
@@ -181,6 +192,16 @@ func writeProposal(b *strings.Builder, in Input) {
 	}
 	fmt.Fprintf(b, "%s\n\n</details>\n\n", fence)
 	b.WriteString("Add the profile to CODEOWNERS, so that a security reviewer approves each change to it.\n")
+}
+
+func refusedCount(p *propose.Report) int {
+	n := 0
+	for _, row := range p.Destinations {
+		if row.Verdict == propose.VerdictRefused || row.Verdict == propose.VerdictKeptDenied {
+			n++
+		}
+	}
+	return n
 }
 
 // cell makes text from the network safe in a table cell. A client asks

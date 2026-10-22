@@ -44,7 +44,7 @@ func TestSummary(t *testing.T) {
 	enforceDenial := clean()
 	enforceDenial.BlockedCount = 1
 	enforceDenial.Network = &proxyserver.NetworkState{
-		Chain:   []string{"github-actions", "ci"},
+		Chain:   []string{"github-actions", "/home/runner/work/app/app/.pmg/ci.yml"},
 		Mode:    "enforce",
 		Denials: []netpolicy.Denial{{Destination: "pastebin.com:443", Rule: "*:*", Client: "node", PID: 42, Count: 2}},
 	}
@@ -80,7 +80,7 @@ func TestSummary(t *testing.T) {
 		{
 			name:   "enforce run that blocked a package and denied a connection",
 			golden: "enforce-violation.md",
-			in:     Input{Stop: enforceDenial, Profile: ".pmg/ci.yml", FailOnViolation: true},
+			in:     Input{Stop: enforceDenial, Profile: ".pmg/ci.yml", FailOnViolation: true, Workspace: "/home/runner/work/app/app"},
 			cmds: []string{
 				"::error title=PMG::PMG blocked 1 package(s). See the job summary.",
 				"::error title=PMG::PMG denied pastebin.com:443 by rule *:* (node)",
@@ -117,6 +117,18 @@ func TestSummary(t *testing.T) {
 			golden: "profile-covers-all.md",
 			in: Input{Stop: clean(), Profile: ".pmg/ci.yml", FailOnViolation: true,
 				Proposal: &propose.Report{Destinations: bootstrap().Destinations[:1], Added: []string{}}},
+		},
+		{
+			name:   "enforce run whose profile refused destinations",
+			golden: "profile-refused.md",
+			in: Input{Stop: enforceDenial, Profile: ".pmg/ci.yml", FailOnViolation: true,
+				Proposal: &propose.Report{Added: []string{}, Destinations: []propose.Row{
+					destination("pastebin.com", 443, "node", propose.VerdictRefused, ""),
+				}}},
+			cmds: []string{
+				"::error title=PMG::PMG blocked 1 package(s). See the job summary.",
+				"::error title=PMG::PMG denied pastebin.com:443 by rule *:* (node)",
+			},
 		},
 		{
 			name:   "unverified final state",

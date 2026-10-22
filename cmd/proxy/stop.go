@@ -41,14 +41,6 @@ func newStopCommand() *cobra.Command {
 	return cmd
 }
 
-func newStopReport(res proxyserver.StopResult) proxyserver.StopReport {
-	violation := ""
-	if verr := stopExitError(res, true); verr != nil {
-		violation = verr.Error()
-	}
-	return res.Report(violation)
-}
-
 func writeStopReport(path string, r proxyserver.StopReport) error {
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
@@ -79,7 +71,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 	}
 
 	if reportPath != "" {
-		if werr := writeStopReport(reportPath, newStopReport(res)); werr != nil {
+		if werr := writeStopReport(reportPath, res.Report(stopViolation(res))); werr != nil {
 			ui.ErrorExit(werr)
 		}
 	}
@@ -126,19 +118,31 @@ func stopExitError(res proxyserver.StopResult, failOnViolation bool) error {
 	if !failOnViolation {
 		return nil
 	}
+	msg := stopViolation(res)
+	if msg == "" {
+		return nil
+	}
 
+	help := "Review the proxy logs for details on blocked packages and denied connections"
+	if !res.StateVerified {
+		help = "The proxy may have crashed; treat this run as failed and re-run"
+	}
 	// HumanError drives the displayed message; Msg drives Error()/logs and the
 	// --verbose tail. Set both from one string so verbose shows the real
 	// message instead of usefulerror's "unknown error" fallback.
-	if !res.StateVerified {
-		msg := "Proxy shut down but the blocked-package count could not be verified"
-		return usefulerror.NewUsefulError().
-			WithCode(errcodes.ProxyPolicyViolation).
-			WithHumanError(msg).
-			WithMsg(msg).
-			WithHelp("The proxy may have crashed; treat this run as failed and re-run")
-	}
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.ProxyPolicyViolation).
+		WithHumanError(msg).
+		WithMsg(msg).
+		WithHelp(help)
+}
 
+// stopViolation names what --fail-on-violation fails on, or empty when the
+// run has no violation.
+func stopViolation(res proxyserver.StopResult) string {
+	if !res.StateVerified {
+		return "Proxy shut down but the blocked-package count could not be verified"
+	}
 	var violations []string
 	if res.BlockedCount > 0 {
 		violations = append(violations, fmt.Sprintf("%d package(s) were blocked by the proxy", res.BlockedCount))
@@ -146,16 +150,7 @@ func stopExitError(res proxyserver.StopResult, failOnViolation bool) error {
 	if denied := res.Network.DeniedCount(); denied > 0 {
 		violations = append(violations, fmt.Sprintf("%d connection(s) were denied by the network policy", denied))
 	}
-	if len(violations) == 0 {
-		return nil
-	}
-
-	msg := strings.Join(violations, " and ")
-	return usefulerror.NewUsefulError().
-		WithCode(errcodes.ProxyPolicyViolation).
-		WithHumanError(msg).
-		WithMsg(msg).
-		WithHelp("Review the proxy logs for details on blocked packages and denied connections")
+	return strings.Join(violations, " and ")
 }
 
 // observationLine points at the proposal command. Empty when the proxy saw

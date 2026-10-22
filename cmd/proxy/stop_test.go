@@ -158,13 +158,13 @@ func TestStopReport(t *testing.T) {
 		{
 			name:      "unverified state is a violation",
 			res:       proxyserver.StopResult{PID: 7},
-			violation: "could not be verified",
+			violation: "Proxy shut down but the blocked-package count could not be verified",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "report.json")
-			require.NoError(t, writeStopReport(path, newStopReport(tc.res)))
+			require.NoError(t, writeStopReport(path, tc.res.Report(stopViolation(tc.res))))
 
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestStopReport(t *testing.T) {
 			if tc.violation == "" {
 				assert.Empty(t, got.Violation)
 			} else {
-				assert.Contains(t, got.Violation, tc.violation)
+				assert.Equal(t, tc.violation, got.Violation)
 			}
 		})
 	}

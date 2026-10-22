@@ -26,7 +26,7 @@ func Commands(in Input) []string {
 	}
 	out = append(out, denialCommands(in, kind)...)
 	out = append(out, newHostCommands(in)...)
-	if p := in.Proposal; p != nil && (p.New || len(p.Added) > 0) {
+	if p := in.Proposal; p != nil && len(p.Added) > 0 {
 		out = append(out, command("notice", fmt.Sprintf("PMG proposes %d network rule(s) for %s. See the job summary.", len(p.Added), in.profilePath())))
 	}
 	return out

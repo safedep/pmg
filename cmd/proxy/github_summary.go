@@ -50,7 +50,7 @@ func runGitHubSummary(out io.Writer, opts *githubSummaryOptions, summaryPath str
 	if opts.report == "" {
 		return errors.New("--report is required")
 	}
-	in := ghasummary.Input{Profile: opts.profile, FailOnViolation: opts.failOnViolation}
+	in := ghasummary.Input{Profile: opts.profile, FailOnViolation: opts.failOnViolation, Workspace: os.Getenv("GITHUB_WORKSPACE")}
 	if err := readJSON(opts.report, &in.Stop); err != nil {
 		return err
 	}
