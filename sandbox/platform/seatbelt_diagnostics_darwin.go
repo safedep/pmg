@@ -119,10 +119,11 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 }
 
 // streamEntries stops the log stream of the run and returns what it
-// delivered. A clean run does not report noise, so the stream returns noise
-// only for a failed run. complete is false when the run has no stream,
-// or when the stream could not confirm that it delivered every denial that
-// the run reports. The entries are real denials in both cases.
+// delivered. A clean run does not report the noise that sandbox.IsNoise
+// selects, so the stream returns noise only for a failed run. complete is
+// false when the run has no stream, or when the stream could not confirm that
+// it delivered every denial that the run reports. The entries are real
+// denials in both cases.
 func (s *seatbeltSandbox) streamEntries(runErr error) (entries []seatbeltLogEntry, complete bool) {
 	if s.stream == nil {
 		return nil, false
