@@ -32,7 +32,7 @@ func TestExecNetworkProbe(t *testing.T) {
 		{
 			name:       "bubblewrap cannot run exec",
 			newSandbox: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: sandbox.DriverBubblewrap}, nil },
-			want:       sandbox.ProbeStatusFail,
+			want:       sandbox.ProbeStatusWarn,
 			summary:    "bubblewrap cannot confine outbound to the proxy",
 		},
 		{

@@ -174,7 +174,7 @@ func TestRunDoctor_UnknownDriver(t *testing.T) {
 }
 
 func TestDoctorCommandRejectsUnexpectedArgsWithUsage(t *testing.T) {
-	cmd := newDoctorCommand(func() []pmgsandbox.Probe { return nil })
+	cmd := newDoctorCommand(func() []pmgsandbox.Probe { return nil }, nil)
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
@@ -189,7 +189,7 @@ func TestDoctorCommandRejectsUnexpectedArgsWithUsage(t *testing.T) {
 }
 
 func TestDoctorCommandRuntimeErrorUsesSandboxErrorExit(t *testing.T) {
-	cmd := newDoctorCommand(func() []pmgsandbox.Probe { return nil })
+	cmd := newDoctorCommand(func() []pmgsandbox.Probe { return nil }, nil)
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
@@ -218,6 +218,84 @@ func TestRunDoctor_DriverFilter(t *testing.T) {
 	assert.Contains(t, out, "Bubblewrap driver")
 	assert.Contains(t, out, "Bubblewrap canary")
 	assert.False(t, strings.Contains(out, "Seatbelt driver"), "seatbelt should be filtered out:\n%s", out)
+}
+
+// Without --driver, doctor checks the driver that PMG uses. A driver that PMG
+// does not use must not fail the check.
+func TestRunDoctor_ChecksTheActiveDriver(t *testing.T) {
+	factory := func() []pmgsandbox.Probe {
+		return []pmgsandbox.Probe{
+			newStub(pmgsandbox.ProbeBwrapDriver, pmgsandbox.ProbeStatusFail),
+			newStub(pmgsandbox.ProbeLandlockDriver, pmgsandbox.ProbeStatusOK),
+			newStub(pmgsandbox.ProbeAppArmorUserns, pmgsandbox.ProbeStatusSkipped),
+			newStub(pmgsandbox.ProbeBwrapCanary, pmgsandbox.ProbeStatusSkipped),
+			newStub(pmgsandbox.ProbeLandlockCanary, pmgsandbox.ProbeStatusOK),
+			newStub(pmgsandbox.ProbeExecNetwork, pmgsandbox.ProbeStatusOK),
+		}
+	}
+	landlock := func() (pmgsandbox.DriverName, bool) { return pmgsandbox.DriverLandlock, true }
+	none := func() (pmgsandbox.DriverName, bool) { return "", false }
+
+	tests := []struct {
+		name     string
+		opts     doctorOptions
+		want     []string
+		wantFail bool
+	}{
+		{
+			name: "active driver only, with the exec network row",
+			opts: doctorOptions{jsonOut: true, activeDriver: landlock},
+			want: []string{pmgsandbox.ProbeLandlockDriver, pmgsandbox.ProbeAppArmorUserns, pmgsandbox.ProbeLandlockCanary, pmgsandbox.ProbeExecNetwork},
+		},
+		{
+			name:     "--driver wins over the active driver",
+			opts:     doctorOptions{jsonOut: true, driver: "bubblewrap", activeDriver: landlock},
+			want:     []string{pmgsandbox.ProbeBwrapDriver, pmgsandbox.ProbeAppArmorUserns, pmgsandbox.ProbeBwrapCanary},
+			wantFail: true,
+		},
+		{
+			name: "no driver available, every probe runs",
+			opts: doctorOptions{jsonOut: true, activeDriver: none},
+			want: []string{
+				pmgsandbox.ProbeBwrapDriver, pmgsandbox.ProbeLandlockDriver, pmgsandbox.ProbeAppArmorUserns,
+				pmgsandbox.ProbeBwrapCanary, pmgsandbox.ProbeLandlockCanary, pmgsandbox.ProbeExecNetwork,
+			},
+			wantFail: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := runDoctor(context.Background(), &buf, &tc.opts, factory)
+			if tc.wantFail {
+				require.Error(t, err)
+				assert.IsType(t, &doctorFailError{}, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			var report jsonReport
+			require.NoError(t, json.Unmarshal(buf.Bytes(), &report))
+			names := make([]string, 0, len(report.Results))
+			for _, r := range report.Results {
+				names = append(names, r.Name)
+			}
+			assert.Equal(t, tc.want, names)
+		})
+	}
+}
+
+func TestRunDoctor_NamesTheActiveDriver(t *testing.T) {
+	factory := func() []pmgsandbox.Probe {
+		return []pmgsandbox.Probe{newStub(pmgsandbox.ProbeLandlockDriver, pmgsandbox.ProbeStatusOK)}
+	}
+	opts := &doctorOptions{activeDriver: func() (pmgsandbox.DriverName, bool) { return pmgsandbox.DriverLandlock, true }}
+
+	var buf bytes.Buffer
+	require.NoError(t, runDoctor(context.Background(), &buf, opts, factory))
+	assert.Contains(t, buf.String(), "Checking the landlock driver")
+	assert.Contains(t, buf.String(), "--driver")
 }
 
 func TestDoctorFailError_ExitCode(t *testing.T) {

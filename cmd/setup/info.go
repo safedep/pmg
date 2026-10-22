@@ -233,16 +233,11 @@ func installedState(installed bool, location string) string {
 }
 
 func resolveSandboxDriverName() string {
-	sb, err := platform.NewSandbox()
-	if err != nil {
-		return "unavailable"
+	if driver, ok := platform.ActiveDriver(); ok {
+		return string(driver)
 	}
 
-	if !sb.IsAvailable() {
-		return "unavailable"
-	}
-
-	return string(sb.Name())
+	return "unavailable"
 }
 
 // describeCloudCredentials reports whether SafeDep Cloud credentials can be

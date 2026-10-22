@@ -276,10 +276,13 @@ pmg sandbox explain --last
 pmg sandbox profile show npm-restrictive --resolved
 ```
 
-`pmg sandbox doctor` runs platform-specific checks for the current host. Cached violation reports
-used by `violations list` and `explain --last` are produced by macOS Seatbelt diagnostics and, on
-Linux, by the Landlock driver's seccomp supervisor or the Bubblewrap driver's reader of the
-sandboxed command's output.
+`pmg sandbox doctor` runs platform-specific checks for the current host. It checks the driver that
+PMG uses, so a driver that PMG does not use cannot fail it. Add `--driver` to check another driver.
+When no driver is available, it runs every check.
+
+Cached violation reports used by `violations list` and `explain --last` are produced by macOS
+Seatbelt diagnostics and, on Linux, by the Landlock driver's seccomp supervisor or the Bubblewrap
+driver's reader of the sandboxed command's output.
 
 Coverage differs by platform. Seatbelt logs every denial, including the default-deny allow-list
 boundary. The Landlock driver only reports denials made by its seccomp deny-list layer (reads and
