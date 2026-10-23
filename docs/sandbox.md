@@ -301,24 +301,25 @@ but it never becomes an override suggestion, and
 `pmg sandbox allow --last` will not persist it. The command did not fail, so nothing needs an
 allowance, and a program that catches a denial can be an attack.
 
-Coverage differs by platform. On macOS, PMG reads denials from the Seatbelt entries in the unified
-log. After a failed run, it records every denial, including denials at the default-deny allow-list
-boundary. After a clean run, it does not record the denials that ordinary tools make on every
-start. These are the denials with no path, such as sysctl reads and service lookups, and the
-access to `/dev/dtracehelper` and the terminal. `explain` ranks the same denials last. PMG records
-every other denial, also a write that only the allow-list boundary blocks, such as a write to a
-shell startup file. The Landlock driver only reports denials made by its seccomp deny-list layer
-(reads and writes of `deny_*` paths, blocked `deny_exec` binaries). Denials made by the Landlock
-LSM itself (operations outside the allow-list, delete/rename, network rules) fail in-kernel with
-`EACCES` and produce no report. `deny_write` entries outside writable areas are enforced by
-Landlock rather than seccomp, so they are likewise not reported. Operational degradation events on
-the audit socket (`namespace_isolation_unavailable`, `memfd_open_failed`) are not in violation
-reports yet. The Bubblewrap driver reports denials it can recognise in the sandboxed command's own
+Coverage differs by platform.
+
+**macOS (Seatbelt).** PMG reads the denials from the unified log. After a failed run, it records
+every denial. After a clean run, it does not record the noise that ordinary tools make on every
+start. These are denials with no path, such as sysctl reads, and access to `/dev/dtracehelper` and
+the terminal. `explain` ranks the same denials last. PMG records every other denial, also a write
+that only the allow-list boundary blocks, such as a write to a shell startup file.
+
+**Linux (Landlock).** The driver reports only the denials of its seccomp layer. These are reads and
+writes of `deny_*` paths, and blocked `deny_exec` binaries. A denial by the Landlock LSM itself
+fails with `EACCES` and produces no report. This covers operations outside the allow-list, delete
+and rename, network rules, and `deny_write` paths outside writable areas. Audit socket events such
+as `namespace_isolation_unavailable` are not in reports yet.
+
+**Linux (Bubblewrap).** The driver reports the denials that it recognises in the command's own
 error output. Its platform section below says what that covers.
 
-Environment scrubs are the exception to all of this: they are recorded by PMG's executor before the
-child is spawned rather than observed by a driver, so `env_scrub` violations appear on every
-platform and driver.
+Environment scrubs are the exception. PMG's executor records them before it starts the child, so
+`env_scrub` violations appear on every platform and driver.
 
 ### Runtime Allow Overrides
 
