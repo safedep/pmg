@@ -185,22 +185,16 @@ func validateNetConnect(value string) (string, error) {
 	return value, nil
 }
 
-// validateNetBind validates a net-bind value.
-// Allows localhost:* and 127.0.0.1:* as special wildcard forms.
-// Warns on non-localhost addresses.
+// validateNetBind validates a net-bind value with the parser that the presets
+// and the drivers use, so a value accepted here also runs on every driver.
+// It warns on an address that other machines can reach.
 func validateNetBind(value string) (string, error) {
-	host, _, err := parseHostPort(value)
+	addr, err := sandboxutil.ParseBindAddress(value)
 	if err != nil {
 		return "", fmt.Errorf("invalid net-bind value: %w", err)
 	}
 
-	// Reject host-side wildcards
-	if host == "*" || strings.Contains(host, "*") || strings.Contains(host, "?") {
-		return "", fmt.Errorf("host wildcards are not allowed for net-bind (specify a host, e.g., localhost:3000)")
-	}
-
-	// Warn on non-localhost addresses
-	if !isLocalhostAddress(host) {
+	if !addr.IsLoopback() {
 		log.Warnf("--sandbox-allow net-bind=%s uses non-localhost address, this exposes the port to the network", value)
 	}
 
@@ -227,11 +221,6 @@ func parseHostPort(value string) (string, string, error) {
 	}
 
 	return host, port, nil
-}
-
-// isLocalhostAddress returns true if the host is a localhost address.
-func isLocalhostAddress(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // resolveToAbsolute resolves a path to an absolute path relative to CWD.

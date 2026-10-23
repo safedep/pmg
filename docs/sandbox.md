@@ -339,6 +339,11 @@ pmg \
 
 Supported types: `read`, `write`, `exec`, `net-connect`, `net-bind`, `env`.
 
+A `net-bind` value, and each `network.allow_bind` entry of a profile, is `host:port`. The host is
+loopback (`localhost`, `127.0.0.1`, `[::1]`) or all interfaces (`0.0.0.0`, `[::]`). PMG warns on
+an all-interfaces host, because other machines can then reach the port. PMG refuses any other
+host, because no driver can limit a bind to it. The port is a number or `*`.
+
 For `env`, the value is an environment variable **name** or name glob (e.g. `NPM_TOKEN`,
 `npm_config_*`) and is kept verbatim. It is not path-resolved. It is an allow-only override that
 re-permits a variable the profile would otherwise scrub; allow always wins, so there is no deny list

@@ -1,0 +1,37 @@
+# guarantee: a net-bind value that pmg accepts runs on every driver. A
+# loopback host such as 127.0.0.1 or [::1] works under `pmg sandbox exec`,
+# from the flag and from a saved project overlay. A host that no driver can
+# limit a bind to is refused when it is saved, not when the sandbox starts.
+
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+
+[!exec:python3] skip
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+exec pmg sandbox exec --sandbox-allow net-bind=127.0.0.1:5173 -- python3 $WORK/bind.py 127.0.0.1
+stdout '^BOUND$'
+
+exec pmg sandbox exec --sandbox-allow 'net-bind=[::1]:5173' -- python3 $WORK/bind.py 127.0.0.1
+stdout '^BOUND$'
+
+exec pmg sandbox allow net-bind=127.0.0.1:5173
+exec pmg sandbox exec -- python3 $WORK/bind.py 127.0.0.1
+stdout '^BOUND$'
+
+! exec pmg sandbox allow net-bind=192.168.1.5:5173
+stderr 'must be loopback'
+
+-- proj/.keep --
+-- bind.py --
+import socket
+import sys
+
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind((sys.argv[1], 0))
+s.listen()
+print("BOUND")

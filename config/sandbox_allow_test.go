@@ -281,12 +281,12 @@ func TestParseSandboxAllowOverrides_InvalidFormats(t *testing.T) {
 		{
 			name:        "net-bind with host wildcard",
 			raw:         "net-bind=*:3000",
-			errContains: "host wildcards are not allowed for net-bind",
+			errContains: "host wildcards are not allowed",
 		},
 		{
 			name:        "net-bind with full wildcard",
 			raw:         "net-bind=*:*",
-			errContains: "host wildcards are not allowed for net-bind",
+			errContains: "host wildcards are not allowed",
 		},
 		{
 			name:        "net-connect missing port",
@@ -296,7 +296,17 @@ func TestParseSandboxAllowOverrides_InvalidFormats(t *testing.T) {
 		{
 			name:        "net-bind missing port",
 			raw:         "net-bind=localhost",
-			errContains: "expected host:port format",
+			errContains: "expected host:port",
+		},
+		{
+			name:        "net-bind with an unbracketed IPv6 host",
+			raw:         "net-bind=::1:3000",
+			errContains: "IPv6 host in brackets",
+		},
+		{
+			name:        "net-bind with a port that is not a number",
+			raw:         "net-bind=localhost:http",
+			errContains: "must be a number from 1 to 65535",
 		},
 		{
 			name:        "tilde path for write",

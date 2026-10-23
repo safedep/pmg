@@ -664,8 +664,8 @@ func TestNetworkBindSupport(t *testing.T) {
 
 		// Localhost bind from AllowNetworkBind
 		assert.Contains(t, actual, `(allow network-bind (local ip "localhost:*"))`)
-		// Explicit bind address
-		assert.Contains(t, actual, `(allow network-bind (local ip "0.0.0.0:*"))`)
+		// Explicit bind address, with the all-interfaces host that Seatbelt reads
+		assert.Contains(t, actual, `(allow network-bind (local ip "*:*"))`)
 	})
 
 	t.Run("AllowNetworkBind false with AllowBind generates only explicit bind rule", func(t *testing.T) {
@@ -687,7 +687,55 @@ func TestNetworkBindSupport(t *testing.T) {
 		assert.NotContains(t, actual, ";; Local network bind (localhost only)")
 		assert.NotContains(t, actual, `(allow network-bind (local ip "localhost:*"))`)
 		// Should contain explicit bind address
-		assert.Contains(t, actual, `(allow network-bind (local ip "0.0.0.0:*"))`)
+		assert.Contains(t, actual, `(allow network-bind (local ip "*:*"))`)
+	})
+
+	t.Run("AllowBind hosts become the forms that sandbox-exec reads", func(t *testing.T) {
+		cases := []struct {
+			entry string
+			want  string
+		}{
+			{"127.0.0.1:5173", "localhost:5173"},
+			{"localhost:5173", "localhost:5173"},
+			{"[::1]:5173", "localhost:5173"},
+			{"0.0.0.0:3000", "*:3000"},
+			{"[::]:3000", "*:3000"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.entry, func(t *testing.T) {
+				policy := &sandbox.SandboxPolicy{
+					Name:    "test",
+					Network: sandbox.NetworkPolicy{AllowBind: []string{tc.entry}},
+				}
+
+				actual, err := newSeatbeltPolicyTranslator().translate(policy, nil)
+				require.NoError(t, err)
+
+				assert.Contains(t, actual, `(allow network-bind (local ip "`+tc.want+`"))`)
+				assert.Contains(t, actual, `(allow network* (local ip "`+tc.want+`"))`)
+				assert.NotContains(t, actual, `(local ip "`+tc.entry+`")`)
+			})
+		}
+	})
+
+	t.Run("AllowBind entries that the parser refuses fail the translation", func(t *testing.T) {
+		cases := map[string]string{
+			"192.168.1.5:3000": "must be loopback",
+			"::1:3000":         "IPv6 host in brackets",
+			"localhost:http":   "must be a number from 1 to 65535",
+		}
+		for entry, errContains := range cases {
+			t.Run(entry, func(t *testing.T) {
+				policy := &sandbox.SandboxPolicy{
+					Name:    "test",
+					Network: sandbox.NetworkPolicy{AllowBind: []string{entry}},
+				}
+
+				_, err := newSeatbeltPolicyTranslator().translate(policy, nil)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), errContains)
+			})
+		}
 	})
 
 	t.Run("AllowNetworkBind nil with no AllowBind generates no bind rules", func(t *testing.T) {

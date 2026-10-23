@@ -108,7 +108,7 @@ Rules the schema enforces:
   `environment.allow`. Deny rules and profile booleans are rejected.
 - Paths must be anchored at `${CWD}/`, `${HOME}/` or `${TMPDIR}/`, no `..`,
   and must not name sensitive files (`.env`, `.ssh`, ...).
-- Binds must be loopback (`localhost`, `127.0.0.1`, `::1`).
+- Binds must be loopback (`localhost`, `127.0.0.1`, `[::1]`).
 - `environment.allow` entries are exact variable names, no globs.
 - `network.allow_outbound` entries are `host:port` rules the proxy reads,
   as in [Network rules](sandbox.md#network-rules). A rule names a host,
