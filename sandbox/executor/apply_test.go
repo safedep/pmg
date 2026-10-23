@@ -604,6 +604,25 @@ func TestApplyProjectOverlayAppendsEntries(t *testing.T) {
 	}
 }
 
+func TestApplyProjectOverlayDropsEntriesTheCheckRefuses(t *testing.T) {
+	dir := t.TempDir()
+	repo := "/repo/example"
+	_, err := sandbox.SaveOverlay(dir, repo, &sandbox.Overlay{
+		Allow: []sandbox.OverlayAllow{
+			{Type: config.SandboxAllowNetBind, Value: "::1:5173"},
+			{Type: config.SandboxAllowNetBind, Value: "192.168.1.5:5173"},
+			{Type: config.SandboxAllowNetBind, Value: "127.0.0.1:5173"},
+		},
+	})
+	require.NoError(t, err)
+
+	policy := &sandbox.SandboxPolicy{Name: "test"}
+	applied, err := applyProjectOverlay(policy, dir, repo, false, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, applied)
+	assert.Equal(t, []string{"127.0.0.1:5173"}, policy.Network.AllowBind)
+}
+
 func TestApplyProjectOverlaySkippedWhenLocked(t *testing.T) {
 	dir := t.TempDir()
 	repo := "/repo/example"

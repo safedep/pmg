@@ -198,7 +198,7 @@ func validateNetBind(value string) (string, error) {
 		log.Warnf("--sandbox-allow net-bind=%s uses non-localhost address, this exposes the port to the network", value)
 	}
 
-	return value, nil
+	return addr.String(), nil
 }
 
 // parseHostPort parses a host:port string. The port may be "*" for wildcard.

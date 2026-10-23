@@ -1,8 +1,9 @@
-# guarantee: a net-bind value that pmg accepts runs on every driver. A
-# loopback host such as 127.0.0.1 or [::1] works under `pmg sandbox exec`,
-# from the flag and from a saved project overlay. A host that no driver can
-# limit a bind to is refused when it is saved, not when the sandbox starts.
+# guarantee: a loopback net-bind host such as 127.0.0.1 or [::1] runs under
+# `pmg sandbox exec`, from the flag and from a saved project overlay.
+# `pmg sandbox allow` refuses a host that no driver can limit a bind to. On
+# macOS a profile allow_bind entry limits the bind to its port.
 
+[windows] skip 'pmg sandbox exec is not supported on Windows'
 [bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
 
 [!exec:python3] skip
@@ -10,28 +11,51 @@
 env HOME=$WORK/home
 mkdir $WORK/home
 env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
 cd $WORK/proj
 
-exec pmg sandbox exec --sandbox-allow net-bind=127.0.0.1:5173 -- python3 $WORK/bind.py 127.0.0.1
+exec pmg sandbox exec --sandbox-allow net-bind=127.0.0.1:5173 -- python3 $WORK/bind.py 127.0.0.1 5173
 stdout '^BOUND$'
 
-exec pmg sandbox exec --sandbox-allow 'net-bind=[::1]:5173' -- python3 $WORK/bind.py 127.0.0.1
+exec pmg sandbox exec --sandbox-allow 'net-bind=[::1]:5173' -- python3 $WORK/bind.py ::1 5173
 stdout '^BOUND$'
 
 exec pmg sandbox allow net-bind=127.0.0.1:5173
-exec pmg sandbox exec -- python3 $WORK/bind.py 127.0.0.1
+exec pmg sandbox exec -- python3 $WORK/bind.py 127.0.0.1 5173
 stdout '^BOUND$'
 
 ! exec pmg sandbox allow net-bind=192.168.1.5:5173
 stderr 'must be loopback'
 
+# An override always turns on allow_network_bind, which allows every
+# loopback port. Only a profile shows the port limit. Landlock cannot limit
+# a bind to a port, so the port case runs on macOS only.
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/port.yml -- python3 $WORK/bind.py 127.0.0.1 5174
+[darwin] stdout '^BOUND$'
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/port.yml -- python3 $WORK/bind.py 127.0.0.1 5175
+[darwin] stdout '^DENIED'
+
 -- proj/.keep --
+-- port.yml --
+name: exec-bind-port
+inherits: exec
+package_managers: [exec]
+allow_network_bind: false
+network:
+  allow_bind:
+    - 127.0.0.1:5174
 -- bind.py --
 import socket
 import sys
 
-s = socket.socket()
+host, port = sys.argv[1], int(sys.argv[2])
+family = socket.AF_INET6 if ":" in host else socket.AF_INET
+s = socket.socket(family)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind((sys.argv[1], 0))
+try:
+    s.bind((host, port))
+except OSError as e:
+    print("DENIED", e.errno)
+    sys.exit(1)
 s.listen()
 print("BOUND")

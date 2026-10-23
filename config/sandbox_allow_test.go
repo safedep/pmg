@@ -70,6 +70,18 @@ func TestParseSandboxAllowOverrides_ValidFormats(t *testing.T) {
 			expectedValue: "127.0.0.1:3000",
 		},
 		{
+			name:          "net-bind with a bracketed IPv6 loopback host",
+			raw:           "net-bind=[::1]:3000",
+			expectedType:  SandboxAllowNetBind,
+			expectedValue: "[::1]:3000",
+		},
+		{
+			name:          "net-bind is stored in its normal form",
+			raw:           "net-bind=LOCALHOST:03000",
+			expectedType:  SandboxAllowNetBind,
+			expectedValue: "localhost:3000",
+		},
+		{
 			name:          "net-bind with localhost wildcard port",
 			raw:           "net-bind=localhost:*",
 			expectedType:  SandboxAllowNetBind,

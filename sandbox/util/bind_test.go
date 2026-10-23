@@ -23,7 +23,10 @@ func TestParseBindAddress(t *testing.T) {
 		{entry: "[::]:3000", want: BindAddress{"::", "3000"}, allInterfaces: true},
 		{entry: "192.168.1.5:3000", errContains: "must be loopback"},
 		{entry: "devbox.local:3000", errContains: "must be loopback"},
+		{entry: "localhost:0080", want: BindAddress{"localhost", "80"}, loopback: true},
 		{entry: "::1:3000", errContains: "IPv6 host in brackets"},
+		{entry: "[localhost]:3000", errContains: "only an IPv6 host goes in brackets"},
+		{entry: "[127.0.0.1]:3000", errContains: "only an IPv6 host goes in brackets"},
 		{entry: "localhost", errContains: "expected host:port"},
 		{entry: ":3000", errContains: "missing host"},
 		{entry: "*:3000", errContains: "host wildcards are not allowed"},
@@ -46,5 +49,17 @@ func TestParseBindAddress(t *testing.T) {
 			assert.Equal(t, tc.loopback, got.IsLoopback())
 			assert.Equal(t, tc.allInterfaces, got.IsAllInterfaces())
 		})
+	}
+}
+
+func TestBindAddressString(t *testing.T) {
+	for entry, want := range map[string]string{
+		"LOCALHOST:0080": "localhost:80",
+		"[::1]:5173":     "[::1]:5173",
+		"0.0.0.0:*":      "0.0.0.0:*",
+	} {
+		addr, err := ParseBindAddress(entry)
+		require.NoError(t, err)
+		assert.Equal(t, want, addr.String())
 	}
 }

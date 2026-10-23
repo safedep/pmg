@@ -7,10 +7,8 @@ import (
 	"strings"
 )
 
-// BindAddress is one entry of network.allow_bind or of net-bind: the address
-// that a sandboxed process may listen on. The CLI, the profile and preset
-// checks and the drivers all parse an entry with ParseBindAddress, so a value
-// that one of them accepts is never refused by another.
+// BindAddress is one network.allow_bind or net-bind entry. Every check and
+// every driver parses an entry with ParseBindAddress.
 type BindAddress struct {
 	Host string
 	Port string
@@ -31,19 +29,30 @@ func ParseBindAddress(entry string) (BindAddress, error) {
 	if host == "" {
 		return BindAddress{}, fmt.Errorf("missing host in %q", entry)
 	}
+	if strings.HasPrefix(entry, "[") && !strings.Contains(host, ":") {
+		return BindAddress{}, fmt.Errorf("only an IPv6 host goes in brackets, got %q", entry)
+	}
 	if ContainsGlob(host) {
 		return BindAddress{}, fmt.Errorf("host wildcards are not allowed in %q (specify a host, e.g., localhost:3000)", entry)
 	}
 	if port != "*" {
-		if n, err := strconv.ParseUint(port, 10, 16); err != nil || n == 0 {
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || n == 0 {
 			return BindAddress{}, fmt.Errorf("port %q in %q must be a number from 1 to 65535 or *", port, entry)
 		}
+		port = strconv.FormatUint(n, 10)
 	}
 	addr := BindAddress{Host: strings.ToLower(host), Port: port}
 	if !addr.IsLoopback() && !addr.IsAllInterfaces() {
 		return BindAddress{}, fmt.Errorf("host %q in %q must be loopback (localhost, 127.0.0.1, [::1]) or all interfaces (0.0.0.0, [::])", host, entry)
 	}
 	return addr, nil
+}
+
+// String returns the entry in its normal form, as in localhost:3000 or
+// [::1]:3000.
+func (b BindAddress) String() string {
+	return net.JoinHostPort(b.Host, b.Port)
 }
 
 // IsLoopback reports whether only the local machine can reach the address.

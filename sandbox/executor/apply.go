@@ -624,12 +624,33 @@ func applyProjectOverlay(policy *sandbox.SandboxPolicy, overlayDir, repoRoot str
 		return 0, nil
 	}
 
-	entries := overlay.ToAllowOverrides()
+	entries := validOverlayEntries(overlay.ToAllowOverrides())
 	applyRuntimeOverrides(policy, entries, presets)
 	// The "+overlay" suffix tags audit events as overlay-sourced.
 	logSandboxOverrides(policy.Name+"+overlay", entries)
 	log.Infof("Project overlay: applied %d saved allowance(s) for %s", len(entries), repoRoot)
 	return len(entries), nil
+}
+
+// validOverlayEntries passes each saved entry through the check of a
+// --sandbox-allow flag. An older pmg saved entries that the current check
+// refuses, such as net-bind=::1:3000, and the sandbox would refuse them later
+// with an error that does not name the overlay. A refused entry is dropped
+// with a warning, which leaves fewer allowances.
+func validOverlayEntries(entries []config.SandboxAllowOverride) []config.SandboxAllowOverride {
+	valid := make([]config.SandboxAllowOverride, 0, len(entries))
+	for _, entry := range entries {
+		parsed, err := config.ParseSingleOverride(entry.Raw)
+		if err != nil {
+			log.Warnf("Project overlay: ignoring %s: %v", entry.Raw, err)
+			if _, werr := fmt.Fprintf(os.Stderr, "pmg: warning: project overlay entry %q is ignored: %v. Run `pmg sandbox project reset` to remove the overlay\n", entry.Raw, err); werr != nil {
+				log.Warnf("failed to write overlay warning to stderr: %v", werr)
+			}
+			continue
+		}
+		valid = append(valid, parsed)
+	}
+	return valid
 }
 
 // logSandboxOverrides records sandbox allow overrides in the audit event log.

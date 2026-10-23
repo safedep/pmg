@@ -225,7 +225,7 @@
   title: "sandbox exec runs with a net-bind value that pmg accepts"
   category: sandbox
   tier: P1
-  guarantee: "A loopback `net-bind` host such as `127.0.0.1` or `[::1]` runs under `pmg sandbox exec` from the flag and from a project overlay, and a host that no driver can limit is refused when it is saved."
+  guarantee: "A loopback `net-bind` host such as `127.0.0.1` or `[::1]` runs under `pmg sandbox exec` from the flag and from a project overlay. `pmg sandbox allow` refuses a host that no driver can limit. On macOS a profile `allow_bind` entry limits the bind to its port."
   labels: [sandbox, exec, network]
 - id: sandbox/exec/protects-worktree-pointers
   title: "sandbox exec keeps git worktree pointers read-only"

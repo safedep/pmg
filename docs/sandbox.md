@@ -342,7 +342,10 @@ Supported types: `read`, `write`, `exec`, `net-connect`, `net-bind`, `env`.
 A `net-bind` value, and each `network.allow_bind` entry of a profile, is `host:port`. The host is
 loopback (`localhost`, `127.0.0.1`, `[::1]`) or all interfaces (`0.0.0.0`, `[::]`). PMG warns on
 an all-interfaces host, because other machines can then reach the port. PMG refuses any other
-host, because no driver can limit a bind to it. The port is a number or `*`.
+host, because no driver can limit a bind to it. The port is a number or `*`. A `net-bind` override
+also turns on `allow_network_bind`, which allows every loopback port. Only macOS limits a bind to
+the port of a profile `allow_bind` entry, and only when the profile does not set
+`allow_network_bind`. Landlock reads only `allow_network_bind`, so it allows a bind on every port or on none.
 
 For `env`, the value is an environment variable **name** or name glob (e.g. `NPM_TOKEN`,
 `npm_config_*`) and is kept verbatim. It is not path-resolved. It is an allow-only override that
