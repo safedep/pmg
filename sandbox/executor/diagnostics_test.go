@@ -71,7 +71,8 @@ func TestObserveViolationsCountsObservedViolations(t *testing.T) {
 		report: envFileReadReport(),
 	}))
 
-	assert.Equal(t, 1, ObserveViolations(result, errors.New("npm failed")))
+	result.SetExitError(errors.New("npm failed"))
+	assert.Equal(t, 1, ObserveViolations(result))
 }
 
 func TestObserveViolationsReturnsZeroWhenNoReport(t *testing.T) {
@@ -80,11 +81,12 @@ func TestObserveViolationsReturnsZeroWhenNoReport(t *testing.T) {
 		report: nil,
 	}))
 
-	assert.Equal(t, 0, ObserveViolations(result, errors.New("npm failed")))
+	result.SetExitError(errors.New("npm failed"))
+	assert.Equal(t, 0, ObserveViolations(result))
 }
 
 func TestObserveViolationsReturnsZeroOnNilResult(t *testing.T) {
-	assert.Equal(t, 0, ObserveViolations(nil, errors.New("npm failed")))
+	assert.Equal(t, 0, ObserveViolations(nil))
 }
 
 func TestObserveViolationsCountsEnvScrubsWithoutDriverReport(t *testing.T) {
@@ -97,7 +99,8 @@ func TestObserveViolationsCountsEnvScrubsWithoutDriverReport(t *testing.T) {
 		Process:     "pipx",
 	})
 
-	assert.Equal(t, 2, ObserveViolations(result, errors.New("pipx failed")))
+	result.SetExitError(errors.New("pipx failed"))
+	assert.Equal(t, 2, ObserveViolations(result))
 }
 
 func TestObserveViolationsKeepsEnvScrubsWhenDiagnosticsFail(t *testing.T) {
@@ -112,7 +115,8 @@ func TestObserveViolationsKeepsEnvScrubsWhenDiagnosticsFail(t *testing.T) {
 		Process:     "npm",
 	})
 
-	assert.Equal(t, 1, ObserveViolations(result, errors.New("npm failed")))
+	result.SetExitError(errors.New("npm failed"))
+	assert.Equal(t, 1, ObserveViolations(result))
 }
 
 func TestObserveViolationsPersistsEnvScrubToCache(t *testing.T) {
@@ -126,7 +130,8 @@ func TestObserveViolationsPersistsEnvScrubToCache(t *testing.T) {
 		Process:     "pipx",
 	})
 
-	require.Equal(t, 1, ObserveViolations(result, errors.New("pipx failed")))
+	result.SetExitError(errors.New("pipx failed"))
+	require.Equal(t, 1, ObserveViolations(result))
 
 	entry, err := cache.Latest()
 	require.NoError(t, err)
@@ -199,7 +204,7 @@ func TestObserveViolationsOnCleanRun(t *testing.T) {
 				result.SetEnvScrub(*tc.scrub)
 			}
 
-			assert.Equal(t, tc.wantCount, ObserveViolations(result, nil))
+			assert.Equal(t, tc.wantCount, ObserveViolations(result))
 
 			entry, err := cache.Latest()
 			require.NoError(t, err)

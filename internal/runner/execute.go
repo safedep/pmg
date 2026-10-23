@@ -164,7 +164,8 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 
 	// runPTY has closed its session and restored the console, so the wait
 	// for sandbox diagnostics does not hold a raw terminal.
-	executor.ObserveViolations(result, childErr)
+	result.SetExitError(childErr)
+	executor.ObserveViolations(result)
 	if childErr != nil {
 		return classify(childErr, label, result.ScrubbedEnvCount())
 	}

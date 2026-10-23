@@ -107,7 +107,8 @@ func runSandboxed(t *testing.T, b *bubblewrapSandbox, policy *sandbox.SandboxPol
 func (r sandboxRun) report(t *testing.T) *sandbox.ViolationReport {
 	t.Helper()
 
-	report, err := r.result.BestEffortViolation(r.err)
+	r.result.SetExitError(r.err)
+	report, err := r.result.BestEffortViolation()
 	require.NoError(t, err)
 
 	return report

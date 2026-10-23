@@ -486,7 +486,8 @@ func TestExecutionResultReachesBubblewrapReporter(t *testing.T) {
 
 	result := sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(b))
 
-	report, err := result.BestEffortViolation(errors.New("exit status 1"))
+	result.SetExitError(errors.New("exit status 1"))
+	report, err := result.BestEffortViolation()
 	require.NoError(t, err)
 	require.NotNil(t, report)
 

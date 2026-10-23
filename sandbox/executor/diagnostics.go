@@ -13,28 +13,24 @@ import (
 // of violations recorded. Failures are logged and swallowed; observability MUST
 // NOT affect command exit.
 //
-// Call it after every run, with runErr nil for a clean exit. A program can
-// catch a denial and exit 0, so a clean run can still carry a denial.
+// Call it after every run, once the result holds the exit error. A program
+// can catch a denial and exit 0, so a clean run can still carry a denial.
 //
 // This is the sandbox package's only stake in command-failure handling. It
 // deliberately does not classify or shape the failure: causation cannot be
 // inferred from EPERM/EACCES returns alone, so attribution is left to the
 // execution layer (see internal/runner classify).
-func ObserveViolations(result *sandbox.ExecutionResult, runErr error) int {
+func ObserveViolations(result *sandbox.ExecutionResult) int {
 	if result == nil {
 		return 0
 	}
+	runErr := result.ExitError()
 
-	report, diagErr := result.BestEffortViolation(runErr)
+	report, diagErr := result.BestEffortViolation()
 	if diagErr != nil {
 		// Env scrubs come from the executor, not the driver, so a failed
-		// collection must not discard them. A clean run gets a debug line,
-		// because a broken platform log would otherwise warn on every run.
-		logf := log.Warnf
-		if runErr == nil {
-			logf = log.Debugf
-		}
-		logf("failed to collect sandbox diagnostics: %v", diagErr)
+		// collection must not discard them.
+		log.Warnf("failed to collect sandbox diagnostics: %v", diagErr)
 		report = nil
 	}
 

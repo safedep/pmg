@@ -154,6 +154,7 @@ type ExecutionResult struct {
 	executed bool
 	sandbox  Sandbox
 	envScrub EnvScrub
+	exitErr  error
 }
 
 // ExecutionResultOpt is a function that can be used to configure an ExecutionResult.
@@ -213,13 +214,27 @@ func (r *ExecutionResult) ScrubbedEnvCount() int {
 	return len(r.envScrub.Names)
 }
 
+// SetExitError records how the command exited. nil means a clean exit.
+func (r *ExecutionResult) SetExitError(err error) {
+	r.exitErr = err
+}
+
+// ExitError returns the exit error of the command, nil for a clean exit.
+func (r *ExecutionResult) ExitError() error {
+	if r == nil {
+		return nil
+	}
+
+	return r.exitErr
+}
+
 // BestEffortViolation returns sandbox-specific best-effort violation details.
 // Implementations may use platform logs or other weak signals, so callers
-// should treat the result as advisory. err is the command's exit error, nil
-// for a clean exit. A clean exit can hide a denial, because a program can
-// catch it, so every driver reports in both cases. A driver can use err to
-// decide how long to wait for its signal and which weak signals to keep.
-func (r *ExecutionResult) BestEffortViolation(err error) (*ViolationReport, error) {
+// should treat the result as advisory. Call it after SetExitError. A clean
+// exit can hide a denial, because a program can catch it, so every driver
+// reports in both cases. A driver can use the exit error to decide how long
+// to wait for its signal and which weak signals to keep.
+func (r *ExecutionResult) BestEffortViolation() (*ViolationReport, error) {
 	if r == nil || r.sandbox == nil {
 		return nil, nil
 	}
@@ -229,7 +244,7 @@ func (r *ExecutionResult) BestEffortViolation(err error) (*ViolationReport, erro
 		return nil, nil
 	}
 
-	return reporter.BestEffortViolation(err)
+	return reporter.BestEffortViolation(r.exitErr)
 }
 
 // DiagnosticsWriter returns a writer that execution paths routing command
