@@ -107,7 +107,8 @@ func runSandboxed(t *testing.T, b *bubblewrapSandbox, policy *sandbox.SandboxPol
 func (r sandboxRun) report(t *testing.T) *sandbox.ViolationReport {
 	t.Helper()
 
-	report, err := r.result.BestEffortViolation(r.err)
+	r.result.SetExitError(r.err)
+	report, err := r.result.BestEffortViolation()
 	require.NoError(t, err)
 
 	return report
@@ -142,6 +143,29 @@ func TestBubblewrapE2EReportsDeniedCredentialRead(t *testing.T) {
 
 	assert.True(t, report.OutputDerived)
 	assert.Nil(t, explanation.Override, "output-derived evidence is not offered as an allowance")
+}
+
+// A credential stealer catches the denial and exits 0. The run succeeds, and
+// the denial must still be reported.
+func TestBubblewrapE2EReportsCaughtCredentialRead(t *testing.T) {
+	b := requireBubblewrap(t)
+
+	workdir := bubblewrapE2EWorkdir(t)
+	secret := filepath.Join(workdir, ".env")
+	require.NoError(t, os.WriteFile(secret, []byte("TOKEN=secret\n"), 0o600))
+
+	policy := bubblewrapE2EPolicy(t, workdir)
+	policy.Filesystem.DenyRead = []string{secret}
+
+	run := runSandboxed(t, b, policy, "/bin/sh", "-c", "/bin/cat "+secret+"; exit 0")
+	require.NoError(t, run.err)
+	assert.NotContains(t, run.stdout, "TOKEN=secret", "the secret must not reach the process")
+
+	report := run.report(t)
+	require.NotNil(t, report, "stderr: %s", run.stderr)
+	require.Len(t, report.Violations, 1)
+	assert.Equal(t, secret, report.Violations[0].Target)
+	assert.Equal(t, sandbox.ViolationKindFSRead, report.Violations[0].Kind)
 }
 
 func TestBubblewrapE2EReportsDeniedWrite(t *testing.T) {

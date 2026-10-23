@@ -442,8 +442,8 @@ func (b *bubblewrapSandbox) DiagnosticsWriter() io.Writer {
 // output during the last Execute. Coverage is bounded by what that command
 // chose to print, since bubblewrap observes nothing itself; see
 // parseBubblewrapDenial for what is and is not recognised.
-func (b *bubblewrapSandbox) BestEffortViolation(err error) (*sandbox.ViolationReport, error) {
-	if err == nil || b.tap == nil {
+func (b *bubblewrapSandbox) BestEffortViolation(error) (*sandbox.ViolationReport, error) {
+	if b.tap == nil {
 		return nil, nil
 	}
 

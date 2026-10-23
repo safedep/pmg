@@ -101,6 +101,18 @@ type ViolationReport struct {
 	// likes, so these violations are shown as diagnostics but never converted
 	// into an override suggestion the user could be talked into persisting.
 	OutputDerived bool
+
+	// CleanExit marks a report of a run that exited 0. Nothing failed, so
+	// nothing needs an allowance, and a program that catches a denial can be
+	// an attack. Like an OutputDerived report, it describes the denials but
+	// never becomes an override suggestion.
+	CleanExit bool
+}
+
+// Promotable reports whether the denials of the report may become an override
+// suggestion or a persisted allowance.
+func (r *ViolationReport) Promotable() bool {
+	return !r.OutputDerived && !r.CleanExit
 }
 
 // Violation captures one sandbox denial event.
@@ -142,6 +154,7 @@ type ExecutionResult struct {
 	executed bool
 	sandbox  Sandbox
 	envScrub EnvScrub
+	exitErr  error
 }
 
 // ExecutionResultOpt is a function that can be used to configure an ExecutionResult.
@@ -201,10 +214,27 @@ func (r *ExecutionResult) ScrubbedEnvCount() int {
 	return len(r.envScrub.Names)
 }
 
+// SetExitError records how the command exited. nil means a clean exit.
+func (r *ExecutionResult) SetExitError(err error) {
+	r.exitErr = err
+}
+
+// ExitError returns the exit error of the command, nil for a clean exit.
+func (r *ExecutionResult) ExitError() error {
+	if r == nil {
+		return nil
+	}
+
+	return r.exitErr
+}
+
 // BestEffortViolation returns sandbox-specific best-effort violation details.
 // Implementations may use platform logs or other weak signals, so callers
-// should treat the result as advisory.
-func (r *ExecutionResult) BestEffortViolation(err error) (*ViolationReport, error) {
+// should treat the result as advisory. Call it after SetExitError. A clean
+// exit can hide a denial, because a program can catch it, so every driver
+// reports in both cases. A driver can use the exit error to decide how long
+// to wait for its signal and which weak signals to keep.
+func (r *ExecutionResult) BestEffortViolation() (*ViolationReport, error) {
 	if r == nil || r.sandbox == nil {
 		return nil, nil
 	}
@@ -214,7 +244,7 @@ func (r *ExecutionResult) BestEffortViolation(err error) (*ViolationReport, erro
 		return nil, nil
 	}
 
-	return reporter.BestEffortViolation(err)
+	return reporter.BestEffortViolation(r.exitErr)
 }
 
 // DiagnosticsWriter returns a writer that execution paths routing command

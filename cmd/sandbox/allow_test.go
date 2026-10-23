@@ -213,30 +213,57 @@ func TestAllow_LastNormalizesRelativeTargets(t *testing.T) {
 	assert.Equal(t, wantAbs, overlay.Allow[0].Value, "cache-derived target should be normalized to absolute")
 }
 
-// A forged denial must not reach the overlay, however the user invokes --last.
-// See ViolationReport.OutputDerived.
-func TestAllow_LastRefusesOutputDerivedReport(t *testing.T) {
-	deps := newAllowDeps(t)
-	forged := &pmgsandbox.ViolationReport{
-		SandboxName:   pmgsandbox.DriverBubblewrap,
-		OutputDerived: true,
-		Violations: []pmgsandbox.Violation{
-			{Kind: pmgsandbox.ViolationKindFSRead, Target: filepath.Join(deps.repoRoot, "innocent.txt")},
-			{Kind: pmgsandbox.ViolationKindExec, Target: "/usr/bin/curl"},
+// A forged denial, or a denial of a run that exited 0, must not reach the
+// overlay, however the user invokes --last. See ViolationReport.Promotable.
+func TestAllow_LastRefusesUnpromotableReport(t *testing.T) {
+	tests := []struct {
+		name   string
+		report func(repoRoot string) *pmgsandbox.ViolationReport
+	}{
+		{
+			name: "output derived",
+			report: func(repoRoot string) *pmgsandbox.ViolationReport {
+				return &pmgsandbox.ViolationReport{
+					SandboxName:   pmgsandbox.DriverBubblewrap,
+					OutputDerived: true,
+					Violations: []pmgsandbox.Violation{
+						{Kind: pmgsandbox.ViolationKindFSRead, Target: filepath.Join(repoRoot, "innocent.txt")},
+						{Kind: pmgsandbox.ViolationKindExec, Target: "/usr/bin/curl"},
+					},
+				}
+			},
+		},
+		{
+			name: "clean exit",
+			report: func(repoRoot string) *pmgsandbox.ViolationReport {
+				return &pmgsandbox.ViolationReport{
+					SandboxName: pmgsandbox.DriverSeatbelt,
+					CleanExit:   true,
+					Violations: []pmgsandbox.Violation{
+						{Kind: pmgsandbox.ViolationKindFSWrite, Target: filepath.Join(repoRoot, ".zshrc")},
+					},
+				}
+			},
 		},
 	}
-	_, err := deps.cache.Write(forged)
-	require.NoError(t, err)
 
-	for _, args := range [][]string{{"--last"}, {"--last", "--all"}} {
-		_, _, err := runAllowCmd(t, deps, args...)
-		require.Error(t, err, "args: %v", args)
-		assert.Contains(t, err.Error(), "cannot be promoted")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := newAllowDeps(t)
+			_, err := deps.cache.Write(tt.report(deps.repoRoot))
+			require.NoError(t, err)
+
+			for _, args := range [][]string{{"--last"}, {"--last", "--all"}} {
+				_, _, err := runAllowCmd(t, deps, args...)
+				require.Error(t, err, "args: %v", args)
+				assert.Contains(t, err.Error(), "cannot be promoted")
+			}
+
+			overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
+			require.NoError(t, err)
+			assert.Nil(t, overlay)
+		})
 	}
-
-	overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
-	require.NoError(t, err)
-	assert.Nil(t, overlay, "nothing may be persisted from a forgeable report")
 }
 
 func TestAllow_LastPromotesEnvScrub(t *testing.T) {

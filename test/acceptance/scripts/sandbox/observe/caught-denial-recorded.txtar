@@ -1,0 +1,28 @@
+# guarantee: a program that catches a sandbox denial and exits 0 still leaves
+# a record. `pmg sandbox violations list` names the denied credential file.
+# A clean run with no denial records nothing.
+#
+# A credential stealer wraps its reads in a try block, so the install looks
+# clean. This is the case the record exists for.
+
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+
+env HOME=$WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+exec pmg sandbox exec -- cat readme.txt
+stdout readable
+exec pmg sandbox violations list
+! stdout .
+stderr 'no violations cached'
+
+exec pmg sandbox exec -- sh -c 'cat "$HOME/.aws/credentials" || true'
+! stdout value-must-never-be-read
+exec pmg sandbox violations list --json
+stdout '\.aws/credentials'
+
+-- home/.aws/credentials --
+aws_secret_access_key = value-must-never-be-read
+-- proj/readme.txt --
+readable

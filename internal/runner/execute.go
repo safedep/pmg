@@ -151,40 +151,51 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 		}
 	}()
 
+	var childErr error
 	switch mode {
 	case ExecutionModePTY:
-		return runPTY(ctx, cmd, cmd.Env, result, label, opts.PreparePTYSession)
+		childErr, err = runPTY(ctx, cmd, cmd.Env, result, opts.PreparePTYSession)
+		if err != nil {
+			return err
+		}
 	default:
-		return runDirect(cmd, result, label)
-	}
-}
-
-func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult, pmName string) error {
-	if !result.ShouldRun() {
-		return nil
+		childErr = runDirect(cmd, result)
 	}
 
-	log.Debugf("Running command with args: %s: %v", cmd.Path, cmd.Args[1:])
-
-	if err := cmd.Run(); err != nil {
-		executor.ObserveViolations(result, err)
-		return classify(err, pmName, result.ScrubbedEnvCount())
+	// runPTY has closed its session and restored the console, so the wait
+	// for sandbox diagnostics does not hold a raw terminal.
+	result.SetExitError(childErr)
+	executor.ObserveViolations(result)
+	if childErr != nil {
+		return classify(childErr, label, result.ScrubbedEnvCount())
 	}
 
 	log.Debugf("Command completed successfully")
 	return nil
 }
 
+// runDirect runs cmd and returns its exit error.
+func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult) error {
+	if !result.ShouldRun() {
+		return nil
+	}
+
+	log.Debugf("Running command with args: %s: %v", cmd.Path, cmd.Args[1:])
+
+	return cmd.Run()
+}
+
+// runPTY runs cmd in a PTY session and returns its exit error as childErr.
+// err is a failure to set up the session.
 func runPTY(
 	ctx context.Context,
 	cmd *exec.Cmd,
 	env []string,
 	result *sandbox.ExecutionResult,
-	pmName string,
 	beforeWait func(*PTYRuntime) error,
-) error {
+) (childErr error, err error) {
 	if !result.ShouldRun() {
-		return usefulerror.NewUsefulError().
+		return nil, usefulerror.NewUsefulError().
 			Wrap(fmt.Errorf("sandbox not supported for PTY sessions")).
 			WithCode(errcodes.InvalidArgument).
 			WithHumanError("Sandbox executed command cannot be used with PTY session. Please use non-interactive TTY mode instead.")
@@ -204,7 +215,7 @@ func runPTY(
 	}
 	sess, err := pty.NewSession(ctx, sessionConfig)
 	if err != nil {
-		return runerror.Wrap(fmt.Errorf("failed to create pty session: %w", err),
+		return nil, runerror.Wrap(fmt.Errorf("failed to create pty session: %w", err),
 			runerror.ReasonExecutionSetupFailed)
 	}
 	defer func() {
@@ -218,7 +229,7 @@ func runPTY(
 	// need it teed here to observe anything.
 	outputRouter, err := pty.NewOutputRouter(ptyOutput(result))
 	if err != nil {
-		return runerror.Wrap(fmt.Errorf("failed to create output router: %w", err),
+		return nil, runerror.Wrap(fmt.Errorf("failed to create output router: %w", err),
 			runerror.ReasonExecutionSetupFailed)
 	}
 
@@ -239,7 +250,7 @@ func runPTY(
 
 	inputRouter, err := pty.NewInputRouter(sess.PtyWriter())
 	if err != nil {
-		return runerror.Wrap(fmt.Errorf("failed to create input router: %w", err),
+		return nil, runerror.Wrap(fmt.Errorf("failed to create input router: %w", err),
 			runerror.ReasonExecutionSetupFailed)
 	}
 
@@ -280,11 +291,11 @@ func runPTY(
 		}
 
 		if err := beforeWait(runtime); err != nil {
-			return runerror.Wrap(err, runerror.ReasonExecutionSetupFailed)
+			return nil, runerror.Wrap(err, runerror.ReasonExecutionSetupFailed)
 		}
 	}
 
-	sessionError := sess.Wait()
+	childErr = sess.Wait()
 
 	// Child has exited. Let the reader drain to EOF, but bound the wait so a
 	// lingering descendant holding the slave open cannot block teardown.
@@ -296,12 +307,7 @@ func runPTY(
 		<-copyDone
 	}
 
-	if sessionError != nil {
-		executor.ObserveViolations(result, sessionError)
-		return classify(sessionError, pmName, result.ScrubbedEnvCount())
-	}
-
-	return nil
+	return childErr, nil
 }
 
 func ptyOutput(result *sandbox.ExecutionResult) io.Writer {
