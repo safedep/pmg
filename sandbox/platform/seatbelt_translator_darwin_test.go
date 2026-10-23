@@ -119,7 +119,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 				assert.NoError(t, err)
 				// Parent still contains a glob, so the auto-allow must be a
 				// regex rule — a literal with ** can never match a real path.
-				assert.Contains(t, actual, `(allow file-write* (regex #"^/project/(.*/)?node_modules$"))`)
+				assertParentDirWriteRules(t, actual, `(regex #"^/project/(.*/)?node_modules$")`)
 				assert.Contains(t, actual, `^/project/(.*/)?node_modules/.*$`)
 				assert.NotContains(t, actual, `(literal "/project/**/node_modules")`)
 			},
@@ -189,8 +189,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			},
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
-				// Should generate literal rule for parent directory
-				assert.Contains(t, actual, `(allow file-write* (literal "/path/to/dir"))`)
+				assertParentDirWriteRules(t, actual, `(literal "/path/to/dir")`)
 				// Should also generate regex rule for contents
 				assert.Contains(t, actual, `(allow file-write* (regex #"^/path/to/dir/.*$"))`)
 			},
@@ -219,9 +218,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				homeDir := os.Getenv("HOME")
-				expectedLiteral := fmt.Sprintf(`(allow file-write* (literal "%s/.npm"))`, homeDir)
-				// Check for the literal parent directory rule
-				assert.Contains(t, actual, expectedLiteral)
+				assertParentDirWriteRules(t, actual, fmt.Sprintf(`(literal "%s/.npm")`, homeDir))
 				// Check for the regex rule (escaped dot)
 				assert.Contains(t, actual, `\.npm/.*$`)
 			},
@@ -236,7 +233,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				homeDir := os.Getenv("HOME")
-				assert.Contains(t, actual, fmt.Sprintf(`(allow file-write* (literal "%s/.cache/node/corepack"))`, homeDir))
+				assertParentDirWriteRules(t, actual, fmt.Sprintf(`(literal "%s/.cache/node/corepack")`, homeDir))
 				ancestorRule := `(allow file-write-create (require-all (literal "%s") (vnode-type DIRECTORY)))`
 				assert.Contains(t, actual, fmt.Sprintf(ancestorRule, homeDir+"/.cache/node"))
 				assert.Contains(t, actual, fmt.Sprintf(ancestorRule, homeDir+"/.cache"))
@@ -259,9 +256,9 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			},
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
-				assert.Contains(t, actual, `(allow file-write* (literal "/path/one"))`)
-				assert.Contains(t, actual, `(allow file-write* (literal "/path/two"))`)
-				assert.Contains(t, actual, `(allow file-write* (literal "/path/three"))`)
+				assertParentDirWriteRules(t, actual, `(literal "/path/one")`)
+				assertParentDirWriteRules(t, actual, `(literal "/path/two")`)
+				assertParentDirWriteRules(t, actual, `(literal "/path/three")`)
 			},
 		},
 		{
@@ -274,7 +271,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				// Should allow writing to root (empty string after trimming becomes "/")
-				assert.Contains(t, actual, `(allow file-write* (literal "/"))`)
+				assertParentDirWriteRules(t, actual, `(literal "/")`)
 				assert.Contains(t, actual, `(allow file-write* (regex #"^/.*$"))`)
 			},
 		},
@@ -307,6 +304,17 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			tt.assert(t, actual, err)
 		})
 	}
+}
+
+// assertParentDirWriteRules checks that the write rule on the parent of a /**
+// write rule matches a directory only, and keeps the file-write* form so the
+// deny rules after it still win.
+func assertParentDirWriteRules(t *testing.T, actual, matcher string) {
+	t.Helper()
+	assert.Contains(t, actual, "(allow file-write* (require-all "+matcher+" (vnode-type DIRECTORY)))")
+	assert.NotContains(t, actual, "(allow file-write* "+matcher+")")
+	assert.NotContains(t, actual, "(allow file-write-create "+matcher+")")
+	assert.NotContains(t, actual, "(allow file-write-data")
 }
 
 func TestSeatbeltTranslatorDarwinProcessTranslation(t *testing.T) {
