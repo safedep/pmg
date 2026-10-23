@@ -5,6 +5,7 @@ package platform
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,12 +79,18 @@ type seatbeltSentinelTrigger func(logTag, target string) error
 // The kernel logs the denials in order. So when a sentinel denial that PMG
 // makes after the command exits comes through the stream, every denial of the
 // command came through before it.
+//
+// Only the kernel writes a denial, so the reader takes only kernel entries. A
+// sandboxed process can write any other log entry, and it can read the run
+// tag from the profile. Each sentinel target also carries a random value that
+// the process never sees.
 type seatbeltLogStream struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
 	done  chan struct{}
 
 	logTag     string
+	nonce      string
 	trigger    seatbeltSentinelTrigger
 	endTimeout time.Duration
 	arrived    chan struct{}
@@ -133,11 +140,17 @@ func triggerSeatbeltSentinel(logTag, target string) error {
 	return fmt.Errorf("run the sentinel: %w", err)
 }
 
+// newSentinelNonce returns the random value that the sentinel targets of one
+// stream carry.
+func newSentinelNonce() string {
+	return rand.Text()[:8]
+}
+
 // startSeatbeltLogStream starts cmd and returns when a start sentinel came
 // through it, so the stream is attached. It stops cmd and returns an error
 // when the start sentinel does not come in readyTimeout. cmd must come from
 // seatbeltStreamCommand.
-func startSeatbeltLogStream(cmd *exec.Cmd, logTag string, trigger seatbeltSentinelTrigger, readyTimeout time.Duration) (*seatbeltLogStream, error) {
+func startSeatbeltLogStream(cmd *exec.Cmd, logTag, nonce string, trigger seatbeltSentinelTrigger, readyTimeout time.Duration) (*seatbeltLogStream, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("pipe log stream input: %w", err)
@@ -157,6 +170,7 @@ func startSeatbeltLogStream(cmd *exec.Cmd, logTag string, trigger seatbeltSentin
 		stdin:      stdin,
 		done:       make(chan struct{}),
 		logTag:     logTag,
+		nonce:      nonce,
 		trigger:    trigger,
 		endTimeout: seatbeltStreamEndTimeout,
 		arrived:    make(chan struct{}, 1),
@@ -173,7 +187,8 @@ func startSeatbeltLogStream(cmd *exec.Cmd, logTag string, trigger seatbeltSentin
 }
 
 // read buffers the denials of the run and notes the sentinels. Lines that are
-// not JSON, such as the header, and entries of other runs are skipped.
+// not JSON, such as the header, entries that the kernel did not write, and
+// entries of other runs are skipped.
 func (st *seatbeltLogStream) read(r io.Reader) {
 	defer close(st.done)
 
@@ -182,7 +197,7 @@ func (st *seatbeltLogStream) read(r io.Reader) {
 
 	for scanner.Scan() {
 		var entry seatbeltLogEntry
-		if err := json.Unmarshal(bytes.TrimSpace(scanner.Bytes()), &entry); err != nil {
+		if err := json.Unmarshal(bytes.TrimSpace(scanner.Bytes()), &entry); err != nil || !entry.fromKernel() {
 			continue
 		}
 
@@ -238,9 +253,10 @@ func (st *seatbeltLogStream) keep(entry seatbeltLogEntry) {
 	}
 }
 
-// confirm makes the sentinel target until it comes through the stream, and
+// confirm makes the sentinel of phase until it comes through the stream, and
 // reports whether it came in timeout.
-func (st *seatbeltLogStream) confirm(target string, timeout time.Duration) bool {
+func (st *seatbeltLogStream) confirm(phase string, timeout time.Duration) bool {
+	target := phase + "-" + st.nonce
 	if err := st.trigger(st.logTag, target); err != nil {
 		log.Debugf("seatbelt log stream sentinel: %v", err)
 		return false

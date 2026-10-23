@@ -43,6 +43,19 @@ type seatbeltLogEntry struct {
 	ProcessImagePath string `json:"processImagePath"`
 }
 
+const seatbeltKernelImagePath = "/kernel"
+
+// fromKernel reports whether the kernel wrote the entry. Only the kernel
+// writes a denial. Any process can write an entry with the run marker in it.
+func (e seatbeltLogEntry) fromKernel() bool {
+	return e.ProcessImagePath == seatbeltKernelImagePath
+}
+
+// kernelEntries drops the entries that the kernel did not write.
+func kernelEntries(entries []seatbeltLogEntry) []seatbeltLogEntry {
+	return slices.DeleteFunc(entries, func(e seatbeltLogEntry) bool { return !e.fromKernel() })
+}
+
 type seatbeltLogPayload struct {
 	RunID  string
 	Kind   string
@@ -365,7 +378,7 @@ func (s *seatbeltSandbox) queryLogs(start, end time.Time) ([]seatbeltLogEntry, e
 		return nil, fmt.Errorf("decode seatbelt logs: %w", err)
 	}
 
-	return entries, nil
+	return kernelEntries(entries), nil
 }
 
 func decodeSeatbeltLogEntries(data []byte) ([]seatbeltLogEntry, error) {

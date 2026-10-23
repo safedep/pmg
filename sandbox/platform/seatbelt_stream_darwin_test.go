@@ -22,15 +22,23 @@ import (
 )
 
 const fakeStreamTag = "run-1"
+const fakeStreamNonce = "n1"
 
 const fakeStreamEntry = `{"eventMessage":"Sandbox: cat(1) deny(1) file-read-data /x\nPMG_SBX|run=run-1|kind=file-read|target=%2Fx","processImagePath":"/kernel"}`
 
-// fakeSentinelLine is the stream line of a sentinel denial of fakeStreamTag.
-func fakeSentinelLine(t *testing.T, target string) string {
+// fakeSentinelLine is the stream line of the sentinel denial of phase, as the
+// kernel writes it for fakeStreamTag and fakeStreamNonce.
+func fakeSentinelLine(t *testing.T, phase string) string {
+	t.Helper()
+	return fakeSentinelLineFrom(t, seatbeltKernelImagePath, phase)
+}
+
+// fakeSentinelLineFrom is a sentinel line that the process at imagePath wrote.
+func fakeSentinelLineFrom(t *testing.T, imagePath, phase string) string {
 	t.Helper()
 	line, err := json.Marshal(seatbeltLogEntry{
-		EventMessage:     "Sandbox: cat(2) deny(1) file-read-data /private/etc/hosts\n" + seatbeltLogMessage(fakeStreamTag, seatbeltKindSentinel, target),
-		ProcessImagePath: "/kernel",
+		EventMessage:     "Sandbox: cat(2) deny(1) file-read-data /private/etc/hosts\n" + seatbeltLogMessage(fakeStreamTag, seatbeltKindSentinel, phase+"-"+fakeStreamNonce),
+		ProcessImagePath: imagePath,
 	})
 	require.NoError(t, err)
 	return string(line)
@@ -57,7 +65,7 @@ func TestSeatbeltLogStreamCollectsEntriesUntilEndSentinel(t *testing.T) {
 		printLines("not json", fakeSentinelLine(t, "start"), fakeStreamEntry, fakeSentinelLine(t, "end")) +
 		`exec sleep 30`)
 
-	st, err := startSeatbeltLogStream(cmd, fakeStreamTag, noopSentinel, time.Second)
+	st, err := startSeatbeltLogStream(cmd, fakeStreamTag, fakeStreamNonce, noopSentinel, time.Second)
 	require.NoError(t, err)
 
 	entries, complete := st.end(false)
@@ -80,7 +88,7 @@ func TestSeatbeltLogStreamWithoutEndSentinelIsIncomplete(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			st, err := startSeatbeltLogStream(fakeLogStream(tc.script), fakeStreamTag, noopSentinel, time.Second)
+			st, err := startSeatbeltLogStream(fakeLogStream(tc.script), fakeStreamTag, fakeStreamNonce, noopSentinel, time.Second)
 			require.NoError(t, err)
 			st.endTimeout = 300 * time.Millisecond
 
@@ -95,7 +103,7 @@ func TestSeatbeltLogStreamWithoutEndSentinelIsIncomplete(t *testing.T) {
 // then end, so a killed pmg leaves no log process behind.
 func TestSeatbeltLogStreamEndsWhenInputCloses(t *testing.T) {
 	st, err := startSeatbeltLogStream(fakeLogStream(printLines(fakeSentinelLine(t, "start"))+`exec sleep 30`),
-		fakeStreamTag, noopSentinel, time.Second)
+		fakeStreamTag, fakeStreamNonce, noopSentinel, time.Second)
 	require.NoError(t, err)
 
 	require.NoError(t, st.stdin.Close())
@@ -114,7 +122,7 @@ func TestSeatbeltLogStreamShutdownKillsStuckStream(t *testing.T) {
 	cmd := fakeLogStream(printLines(fakeSentinelLine(t, "start")) +
 		`echo $$ > '` + pidFile + `'; trap '' TERM; exec sleep 30`)
 
-	st, err := startSeatbeltLogStream(cmd, fakeStreamTag, noopSentinel, time.Second)
+	st, err := startSeatbeltLogStream(cmd, fakeStreamTag, fakeStreamNonce, noopSentinel, time.Second)
 	require.NoError(t, err)
 
 	var pid int
@@ -152,7 +160,7 @@ func TestSeatbeltLogStreamStartFailures(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := fakeLogStream(tc.script)
 
-			st, err := startSeatbeltLogStream(cmd, fakeStreamTag, tc.trigger, 300*time.Millisecond)
+			st, err := startSeatbeltLogStream(cmd, fakeStreamTag, fakeStreamNonce, tc.trigger, 300*time.Millisecond)
 			require.Error(t, err)
 			assert.Nil(t, st)
 			assert.NotNil(t, cmd.ProcessState, "a failed start must not leave the process running")
@@ -187,7 +195,7 @@ func startFakeStream(t *testing.T, lines []string, wait bool) *seatbeltLogStream
 	if !wait {
 		tail = "sleep 0.1"
 	}
-	st, err := startSeatbeltLogStream(fakeLogStream(`cat '`+path+`'; `+tail), fakeStreamTag, noopSentinel, time.Second)
+	st, err := startSeatbeltLogStream(fakeLogStream(`cat '`+path+`'; `+tail), fakeStreamTag, fakeStreamNonce, noopSentinel, time.Second)
 	require.NoError(t, err)
 	t.Cleanup(st.shutdown)
 	return st
@@ -381,12 +389,43 @@ func TestExtractSeatbeltViolationsSkipsSentinels(t *testing.T) {
 	assert.Equal(t, "/x", violations[0].Target)
 }
 
+// A sandboxed process can write a log entry with the run marker, and it can
+// read the run tag from the profile. The reader takes only kernel entries, so
+// a fake end sentinel does not end the stream early, and a fake denial is not
+// a violation.
+func TestSeatbeltLogStreamIgnoresUserSpaceEntries(t *testing.T) {
+	logger := "/usr/bin/logger"
+	fakeDenial := strings.Replace(fakeDenialLine(t, 9, "file-read", "file-read-data", "/Users/dev/.forged"), seatbeltKernelImagePath, logger, 1)
+
+	cmd := fakeLogStream(printLines(fakeSentinelLine(t, "start"), fakeSentinelLineFrom(t, logger, "end"), fakeDenial) +
+		`sleep 0.3; ` +
+		printLines(fakeDenialLine(t, 8, "file-read", "file-read-data", "/Users/dev/.ssh/id_rsa"), fakeSentinelLine(t, "end")) +
+		`exec sleep 30`)
+	st, err := startSeatbeltLogStream(cmd, fakeStreamTag, fakeStreamNonce, noopSentinel, time.Second)
+	require.NoError(t, err)
+	t.Cleanup(st.shutdown)
+
+	report, err := fakeSeatbeltSandbox(st).BestEffortViolation(nil)
+	require.NoError(t, err)
+	require.NotNil(t, report, "the denial after the fake end sentinel must not be lost")
+	assert.Equal(t, []string{"/Users/dev/.ssh/id_rsa"}, violationTargets(report))
+}
+
+// The log store path drops the entries that the kernel did not write too.
+func TestKernelEntries(t *testing.T) {
+	kernel := seatbeltLogEntry{EventMessage: "a", ProcessImagePath: seatbeltKernelImagePath}
+	logger := seatbeltLogEntry{EventMessage: "b", ProcessImagePath: "/usr/bin/logger"}
+	unknown := seatbeltLogEntry{EventMessage: "c"}
+
+	assert.Equal(t, []seatbeltLogEntry{kernel}, kernelEntries([]seatbeltLogEntry{logger, kernel, unknown}))
+}
+
 // The real sentinel must reach a real log stream.
 func TestTriggerSeatbeltSentinelReachesLogStream(t *testing.T) {
 	requireSandboxExec(t)
 
 	tag := generateLogTag()
-	st, err := startSeatbeltLogStream(seatbeltLogStreamCommand(tag), tag, triggerSeatbeltSentinel, seatbeltStreamReadyTimeout)
+	st, err := startSeatbeltLogStream(seatbeltLogStreamCommand(tag), tag, newSentinelNonce(), triggerSeatbeltSentinel, seatbeltStreamReadyTimeout)
 	require.NoError(t, err)
 
 	_, complete := st.end(false)

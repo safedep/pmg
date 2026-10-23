@@ -105,7 +105,7 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	// the first denials. Without a stream, PMG reads the log store after the
 	// run.
 	s.stopStream()
-	stream, err := startSeatbeltLogStream(seatbeltLogStreamCommand(s.logTag), s.logTag, triggerSeatbeltSentinel, seatbeltStreamReadyTimeout)
+	stream, err := startSeatbeltLogStream(seatbeltLogStreamCommand(s.logTag), s.logTag, newSentinelNonce(), triggerSeatbeltSentinel, seatbeltStreamReadyTimeout)
 	if err != nil {
 		log.Debugf("Seatbelt log stream unavailable, falling back to log show: %v", err)
 	}
