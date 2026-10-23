@@ -713,7 +713,9 @@ func TestNetworkBindSupport(t *testing.T) {
 
 				assert.Contains(t, actual, `(allow network-bind (local ip "`+tc.want+`"))`)
 				assert.Contains(t, actual, `(allow network* (local ip "`+tc.want+`"))`)
-				assert.NotContains(t, actual, `(local ip "`+tc.entry+`")`)
+				if tc.entry != tc.want {
+					assert.NotContains(t, actual, `(local ip "`+tc.entry+`")`)
+				}
 			})
 		}
 	})

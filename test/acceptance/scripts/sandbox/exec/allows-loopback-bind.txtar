@@ -20,20 +20,21 @@ stdout '^BOUND$'
 exec pmg sandbox exec --sandbox-allow 'net-bind=[::1]:5173' -- python3 $WORK/bind.py ::1 5173
 stdout '^BOUND$'
 
+# An override always turns on allow_network_bind, which allows every
+# loopback port. Only a profile shows the port limit. This case runs before
+# the overlay step, because a saved net-bind entry is an override too.
+# Landlock cannot limit a bind to a port, so this case runs on macOS only.
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/port.yml -- python3 $WORK/bind.py 127.0.0.1 5174
+[darwin] stdout '^BOUND$'
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/port.yml -- python3 $WORK/bind.py 127.0.0.1 5175
+[darwin] stdout '^DENIED'
+
 exec pmg sandbox allow net-bind=127.0.0.1:5173
 exec pmg sandbox exec -- python3 $WORK/bind.py 127.0.0.1 5173
 stdout '^BOUND$'
 
 ! exec pmg sandbox allow net-bind=192.168.1.5:5173
 stderr 'must be loopback'
-
-# An override always turns on allow_network_bind, which allows every
-# loopback port. Only a profile shows the port limit. Landlock cannot limit
-# a bind to a port, so the port case runs on macOS only.
-[darwin] exec pmg sandbox exec --sandbox-profile $WORK/port.yml -- python3 $WORK/bind.py 127.0.0.1 5174
-[darwin] stdout '^BOUND$'
-[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/port.yml -- python3 $WORK/bind.py 127.0.0.1 5175
-[darwin] stdout '^DENIED'
 
 -- proj/.keep --
 -- port.yml --
