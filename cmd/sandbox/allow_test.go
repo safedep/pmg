@@ -56,6 +56,25 @@ func TestAllow_PositionalSaved(t *testing.T) {
 	assert.Equal(t, "localhost:4321", overlay.Allow[0].Value)
 }
 
+func TestAllow_SaveRemovesIgnoredEntriesAndKeepsTheOthers(t *testing.T) {
+	deps := newAllowDeps(t)
+	write := pmgsandbox.OverlayAllow{Type: config.SandboxAllowWrite, Value: "/repo/.astro"}
+	_, err := pmgsandbox.SaveOverlay(deps.overlayDir, deps.repoRoot, &pmgsandbox.Overlay{
+		Allow: []pmgsandbox.OverlayAllow{{Type: config.SandboxAllowNetBind, Value: "::1:5173"}, write},
+	})
+	require.NoError(t, err)
+
+	stdout, stderr, err := runAllowCmd(t, deps, "net-bind=[::1]:5173")
+	require.NoError(t, err, "stderr: %s", stderr)
+	assert.Contains(t, stdout, "removed net-bind=::1:5173")
+
+	overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
+	require.NoError(t, err)
+	require.NotNil(t, overlay)
+	assert.Equal(t, []pmgsandbox.OverlayAllow{write, {Type: config.SandboxAllowNetBind, Value: "[::1]:5173"}}, overlay.Allow)
+	assert.Empty(t, overlay.Ignored)
+}
+
 func TestAllow_LastAllPromotesFromCache(t *testing.T) {
 	deps := newAllowDeps(t)
 	writeTarget := filepath.Join(deps.repoRoot, ".astro")

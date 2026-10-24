@@ -160,7 +160,7 @@ func resolveExecPath(value string) (string, error) {
 		return "", err
 	}
 
-	if containsGlob(value) {
+	if sandboxutil.ContainsGlob(value) {
 		return "", fmt.Errorf("glob patterns are not allowed for exec type (specify exact path)")
 	}
 
@@ -252,11 +252,4 @@ func checkTildePath(value string) error {
 	}
 
 	return nil
-}
-
-// containsGlob returns true if the pattern contains glob wildcards.
-func containsGlob(pattern string) bool {
-	return strings.Contains(pattern, "*") ||
-		strings.Contains(pattern, "?") ||
-		strings.Contains(pattern, "[")
 }

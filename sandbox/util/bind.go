@@ -29,6 +29,9 @@ func ParseBindAddress(entry string) (BindAddress, error) {
 	if host == "" {
 		return BindAddress{}, fmt.Errorf("missing host in %q", entry)
 	}
+	if port == "" {
+		return BindAddress{}, fmt.Errorf("missing port in %q", entry)
+	}
 	if strings.HasPrefix(entry, "[") && !strings.Contains(host, ":") {
 		return BindAddress{}, fmt.Errorf("only an IPv6 host goes in brackets, got %q", entry)
 	}

@@ -201,7 +201,7 @@ func validatePresetBind(entry string) error {
 	}
 
 	if !addr.IsLoopback() {
-		return fmt.Errorf("bind host %q must be loopback (localhost, 127.0.0.1, [::1])", addr.Host)
+		return fmt.Errorf("bind host in %q must be loopback (localhost, 127.0.0.1, [::1])", entry)
 	}
 
 	return nil

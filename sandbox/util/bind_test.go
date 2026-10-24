@@ -29,6 +29,7 @@ func TestParseBindAddress(t *testing.T) {
 		{entry: "[127.0.0.1]:3000", errContains: "only an IPv6 host goes in brackets"},
 		{entry: "localhost", errContains: "expected host:port"},
 		{entry: ":3000", errContains: "missing host"},
+		{entry: "localhost:", errContains: "missing port"},
 		{entry: "*:3000", errContains: "host wildcards are not allowed"},
 		{entry: "*:*", errContains: "host wildcards are not allowed"},
 		{entry: "localhost:http", errContains: "must be a number from 1 to 65535"},

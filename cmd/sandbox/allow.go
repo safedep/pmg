@@ -174,6 +174,11 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 			return err
 		}
 	}
+	for _, i := range overlay.Ignored {
+		if _, err := fmt.Fprintf(out, "  %s %s %s: %v\n", ui.Colors.Dim("•"), ui.Colors.Yellow("removed"), i.String(), i.Reason); err != nil {
+			return err
+		}
+	}
 	_, err = fmt.Fprintf(out, "  %s %s\n", ui.Colors.Dim("overlay:"), ui.Colors.Dim(path))
 	return err
 }

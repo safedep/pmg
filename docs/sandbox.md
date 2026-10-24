@@ -369,6 +369,11 @@ only, keyed by the repo's git toplevel (CWD when not a git repo), and stored und
 `<config_dir>/sandbox/overlays/`. It is purely additive on top of the resolved policy, never
 weakens mandatory denies, and is ignored when `global_lockdown` is set.
 
+An older PMG saved `net-bind` entries that the current check refuses, such as `::1:5173`. PMG
+ignores such an entry on every run and in `pmg sandbox project show`, and names it in a warning.
+Save the entry again in the current form, for example `pmg sandbox allow net-bind=[::1]:5173`.
+That save removes the ignored entries and keeps the others.
+
 ```bash
 # Save manual allowances for the current repo
 pmg sandbox allow write=./.astro net-bind=localhost:4321
