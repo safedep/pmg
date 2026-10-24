@@ -156,8 +156,12 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 	}
 
 	if len(addedEntries) == 0 {
-		_, err := fmt.Fprintf(out, "%s\n", ui.Colors.Dim(fmt.Sprintf("No new allowances (%d already present).", len(pending))))
-		return err
+		if _, err := fmt.Fprintf(out, "%s\n", ui.Colors.Dim(fmt.Sprintf("No new allowances (%d already present).", len(pending)))); err != nil {
+			return err
+		}
+		if len(overlay.Ignored) == 0 {
+			return nil
+		}
 	}
 
 	path, err := pmgsandbox.SaveOverlay(overlayDir, repoRoot, overlay)
@@ -166,8 +170,10 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 			"Could not write the project overlay file. Check filesystem permissions for the overlay directory.")
 	}
 
-	if _, err := fmt.Fprintf(out, "%s Saved %d allowance(s) for %s\n", ui.Colors.Green("✓"), len(addedEntries), repoRoot); err != nil {
-		return err
+	if len(addedEntries) > 0 {
+		if _, err := fmt.Fprintf(out, "%s Saved %d allowance(s) for %s\n", ui.Colors.Green("✓"), len(addedEntries), repoRoot); err != nil {
+			return err
+		}
 	}
 	for _, e := range addedEntries {
 		if _, err := fmt.Fprintf(out, "  %s %s=%s\n", ui.Colors.Dim("•"), e.Type, e.Value); err != nil {
