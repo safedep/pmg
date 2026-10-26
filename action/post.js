@@ -47,11 +47,13 @@ function main() {
 
   const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
   let status = stop.status ?? 1;
+  let lost = false;
   if (!report.stopped) {
-    status = Math.max(status, checkNotRunning(failOnViolation));
+    lost = checkNotRunning(failOnViolation) !== 0;
+    status = Math.max(status, lost ? 1 : 0);
   }
   let proposalPath = '';
-  if (lib.boolInput('baseline') && (!report.stopped || report.observed > 0)) {
+  if (lib.boolInput('baseline') && !lost && (!report.stopped || report.observed > 0)) {
     proposalPath = lib.group('Propose a network profile', () =>
       propose(pmg, report.run_id || lib.state('run'), profile, tmp));
   }
@@ -111,17 +113,17 @@ function stateArgs(enforce) {
 }
 
 // runPMG runs pmg as the runner user, or as root under enforce, where the
-// daemon and its event log belong to root. The runtime token of the job is
-// not passed to root.
+// daemon and its event log belong to root. Only root gets the root
+// daemon's config directory. The runner user cannot write it, and every pmg
+// command opens the event log there.
 function runPMG(bin, args, { sudo = false, capture = false } = {}) {
   let file = bin;
   let argv = args;
-  const env = { ...process.env };
-  delete env.ACTIONS_RUNTIME_TOKEN;
-  if (lib.state('config_dir') !== '') {
-    env.PMG_CONFIG_DIR = lib.state('config_dir');
-  }
+  const env = lib.childEnv();
   if (sudo) {
+    if (lib.state('config_dir') !== '') {
+      env.PMG_CONFIG_DIR = lib.state('config_dir');
+    }
     file = 'sudo';
     argv = ['-n', '--preserve-env=PMG_CONFIG_DIR,GITHUB_ACTIONS', bin, ...args];
   }

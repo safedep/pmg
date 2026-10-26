@@ -77,7 +77,7 @@ default.
 | `version` | PMG release tag (for example `v0.42.0`) or `latest` | `latest` |
 | `api-key` | SafeDep Cloud API key. Set it with `tenant-id`. Use a secret to hold the value. | unset (cloud sync disabled) |
 | `tenant-id` | SafeDep Cloud tenant ID | unset |
-| `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `github-actions/<owner>/<repo>` when cloud is enabled |
+| `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `gha/<owner>/<repo>` when cloud is enabled |
 | `paranoid` | `PMG_PARANOID` | `false` |
 | `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
 | `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `2` |
@@ -120,16 +120,18 @@ default.
     api-key:   ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
 - run: npm ci
-# Flush events at the end of the job.
+```
+
+The post step stops the daemon, and the daemon sends the events to SafeDep
+Cloud. In [shim mode](#shim-mode) no daemon runs. Add a sync step at the
+end of a shim mode job:
+
+```yaml
 - run: pmg cloud sync --timeout 60s
   if: always()
 ```
 
-Why the sync step? In shim mode no daemon runs, so nothing flushes the
-events at the end of the job. In server mode the post step stops the
-daemon, and the daemon flushes the events. That job needs no sync step.
-
-The `endpoint-id` defaults to `github-actions/${{ github.repository }}`.
+The `endpoint-id` defaults to `gha/${{ github.repository }}`.
 Each workflow on the same repository appears as one endpoint in the
 SafeDep Cloud UI. Override it for per-environment splits:
 
@@ -138,7 +140,7 @@ SafeDep Cloud UI. Override it for per-environment splits:
   with:
     api-key:     ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id:   ${{ secrets.SAFEDEP_TENANT_ID }}
-    endpoint-id: github-actions/${{ github.repository }}/prod
+    endpoint-id: gha/${{ github.repository }}/prod
 ```
 
 ### Use `config-file` for custom settings
@@ -215,8 +217,10 @@ its own.
 `enforce` is `auto` by default. The action enforces when the job runs on the
 runner host and the runner has passwordless `sudo`. In a job container,
 without `sudo`, or when the enforced start fails, the action runs the proxy
-without enforcement and says so in the log. Set `enforce: true` to fail the
-job instead. Set `enforce: false` to turn enforcement off. The
+without enforcement and says so in the log. When the job sets an
+`enforce-*` input and the enforced start fails, the action fails, because a
+typo in the policy must not turn enforcement off. Set `enforce: true` to
+fail the job in every case. Set `enforce: false` to turn enforcement off. The
 action installs the PMG CA into the system trust store, starts the daemon as
 root, and exports the trust variables. The daemon runs as root, and `sudo`
 resets `HOME` and `PATH`, so the action exports the binary path as `PMG_BIN`
@@ -244,6 +248,10 @@ Under enforcement the action sets `NODE_USE_SYSTEM_CA=1`, so Node 22.19 and
 later reads the system trust store. For an older Node, the action sets
 `NODE_EXTRA_CA_CERTS` to the bundle with the PMG CA, unless the job sets it.
 A bundle that the job sets must hold the PMG CA, or TLS to a registry fails.
+A Docker container action also gets the variable, with a path on the runner
+host. Node in the container warns that it cannot load the file, and
+continues. Set `NODE_EXTRA_CA_CERTS` in the `env:` of that step to change
+it.
 
 The policy inputs cover the common cases without a config file. Each list
 adds to the config's list. The config is the staged `config-file` when the
@@ -296,8 +304,9 @@ network:
 
 The runner is not exempt. Its traffic to GitHub goes through the proxy, see
 [Runner traffic](#runner-traffic). The built-in `github-actions` profile
-allows the hosts that the runner and the GitHub actions reach, so a profile
-that inherits it does not list them. Run `pmg sandbox profile show
+allows the hosts of the runner, its agents, GitHub releases, and the cache
+and artifact storage, so a profile that inherits it does not list them. An
+action that downloads from another host needs a rule in your profile. Run `pmg sandbox profile show
 github-actions` to see them. A profile that inherits another built-in, such
 as `npm-restrictive`, must allow these hosts itself, or the proxy refuses
 the runner's connections to GitHub.
@@ -373,8 +382,10 @@ later steps, the post step included, do not run. The GitHub default is 360 minut
 Containers that a step starts are not enforced unless `enforce-namespaces`
 is `redirect` or `auto`. The redirect covers `docker run`, `RUN` steps in
 `docker build`, and Docker container actions. In a container job
-(`jobs.<id>.container`), the action runs inside the job container. It cannot
-attach the kernel programs there, so the action fails.
+(`jobs.<id>.container`), the action runs inside the job container and cannot
+attach the kernel programs there. With `enforce: auto` the action runs the
+proxy without enforcement and shows a notice. With `enforce: true` the
+action fails.
 
 A redirected container must trust the PMG CA, which the action exports as
 `PMG_CA_BUNDLE`:
@@ -492,7 +503,9 @@ it, `pmg proxy stop` waits until its timeout and fails.
 ```
 
 The sandbox runs the package managers through the PMG shims, so `sandbox:
-true` turns on [shim mode](#shim-mode) unless the job sets `server-mode`.
+true` turns on [shim mode](#shim-mode). With `server-mode: true` or
+`network-profile` the action runs in server mode, warns, and does not use
+the sandbox.
 
 The action runs `systemctl stop apparmor` and clears
 `kernel.apparmor_restrict_unprivileged_userns`. This lets unprivileged
@@ -501,15 +514,22 @@ you need install-script containment.
 
 ### Set `PMG_*` environment variables directly
 
-You can override any PMG config key with a `PMG_*` environment variable.
-Set it on the job or on the install step:
+You can override a PMG config key with a `PMG_*` environment variable. In
+server mode the daemon reads its configuration when the action starts it.
+Set the variable on the job or on the action step. A variable on a later
+step has no effect on the daemon:
 
 ```yaml
 - uses: safedep/pmg@v0.34.0
-- run: npm ci
   env:
     PMG_DEPENDENCY_COOLDOWN_DAYS: 10
+- run: npm ci
 ```
+
+Under kernel enforcement the daemon runs as root and gets only the
+variables of the action inputs. Use an input or `config-file` there. In
+[shim mode](#shim-mode) each `pmg` call reads the variables, so a variable
+on the step that runs the package manager also works.
 
 See [docs/config.md](./config.md) for the full mapping.
 

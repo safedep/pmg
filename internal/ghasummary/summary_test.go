@@ -59,6 +59,10 @@ func TestSummary(t *testing.T) {
 	newHosts.Destinations = append(newHosts.Destinations,
 		destination("pastebin.com", 443, "curl", propose.VerdictRefused, ""))
 
+	twoPrograms := bootstrap()
+	twoPrograms.Destinations = append(twoPrograms.Destinations,
+		destination("api.example.com", 443, "node", propose.VerdictAdd, "api.example.com:443"))
+
 	unverified := clean()
 	unverified.StateVerified = false
 	unverified.Violation = "Proxy shut down but the blocked-package count could not be verified"
@@ -89,6 +93,15 @@ func TestSummary(t *testing.T) {
 			},
 		},
 		{
+			name:   "denial by a built-in profile",
+			golden: "builtin-profile-denial.md",
+			in:     Input{Stop: enforceDenial, Profile: "github-actions", FailOnViolation: true},
+			cmds: []string{
+				"::error title=PMG::PMG blocked 1 package(s). See the job summary.",
+				"::error title=PMG::PMG denied pastebin.com:443 by rule *:* (node)",
+			},
+		},
+		{
 			name:   "violation with fail-on-violation off",
 			golden: "violation-not-failing.md",
 			in:     Input{Stop: enforceDenial},
@@ -100,7 +113,7 @@ func TestSummary(t *testing.T) {
 		{
 			name:   "audit bootstrap without a named profile",
 			golden: "bootstrap.md",
-			in:     Input{Stop: clean(), Proposal: bootstrap(), FailOnViolation: true},
+			in:     Input{Stop: clean(), Proposal: twoPrograms, FailOnViolation: true},
 			cmds:   []string{"::notice title=PMG::PMG proposes 1 network rule(s) for .pmg/network.yml. See the job summary."},
 		},
 		{

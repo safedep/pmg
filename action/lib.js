@@ -110,24 +110,41 @@ function parseKeyValues(text) {
   return out;
 }
 
+// childEnv is the environment of a process that the action starts. The
+// runner gives a JavaScript action the tokens of the job, and a run step
+// does not get them. The proxy daemon is a long-lived process that every
+// step can reach, so it must not keep them.
+function childEnv(env = {}) {
+  const out = { ...process.env, ...env };
+  delete out.ACTIONS_RUNTIME_TOKEN;
+  delete out.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  return out;
+}
+
 // run starts one setup script. The runner applies GITHUB_ENV and
 // GITHUB_PATH only after the step ends, so run applies what the script
 // appended to this process, and the next script sees it. It returns the
-// outputs and the variables the script wrote.
-function run(shell, script, env) {
+// outputs and the variables the script wrote. With captureStderr, the log
+// shows the stderr of the script after its stdout, and a ScriptError holds
+// its last lines.
+function run(shell, script, env, { captureStderr = false } = {}) {
   const offsets = {};
   for (const name of ['GITHUB_ENV', 'GITHUB_PATH', 'GITHUB_OUTPUT']) {
     offsets[name] = fileSize(name);
   }
   const res = spawnSync(shell, [path.join(actionDir, script)], {
-    stdio: 'inherit',
-    env: { ...process.env, PMG_ACTION_DIR: actionDir, ...env },
+    stdio: captureStderr ? ['inherit', 'inherit', 'pipe'] : 'inherit',
+    encoding: 'utf8',
+    env: childEnv({ PMG_ACTION_DIR: actionDir, ...env }),
   });
+  if (captureStderr && res.stderr) {
+    process.stderr.write(res.stderr);
+  }
   if (res.error) {
     throw res.error;
   }
   if (res.status !== 0) {
-    throw new ScriptError(script, res.status);
+    throw new ScriptError(script, res.status, lastLines(res.stderr || '', 3));
   }
 
   const exported = parseKeyValues(readFrom('GITHUB_ENV', offsets.GITHUB_ENV));
@@ -146,10 +163,20 @@ function run(shell, script, env) {
 }
 
 class ScriptError extends Error {
-  constructor(script, status) {
-    super(`${script} exited with status ${status}`);
+  constructor(script, status, cause = '') {
+    super(`${script} exited with status ${status}${cause === '' ? '' : `: ${cause}`}`);
     this.status = status;
   }
+}
+
+function lastLines(text, n) {
+  return text
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('::'))
+    .slice(-n)
+    .join(' ');
 }
 
 // inJobContainer is true when the job runs in a job container. The runner
@@ -173,11 +200,13 @@ module.exports = {
   actionDir,
   appendFile,
   boolInput,
+  childEnv,
   error,
   group,
   inJobContainer,
   input,
   isProfilePath,
+  lastLines,
   notice,
   parseKeyValues,
   run,

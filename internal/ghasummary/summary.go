@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/safedep/pmg/sandbox/propose"
 )
 
@@ -122,8 +123,12 @@ func writeDenials(b *strings.Builder, in Input) {
 		}
 		fmt.Fprintf(b, "| %s | %s | %s | %d |\n", code(d.Destination), code(d.Rule), cell(d.Client), d.Count)
 	}
-	if in.Profile != "" {
+	switch {
+	case in.Profile == "":
+	case executor.IsProfilePath(in.Profile):
 		fmt.Fprintf(b, "\nTo allow a destination, add it to `network.allow_outbound` in %s.\n", code(in.Profile))
+	default:
+		fmt.Fprintf(b, "\n%s is a built-in profile. To allow a destination, make a profile file that inherits %s, add the destination to its `network.allow_outbound`, and set `network-profile` to the file.\n", code(in.Profile), code(in.Profile))
 	}
 	b.WriteString("\n")
 }
@@ -169,7 +174,7 @@ func writeProposal(b *strings.Builder, in Input) {
 	b.WriteString("### Network profile\n\n")
 	switch {
 	case p.New:
-		fmt.Fprintf(b, "PMG proposes a network profile from the %d destination(s) this job reached. ", len(p.Destinations))
+		fmt.Fprintf(b, "PMG proposes a network profile from the %d destination(s) this job reached. ", countDestinations(p.Destinations))
 		fmt.Fprintf(b, "Review each rule. Save the file as %s and commit it.", path)
 		if in.Profile == "" {
 			fmt.Fprintf(b, " Then set `network-profile: %s` on the PMG step.", strings.Trim(path, "`"))
@@ -203,7 +208,7 @@ func writeProposal(b *strings.Builder, in Input) {
 func writeUnproposed(b *strings.Builder, p *propose.Report, path string) bool {
 	n := countVerdicts(p)
 	if c := n[propose.VerdictRefused]; c > 0 {
-		fmt.Fprintf(b, "%s refused %d destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.\n\n", path, c)
+		fmt.Fprintf(b, "%s refused %d destination(s) that this job tried to reach. PMG proposes no rule for a refused destination. Add a rule by hand only when the job needs the destination.\n\n", path, c)
 	}
 	if c := n[propose.VerdictKeptDenied]; c > 0 {
 		fmt.Fprintf(b, "A deny rule in the profile chain of %s matches %d destination(s). PMG keeps the deny rule, because a maintainer wrote it.\n\n", path, c)
@@ -214,12 +219,29 @@ func writeUnproposed(b *strings.Builder, p *propose.Report, path string) bool {
 	return n[propose.VerdictRefused]+n[propose.VerdictKeptDenied]+n[propose.VerdictInvalid] > 0
 }
 
+// countVerdicts counts the destinations of each verdict. A destination
+// that two programs reach has a row for each program.
 func countVerdicts(p *propose.Report) map[propose.Verdict]int {
-	n := map[propose.Verdict]int{}
+	seen := map[propose.Verdict]map[string]bool{}
 	for _, row := range p.Destinations {
-		n[row.Verdict]++
+		if seen[row.Verdict] == nil {
+			seen[row.Verdict] = map[string]bool{}
+		}
+		seen[row.Verdict][row.Address()] = true
+	}
+	n := map[propose.Verdict]int{}
+	for verdict, addresses := range seen {
+		n[verdict] = len(addresses)
 	}
 	return n
+}
+
+func countDestinations(rows []propose.Row) int {
+	seen := map[string]bool{}
+	for _, row := range rows {
+		seen[row.Address()] = true
+	}
+	return len(seen)
 }
 
 // cell keeps text from the network from changing the table or adding a

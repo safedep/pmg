@@ -12,6 +12,7 @@
 |---|---|---|---|
 | `registry.npmjs.org:443` | node | 3 | parent rule `registry.npmjs.org:443` allows it |
 | `api.example.com:443` | curl | 3 | add `api.example.com:443` |
+| `api.example.com:443` | node | 3 | add `api.example.com:443` |
 
 ### Network profile
 

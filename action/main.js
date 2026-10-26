@@ -27,7 +27,7 @@ function main() {
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
   const binDir = outputs['bin-dir'];
 
-  if (lib.boolInput('sandbox')) {
+  if (lib.boolInput('sandbox') && !serverMode) {
     lib.group('Prepare the sandbox', () =>
       lib.run('sh', 'sandbox.sh', { INPUT_DRIVER: lib.input('sandbox-driver'), PMG_JOB_CONTAINER: String(jobContainer) }));
   }
@@ -84,7 +84,10 @@ function choice(name, allowed, fallback) {
 }
 
 function warnIgnoredInputs(serverMode, enforce) {
-  if (enforce === 'false' && enforceInputs.some((name) => lib.input(name) !== '')) {
+  if (lib.boolInput('sandbox') && serverMode) {
+    lib.warning('sandbox applies only with shim mode. network-profile or server-mode true turns on server mode, so PMG runs without the sandbox.');
+  }
+  if (enforce === 'false' && enforceInputsSet()) {
     lib.warning('The enforce-* inputs apply only with kernel enforcement. They are ignored.');
   }
   if (!serverMode && lib.input('network-mode') !== '') {
@@ -123,6 +126,10 @@ function enforceMode(enforce, jobContainer) {
   return 'auto';
 }
 
+function enforceInputsSet() {
+  return enforceInputs.some((name) => lib.input(name) !== '');
+}
+
 function startProxy(binDir, profile, enforceInput, jobContainer) {
   const network = networkInputs(profile);
   const env = {
@@ -140,8 +147,10 @@ function startProxy(binDir, profile, enforceInput, jobContainer) {
       trustBundleForOldNode();
       return;
     } catch (err) {
-      if (mode === 'required') {
-        throw err;
+      // An enforce-* input that the daemon rejects is a typo in the
+      // policy. It fails, as choice() does, and does not fall back.
+      if (mode === 'required' || enforceInputsSet()) {
+        throw new Error(`PMG could not start kernel enforcement: ${err.message}`);
       }
       lib.warning(`PMG could not start kernel enforcement, so it runs the proxy without it: ${err.message}`);
       // enforce.sh exports the root daemon's state path before it starts
@@ -183,7 +192,7 @@ function runStartScript(binDir, enforce, jobContainer, env) {
       INPUT_ENFORCE_EXEMPT_EXECUTABLES: lib.input('enforce-exempt-executables'),
       INPUT_ENFORCE_SKIP_DESTINATIONS: lib.input('enforce-skip-destinations'),
       INPUT_ENFORCE_NAMESPACES: lib.input('enforce-namespaces'),
-    }));
+    }, { captureStderr: true }));
   }
   return lib.group('Start the PMG proxy', () => lib.run('sh', 'server.sh', {
     ...env,

@@ -24,7 +24,7 @@ To allow a destination, add it to `network.allow_outbound` in `.pmg/ci.yml`.
 
 ### Network profile
 
-`.pmg/ci.yml` refused 1 destination(s) that this job tried to reach. PMG proposes no rule for them, because the job did not reach them. Add a rule by hand only when the job needs the destination.
+`.pmg/ci.yml` refused 1 destination(s) that this job tried to reach. PMG proposes no rule for a refused destination. Add a rule by hand only when the job needs the destination.
 
 A deny rule in the profile chain of `.pmg/ci.yml` matches 1 destination(s). PMG keeps the deny rule, because a maintainer wrote it.
 

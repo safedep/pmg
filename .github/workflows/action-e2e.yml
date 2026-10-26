@@ -767,6 +767,33 @@ jobs:
           pmg proxy status | tee status.txt
           grep -q "not running" status.txt
 
+  enforce-input-typo:
+    name: A typo in an enforce input fails the action under enforce auto
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: stage
+        uses: $/.github/actions/stage-pmg-build
+      - name: Action must exit non-zero
+        id: run
+        continue-on-error: true
+        uses: $/
+        with:
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+          enforce-skip-destinations: 10.0.0.0/33
+      - name: The action failed and no proxy runs
+        run: |
+          set -euo pipefail
+          test "${{ steps.run.outcome }}" = "failure"
+          if pgrep -x pmg; then
+            echo "::error::A PMG proxy runs after the failed start." >&2
+            exit 1
+          fi
+
   non-linux-fail-fast:
     name: Action fails fast on non-Linux runners
     strategy:
