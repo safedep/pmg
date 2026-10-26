@@ -30,6 +30,7 @@ func generateLogTag() string {
 // Shared vocabulary between rule emission (translator) and violation
 // parsing (diagnostics); a drift between the two breaks message rendering.
 const (
+	seatbeltKindDefault          = "default"
 	seatbeltKindNetworkOutbound  = "network-outbound"
 	seatbeltLockdownTargetDirect = "direct"
 	seatbeltTargetUnixSocket     = "unix-socket"
@@ -247,7 +248,7 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy, rt *
 
 	// Default policy: deny by default for maximum security
 	// Add log tag to track what gets denied by the default rule
-	sb.WriteString(fmt.Sprintf("(deny default (with message \"%s\"))\n\n", seatbeltLogMessage(t.logTag, "default", "")))
+	sb.WriteString(fmt.Sprintf("(deny default (with message \"%s\"))\n\n", seatbeltLogMessage(t.logTag, seatbeltKindDefault, "")))
 
 	// Essential system permissions - based on Chrome/Chromium sandbox policy
 	// These are the minimum permissions needed for stable process execution
@@ -737,7 +738,11 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 		sb.WriteString("(allow network* (local ip \"localhost:*\"))\n")
 	}
 
-	for _, addr := range policy.Network.AllowBind {
+	for _, entry := range policy.Network.AllowBind {
+		addr, err := seatbeltBindAddress(entry)
+		if err != nil {
+			return err
+		}
 		sb.WriteString("(allow network-bind (local ip \"")
 		sb.WriteString(addr)
 		sb.WriteString("\"))\n")
@@ -751,6 +756,21 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 	}
 
 	return nil
+}
+
+// seatbeltBindAddress writes an allow_bind entry in the form Seatbelt reads.
+// Seatbelt takes only localhost or * as the host of a local ip, and
+// sandbox-exec refuses the whole profile for any other host. A loopback
+// address becomes localhost and an all-interfaces address becomes *.
+func seatbeltBindAddress(entry string) (string, error) {
+	addr, err := util.ParseBindAddress(entry)
+	if err != nil {
+		return "", fmt.Errorf("network.allow_bind: %w", err)
+	}
+	if addr.IsLoopback() {
+		return "localhost:" + addr.Port, nil
+	}
+	return "*:" + addr.Port, nil
 }
 
 // writeUnixSocketDeny denies host unix sockets, such as the SSH agent. It

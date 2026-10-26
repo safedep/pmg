@@ -156,8 +156,12 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 	}
 
 	if len(addedEntries) == 0 {
-		_, err := fmt.Fprintf(out, "%s\n", ui.Colors.Dim(fmt.Sprintf("No new allowances (%d already present).", len(pending))))
-		return err
+		if _, err := fmt.Fprintf(out, "%s\n", ui.Colors.Dim(fmt.Sprintf("No new allowances (%d already present).", len(pending)))); err != nil {
+			return err
+		}
+		if len(overlay.Ignored) == 0 {
+			return nil
+		}
 	}
 
 	path, err := pmgsandbox.SaveOverlay(overlayDir, repoRoot, overlay)
@@ -166,11 +170,18 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 			"Could not write the project overlay file. Check filesystem permissions for the overlay directory.")
 	}
 
-	if _, err := fmt.Fprintf(out, "%s Saved %d allowance(s) for %s\n", ui.Colors.Green("✓"), len(addedEntries), repoRoot); err != nil {
-		return err
+	if len(addedEntries) > 0 {
+		if _, err := fmt.Fprintf(out, "%s Saved %d allowance(s) for %s\n", ui.Colors.Green("✓"), len(addedEntries), repoRoot); err != nil {
+			return err
+		}
 	}
 	for _, e := range addedEntries {
 		if _, err := fmt.Fprintf(out, "  %s %s=%s\n", ui.Colors.Dim("•"), e.Type, e.Value); err != nil {
+			return err
+		}
+	}
+	for _, i := range overlay.Ignored {
+		if _, err := fmt.Fprintf(out, "  %s %s %s: %v\n", ui.Colors.Dim("•"), ui.Colors.Yellow("removed"), i.String(), i.Reason); err != nil {
 			return err
 		}
 	}
@@ -240,6 +251,14 @@ func suggestionsFromCache(cache *pmgsandbox.ViolationCache, all bool) ([]pmgsand
 		return nil, invalidArgumentError(
 			"the latest violation report cannot be promoted to an allowance",
 			"It was parsed from the sandboxed command's own output, which a package can forge to name any target. "+
+				"Review it with `pmg sandbox explain --last`, then add the allowance explicitly with `pmg sandbox allow <type>=<value>`.",
+		)
+	}
+
+	if entry.Record.Report.CleanExit {
+		return nil, invalidArgumentError(
+			"the latest violation report cannot be promoted to an allowance",
+			"The command exited 0, so nothing needs an allowance, and a program that catches a denial can be an attack. "+
 				"Review it with `pmg sandbox explain --last`, then add the allowance explicitly with `pmg sandbox allow <type>=<value>`.",
 		)
 	}

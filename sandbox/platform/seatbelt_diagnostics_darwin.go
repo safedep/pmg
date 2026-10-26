@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 
 const seatbeltLogWindowPadding = 2 * time.Second
 const seatbeltMaxQueryWait = 6 * time.Second
+const seatbeltCleanFallbackWait = 2 * time.Second
 const seatbeltQueryInterval = 250 * time.Millisecond
 const seatbeltLogCommandTimeout = 5 * time.Second
 const macOSUnifiedLogPath = "/usr/bin/log"
@@ -39,6 +41,19 @@ type seatbeltLogEntry struct {
 	EventMessage     string `json:"eventMessage"`
 	Process          string `json:"process"`
 	ProcessImagePath string `json:"processImagePath"`
+}
+
+const seatbeltKernelImagePath = "/kernel"
+
+// fromKernel reports whether the kernel wrote the entry. Only the kernel
+// writes a denial. Any process can write an entry with the run marker in it.
+func (e seatbeltLogEntry) fromKernel() bool {
+	return e.ProcessImagePath == seatbeltKernelImagePath
+}
+
+// kernelEntries drops the entries that the kernel did not write.
+func kernelEntries(entries []seatbeltLogEntry) []seatbeltLogEntry {
+	return slices.DeleteFunc(entries, func(e seatbeltLogEntry) bool { return !e.fromKernel() })
 }
 
 type seatbeltLogPayload struct {
@@ -66,28 +81,40 @@ func parseSeatbeltLogPayload(raw string) (*seatbeltLogPayload, bool) {
 }
 
 func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationReport, error) {
-	if err == nil || s.logTag == "" || s.startedAt.IsZero() {
+	if s.logTag == "" || s.startedAt.IsZero() {
 		return nil, nil
 	}
 
-	deadline := time.Now().Add(seatbeltMaxQueryWait)
+	// The stream saw the run as it happened, so the run trusts a complete
+	// stream.
+	streamed, complete := s.streamEntries(err)
+	if complete {
+		if violations := s.runViolations(streamed, err); len(violations) > 0 {
+			return s.violationReport(violations), nil
+		}
+		return nil, nil
+	}
+
+	// Without a complete stream, PMG polls the log store, because a denial
+	// can reach the store late. Each query result is merged with what the
+	// stream delivered, so a delivered denial is never lost. A clean run
+	// polls for a shorter time. This path is rare, because the stream covers
+	// almost every run.
+	wait := seatbeltMaxQueryWait
+	if err == nil {
+		wait = seatbeltCleanFallbackWait
+	}
+	deadline := time.Now().Add(wait)
 	var lastQueryErr error
 
 	for {
 		end := time.Now()
-		entries, queryErr := s.queryLogs(s.startedAt.Add(-seatbeltLogWindowPadding), end.Add(seatbeltLogWindowPadding))
+		stored, queryErr := s.queryLogs(s.startedAt.Add(-seatbeltLogWindowPadding), end.Add(seatbeltLogWindowPadding))
 		if queryErr != nil {
 			lastQueryErr = queryErr
-		} else {
-			violations := extractSeatbeltViolations(entries, s.logTag)
-			if len(violations) > 0 {
-				return &sandbox.ViolationReport{
-					SandboxName:   s.Name(),
-					PolicyName:    s.policyName,
-					CorrelationID: s.logTag,
-					Violations:    violations,
-				}, nil
-			}
+		}
+		if violations := s.runViolations(mergeSeatbeltEntries(streamed, stored), err); len(violations) > 0 {
+			return s.violationReport(violations), nil
 		}
 
 		if time.Now().After(deadline) {
@@ -104,11 +131,71 @@ func (s *seatbeltSandbox) BestEffortViolation(err error) (*sandbox.ViolationRepo
 	return nil, nil
 }
 
+// streamEntries stops the log stream of the run and returns what it
+// delivered. A clean run does not report the noise that sandbox.IsNoise
+// selects, so the stream returns noise only for a failed run. complete is
+// false when the run has no stream, or when the stream could not confirm that
+// it delivered every denial that the run reports. The entries are real
+// denials in both cases.
+func (s *seatbeltSandbox) streamEntries(runErr error) (entries []seatbeltLogEntry, complete bool) {
+	if s.stream == nil {
+		return nil, false
+	}
+
+	entries, complete = s.stream.end(runErr != nil)
+	s.stream = nil
+	return entries, complete
+}
+
+// mergeSeatbeltEntries returns the entries of the log store, plus the entries
+// of the stream that the store does not have yet. An event that both report
+// counts once. The entries of the store stay as they are, so a run that the
+// store covers reports the same as before the stream existed.
+func mergeSeatbeltEntries(streamed, stored []seatbeltLogEntry) []seatbeltLogEntry {
+	inStore := make(map[string]int, len(stored))
+	for _, entry := range stored {
+		inStore[entry.EventMessage]++
+	}
+
+	merged := append([]seatbeltLogEntry(nil), stored...)
+	for _, entry := range streamed {
+		if inStore[entry.EventMessage] > 0 {
+			inStore[entry.EventMessage]--
+			continue
+		}
+		merged = append(merged, entry)
+	}
+
+	return merged
+}
+
+// runViolations extracts the denials of this run. A clean run does not
+// report noise.
+func (s *seatbeltSandbox) runViolations(entries []seatbeltLogEntry, runErr error) []sandbox.Violation {
+	violations := extractSeatbeltViolations(entries, s.logTag)
+	if runErr == nil {
+		violations = slices.DeleteFunc(violations, func(v sandbox.Violation) bool {
+			return sandbox.IsNoise(sandbox.DriverSeatbelt, v)
+		})
+	}
+
+	return violations
+}
+
+func (s *seatbeltSandbox) violationReport(violations []sandbox.Violation) *sandbox.ViolationReport {
+	return &sandbox.ViolationReport{
+		SandboxName:   s.Name(),
+		PolicyName:    s.policyName,
+		CorrelationID: s.logTag,
+		Violations:    violations,
+	}
+}
+
 func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandbox.Violation {
 	violations := make([]sandbox.Violation, 0, len(entries))
 	for _, entry := range entries {
 		payload, ok := parseSeatbeltLogPayload(entry.EventMessage)
-		if !ok || payload.RunID != runID {
+		if !ok || payload.RunID != runID || payload.Kind == seatbeltKindSentinel {
 			continue
 		}
 
@@ -249,6 +336,12 @@ func extractSeatbeltDeniedToken(raw string, payload *seatbeltLogPayload) string 
 	return strings.Trim(last, "\"',;:()[]{}")
 }
 
+// seatbeltRunPredicate selects the unified log entries of one run by the
+// marker that its deny rules carry.
+func seatbeltRunPredicate(logTag string) string {
+	return fmt.Sprintf(`eventMessage CONTAINS "PMG_SBX|run=%s|"`, logTag)
+}
+
 func (s *seatbeltSandbox) queryLogs(start, end time.Time) ([]seatbeltLogEntry, error) {
 	info, err := os.Stat(macOSUnifiedLogPath)
 	if err != nil {
@@ -258,13 +351,12 @@ func (s *seatbeltSandbox) queryLogs(start, end time.Time) ([]seatbeltLogEntry, e
 		return nil, fmt.Errorf("macOS unified log CLI not available: %s is a directory", macOSUnifiedLogPath)
 	}
 
-	predicate := fmt.Sprintf(`eventMessage CONTAINS "PMG_SBX|run=%s|"`, s.logTag)
 	args := []string{
 		"show",
 		"--style", "json",
 		"--start", start.Format("2006-01-02 15:04:05"),
 		"--end", end.Format("2006-01-02 15:04:05"),
-		"--predicate", predicate,
+		"--predicate", seatbeltRunPredicate(s.logTag),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), seatbeltLogCommandTimeout)
@@ -286,7 +378,7 @@ func (s *seatbeltSandbox) queryLogs(start, end time.Time) ([]seatbeltLogEntry, e
 		return nil, fmt.Errorf("decode seatbelt logs: %w", err)
 	}
 
-	return entries, nil
+	return kernelEntries(entries), nil
 }
 
 func decodeSeatbeltLogEntries(data []byte) ([]seatbeltLogEntry, error) {

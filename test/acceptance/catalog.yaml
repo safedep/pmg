@@ -233,6 +233,12 @@
   tier: P1
   guarantee: "`pmg sandbox exec -- <cmd>` passes stdout and the exit status through, and program flags pass without `--`."
   labels: [sandbox, exec, clean]
+- id: sandbox/exec/allows-loopback-bind
+  title: "sandbox exec runs with a net-bind value that pmg accepts"
+  category: sandbox
+  tier: P1
+  guarantee: "A loopback `net-bind` host such as `127.0.0.1` or `[::1]` runs under `pmg sandbox exec` from the flag and from a project overlay. `pmg sandbox allow` refuses a host that no driver can limit. On macOS a profile `allow_bind` entry limits the bind to its port."
+  labels: [sandbox, exec, network]
 - id: sandbox/exec/protects-worktree-pointers
   title: "sandbox exec keeps git worktree pointers read-only"
   category: sandbox
@@ -348,6 +354,12 @@
   guarantee: "`pmg sandbox doctor --json` has a network.exec-path probe that says whether this host's driver confines `pmg sandbox exec` to the proxy."
   labels: [sandbox, exec, doctor, offline]
 
+- id: sandbox/observe/caught-denial-recorded
+  title: "sandbox records a denial that the program catches"
+  category: sandbox
+  tier: P1
+  guarantee: "After a sandboxed program catches a credential read denial and exits 0, `pmg sandbox violations list` names the denied file. A clean run records nothing."
+  labels: [sandbox, observe]
 - id: sandbox/observe/env-scrub-recorded
   title: "sandbox records env scrubs to the violation cache"
   category: sandbox
