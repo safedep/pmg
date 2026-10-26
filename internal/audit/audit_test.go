@@ -9,6 +9,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/runerror"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -263,6 +264,29 @@ func TestLogCooldownSkippedEmitsEventWithReason(t *testing.T) {
 	assert.Equal(t, EventTypeCooldownSkipped, events[0].Type)
 	assert.Equal(t, "dependency_cooldown.skip", events[0].Reason)
 	assert.Equal(t, "dependency_cooldown.skip", events[0].Details["reason"])
+}
+
+func TestLogSandboxViolationsEmitsEvent(t *testing.T) {
+	s := &mockSink{}
+	setGlobal(newAuditor(s))
+	defer resetGlobal()
+
+	report := SandboxViolationReport{
+		Driver:     sandbox.DriverSeatbelt,
+		Profile:    "npm-restrictive",
+		CleanExit:  true,
+		Violations: []SandboxViolation{{Kind: sandbox.ViolationKindFSRead, Path: "/Users/dev/.ssh/id_rsa", Process: "node", Count: 2}},
+	}
+	LogSandboxViolations(report)
+
+	events := s.getEvents()
+	require.Len(t, events, 1)
+	assert.Equal(t, EventTypeSandboxViolation, events[0].Type)
+	assert.Equal(t, report, events[0].SandboxViolations)
+	assert.Equal(t, "seatbelt", events[0].Details["sandbox_driver"])
+	assert.Equal(t, "npm-restrictive", events[0].Details["sandbox_profile"])
+	assert.Equal(t, true, events[0].Details["clean_exit"])
+	assert.Equal(t, report.Violations, events[0].Details["violations"])
 }
 
 func TestLogSessionCompleteDispatchesEvent(t *testing.T) {

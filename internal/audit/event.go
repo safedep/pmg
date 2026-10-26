@@ -5,6 +5,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/internal/runerror"
+	"github.com/safedep/pmg/sandbox"
 )
 
 // SessionData carries aggregate session statistics for session-complete events.
@@ -63,6 +64,7 @@ const (
 	EventTypeDependencyCooldown    EventType = "dependency_cooldown"
 	EventTypeCooldownSkipped       EventType = "dependency_cooldown_skipped"
 	EventTypeSandboxOverride       EventType = "sandbox_override"
+	EventTypeSandboxViolation      EventType = "sandbox_violation"
 	EventTypeError                 EventType = "error"
 	EventTypeSessionComplete       EventType = "session_complete"
 )
@@ -91,8 +93,9 @@ type AuditEvent struct {
 	PackageCount   int
 
 	// Sandbox context
-	ProfileName string
-	Overrides   []map[string]string
+	ProfileName       string
+	Overrides         []map[string]string
+	SandboxViolations SandboxViolationReport
 
 	// Proxy context
 	HostObservation HostObservation
@@ -148,6 +151,30 @@ type NetworkDecision struct {
 	Enforced   bool
 	EntryPoint ProxyEntryPoint
 	Client     ProxyClient
+}
+
+// SandboxViolationReport is the denials of one sandboxed run, the most
+// relevant first. Each entry is one distinct denial.
+type SandboxViolationReport struct {
+	Driver     sandbox.DriverName
+	Profile    string
+	CleanExit  bool
+	Violations []SandboxViolation
+}
+
+// SandboxViolation is one distinct denial and the number of times the run
+// hit it. The kind decides which one of Path, Executable and Host is set.
+// None is set when the driver reported no usable target. Rule is the profile
+// rule that matched, when the driver knows it.
+type SandboxViolation struct {
+	Kind       sandbox.ViolationKind `json:"kind"`
+	Path       string                `json:"path,omitempty"`
+	Executable string                `json:"executable,omitempty"`
+	Host       string                `json:"host,omitempty"`
+	Port       *uint16               `json:"port,omitempty"`
+	Rule       string                `json:"rule,omitempty"`
+	Process    string                `json:"process,omitempty"`
+	Count      int                   `json:"count"`
 }
 
 // HostObservation is one connection to a host outside the known

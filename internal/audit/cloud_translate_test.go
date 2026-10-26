@@ -2,13 +2,18 @@ package audit
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/safedep/pmg/internal/runerror"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 // testSink is a cloudSink with no emitter, suitable for testing translation only.
@@ -131,6 +136,260 @@ func TestTranslateSandboxOverride(t *testing.T) {
 	override := result.GetSandboxOverride()
 	assert.Equal(t, "strict", override.GetSandboxProfile())
 	assert.Equal(t, []string{"read=/tmp", "write=/var/log"}, override.GetOverrides())
+}
+
+func sandboxViolationEvent(cleanExit bool, violations ...SandboxViolation) AuditEvent {
+	return AuditEvent{
+		Type: EventTypeSandboxViolation,
+		SandboxViolations: SandboxViolationReport{
+			Driver:     sandbox.DriverSeatbelt,
+			Profile:    "npm-restrictive",
+			CleanExit:  cleanExit,
+			Violations: violations,
+		},
+	}
+}
+
+func TestTranslateSandboxViolation(t *testing.T) {
+	port := uint16(443)
+	results := testSink.translateToPmgEvents(sandboxViolationEvent(true,
+		SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/Users/dev/.ssh/id_rsa", Rule: "/Users/dev/.ssh", Process: "node", Count: 3},
+		SandboxViolation{Kind: sandbox.ViolationKindNetworkConnect, Host: "1.2.3.4", Port: &port, Count: 1},
+		SandboxViolation{Kind: sandbox.ViolationKindExec, Executable: "/usr/bin/curl", Process: "sh", Count: 2},
+	))
+	require.Len(t, results, 1)
+	result := results[0]
+
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_VIOLATION, result.GetEventType())
+	require.True(t, result.HasSandboxViolationReport())
+
+	report := result.GetSandboxViolationReport()
+	assert.Equal(t, controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_SEATBELT, report.GetDriver())
+	assert.Equal(t, "npm-restrictive", report.GetSandboxProfile())
+	assert.Equal(t, controltowerv1.PmgSandboxExitStatus_PMG_SANDBOX_EXIT_STATUS_SUCCESS, report.GetExitStatus())
+	assert.Equal(t, uint32(3), report.GetDistinctCount())
+	require.Len(t, report.GetViolations(), 3)
+
+	read := report.GetViolations()[0]
+	assert.Equal(t, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_FILESYSTEM_READ, read.GetKind())
+	assert.Equal(t, "/Users/dev/.ssh/id_rsa", read.GetPath())
+	assert.False(t, read.HasExecutable())
+	assert.False(t, read.HasHost())
+	assert.Equal(t, "/Users/dev/.ssh", read.GetRule())
+	assert.Equal(t, "node", read.GetProcess())
+	assert.Equal(t, uint32(3), read.GetCount())
+
+	connect := report.GetViolations()[1]
+	assert.Equal(t, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_NETWORK_CONNECT, connect.GetKind())
+	assert.Equal(t, "1.2.3.4", connect.GetHost())
+	assert.Equal(t, uint32(443), connect.GetPort())
+	assert.False(t, connect.HasPath())
+	assert.False(t, connect.HasRule(), "an unknown rule is unset, not empty")
+	assert.False(t, connect.HasProcess(), "an unknown process is unset, not empty")
+
+	exec := report.GetViolations()[2]
+	assert.Equal(t, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_EXEC, exec.GetKind())
+	assert.Equal(t, "/usr/bin/curl", exec.GetExecutable())
+	assert.False(t, exec.HasPath())
+}
+
+func TestTranslateSandboxViolationOfAFailedRun(t *testing.T) {
+	report := testSink.translateToPmgEvents(sandboxViolationEvent(false,
+		SandboxViolation{Kind: sandbox.ViolationKindFSWrite, Path: "/etc/hosts", Count: 1},
+	))[0].GetSandboxViolationReport()
+	assert.Equal(t, controltowerv1.PmgSandboxExitStatus_PMG_SANDBOX_EXIT_STATUS_FAILED, report.GetExitStatus())
+}
+
+// The proto requires exactly one of path, executable and host on each entry.
+func TestTranslateSandboxViolationSetsExactlyOneTarget(t *testing.T) {
+	zero, https := uint16(0), uint16(443)
+
+	tests := []struct {
+		name      string
+		violation SandboxViolation
+		wantKept  bool
+		wantPort  *uint32
+	}{
+		{"path", SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/x"}, true, nil},
+		{"executable", SandboxViolation{Kind: sandbox.ViolationKindExec, Executable: "/usr/bin/curl"}, true, nil},
+		{"host and port", SandboxViolation{Kind: sandbox.ViolationKindNetworkConnect, Host: "1.2.3.4", Port: &https}, true, proto.Uint32(443)},
+		{"bind of any port", SandboxViolation{Kind: sandbox.ViolationKindNetworkBind, Host: "*", Port: &zero}, true, proto.Uint32(0)},
+		{"host without a port", SandboxViolation{Kind: sandbox.ViolationKindNetworkConnect, Host: "1.2.3.4"}, true, nil},
+		{"no target", SandboxViolation{Kind: sandbox.ViolationKindFSRead}, false, nil},
+		{"two targets", SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/x", Host: "1.2.3.4"}, false, nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			keep := SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/kept", Count: 1}
+			report := testSink.translateToPmgEvents(sandboxViolationEvent(true, tc.violation, keep))[0].GetSandboxViolationReport()
+
+			assert.Equal(t, uint32(2), report.GetDistinctCount())
+			if !tc.wantKept {
+				require.Len(t, report.GetViolations(), 1)
+				assert.Equal(t, "/kept", report.GetViolations()[0].GetPath())
+				return
+			}
+
+			require.Len(t, report.GetViolations(), 2)
+			v := report.GetViolations()[0]
+			targets := 0
+			for _, set := range []bool{v.HasPath(), v.HasExecutable(), v.HasHost()} {
+				if set {
+					targets++
+				}
+			}
+			assert.Equal(t, 1, targets)
+			if tc.wantPort == nil {
+				assert.False(t, v.HasPort())
+			} else {
+				require.True(t, v.HasPort())
+				assert.Equal(t, *tc.wantPort, v.GetPort())
+			}
+		})
+	}
+}
+
+// A report must hold at least one entry, so a run with no usable target
+// sends no event.
+func TestTranslateSandboxViolationWithNoUsableEntrySendsNothing(t *testing.T) {
+	results := testSink.translateToPmgEvents(sandboxViolationEvent(true,
+		SandboxViolation{Kind: sandbox.ViolationKindFSRead},
+		SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/" + strings.Repeat("a", maxSandboxViolationPath)},
+	))
+	assert.Empty(t, results)
+}
+
+// Control Tower rejects the whole sync batch when one event breaks a proto
+// bound, so the translation must never produce such an event.
+func TestTranslateSandboxViolationStaysInsideTheBounds(t *testing.T) {
+	entries := func(n, pathLen int) []SandboxViolation {
+		out := make([]SandboxViolation, n)
+		for i := range out {
+			out[i] = SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: fmt.Sprintf("/%0*d", pathLen-1, i), Count: 1}
+		}
+		return out
+	}
+
+	tests := []struct {
+		name         string
+		violations   []SandboxViolation
+		wantKept     int
+		wantDistinct uint32
+	}{
+		{
+			name:         "count cap",
+			violations:   entries(150, 20),
+			wantKept:     maxSandboxViolations,
+			wantDistinct: 150,
+		},
+		{
+			name:         "byte budget",
+			violations:   entries(50, 4000),
+			wantKept:     sandboxViolationBudget / 4000,
+			wantDistinct: 50,
+		},
+		{
+			name: "a path over its bound is dropped",
+			violations: []SandboxViolation{
+				{Kind: sandbox.ViolationKindFSRead, Path: "/" + strings.Repeat("a", maxSandboxViolationPath), Count: 1},
+				{Kind: sandbox.ViolationKindFSRead, Path: "/etc/hosts", Count: 1},
+			},
+			wantKept:     1,
+			wantDistinct: 2,
+		},
+		{
+			name: "a host over its bound is dropped",
+			violations: []SandboxViolation{
+				{Kind: sandbox.ViolationKindNetworkConnect, Host: strings.Repeat("h", maxSandboxViolationHost+1), Count: 1},
+				{Kind: sandbox.ViolationKindNetworkConnect, Host: "1.2.3.4", Count: 1},
+			},
+			wantKept:     1,
+			wantDistinct: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			event := AuditEvent{
+				Type:              EventTypeSandboxViolation,
+				SandboxViolations: SandboxViolationReport{Driver: sandbox.DriverLandlock, Violations: tc.violations},
+			}
+
+			report := testSink.translateToPmgEvents(event)[0].GetSandboxViolationReport()
+			assert.Len(t, report.GetViolations(), tc.wantKept)
+			assert.Equal(t, tc.wantDistinct, report.GetDistinctCount())
+			for _, v := range report.GetViolations() {
+				assert.LessOrEqual(t, len(v.GetPath()), maxSandboxViolationPath)
+				assert.LessOrEqual(t, len(v.GetHost()), maxSandboxViolationHost)
+			}
+		})
+	}
+}
+
+func TestTranslateSandboxViolationCleansStrings(t *testing.T) {
+	event := AuditEvent{
+		Type: EventTypeSandboxViolation,
+		SandboxViolations: SandboxViolationReport{
+			Driver:  sandbox.DriverLandlock,
+			Profile: strings.Repeat("p", maxSandboxProfile+10),
+			Violations: []SandboxViolation{{
+				Kind:    sandbox.ViolationKindFSRead,
+				Path:    "/tmp/bad-\xff-name",
+				Process: strings.Repeat("é", maxSandboxViolationProcess),
+			}},
+		},
+	}
+
+	report := testSink.translateToPmgEvents(event)[0].GetSandboxViolationReport()
+	assert.Len(t, report.GetSandboxProfile(), maxSandboxProfile)
+
+	v := report.GetViolations()[0]
+	assert.True(t, utf8.ValidString(v.GetPath()))
+	assert.Equal(t, "/tmp/bad-"+string(utf8.RuneError)+"-name", v.GetPath())
+	assert.True(t, utf8.ValidString(v.GetProcess()), "a cut must not split a character")
+	assert.LessOrEqual(t, len(v.GetProcess()), maxSandboxViolationProcess)
+	assert.Equal(t, uint32(1), v.GetCount(), "the proto requires a count of at least 1")
+}
+
+func TestMapSandboxViolationKind(t *testing.T) {
+	tests := []struct {
+		kind sandbox.ViolationKind
+		want controltowerv1.PmgSandboxViolationKind
+	}{
+		{sandbox.ViolationKindFSRead, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_FILESYSTEM_READ},
+		{sandbox.ViolationKindFSWrite, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_FILESYSTEM_WRITE},
+		{sandbox.ViolationKindFSDeleteOrRename, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_FILESYSTEM_DELETE_OR_RENAME},
+		{sandbox.ViolationKindExec, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_EXEC},
+		{sandbox.ViolationKindNetworkConnect, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_NETWORK_CONNECT},
+		{sandbox.ViolationKindNetworkBind, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_NETWORK_BIND},
+		{sandbox.ViolationKindGenericDeny, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_GENERIC},
+		{sandbox.ViolationKindEnvScrub, controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_UNSPECIFIED},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.kind), func(t *testing.T) {
+			assert.Equal(t, tc.want, mapSandboxViolationKind(tc.kind))
+		})
+	}
+}
+
+func TestMapSandboxDriver(t *testing.T) {
+	tests := []struct {
+		driver sandbox.DriverName
+		want   controltowerv1.PmgSandboxDriver
+	}{
+		{sandbox.DriverSeatbelt, controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_SEATBELT},
+		{sandbox.DriverLandlock, controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_LANDLOCK},
+		{sandbox.DriverBubblewrap, controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_BUBBLEWRAP},
+		{sandbox.DriverProxy, controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_UNSPECIFIED},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.driver), func(t *testing.T) {
+			assert.Equal(t, tc.want, mapSandboxDriver(tc.driver))
+		})
+	}
 }
 
 func TestTranslateError(t *testing.T) {

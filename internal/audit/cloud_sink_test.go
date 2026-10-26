@@ -16,6 +16,7 @@ import (
 	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/pmg/internal/runerror"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -157,6 +158,45 @@ func TestCloudSinkEmitAndSync(t *testing.T) {
 
 	assert.Equal(t, 1, synced)
 	assert.Equal(t, 1, len(transport.requests))
+}
+
+func TestCloudSinkSyncsSandboxViolationReports(t *testing.T) {
+	sink, walPath := newTestCloudSink(t)
+	ctx := context.Background()
+	port := uint16(443)
+
+	require.NoError(t, sink.Handle(ctx, AuditEvent{
+		Type: EventTypeSandboxViolation,
+		SandboxViolations: SandboxViolationReport{
+			Driver:     sandbox.DriverLandlock,
+			Profile:    "npm",
+			Violations: []SandboxViolation{{Kind: sandbox.ViolationKindNetworkConnect, Host: "1.2.3.4", Port: &port, Process: "node", Count: 2}},
+		},
+	}))
+	// A report whose only denial has no usable target sends no event.
+	require.NoError(t, sink.Handle(ctx, AuditEvent{
+		Type: EventTypeSandboxViolation,
+		SandboxViolations: SandboxViolationReport{
+			Driver:     sandbox.DriverLandlock,
+			Violations: []SandboxViolation{{Kind: sandbox.ViolationKindFSRead, Count: 1}},
+		},
+	}))
+	require.NoError(t, sink.Close())
+
+	transport := &mockTransport{}
+	require.Equal(t, 1, drainWAL(t, walPath, transport))
+
+	event := transport.requests[0].GetEvents()[0]
+	assert.Equal(t, "test-invocation", event.GetInvocationId())
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_VIOLATION, event.GetPmgEvent().GetEventType())
+
+	report := event.GetPmgEvent().GetSandboxViolationReport()
+	assert.Equal(t, controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_LANDLOCK, report.GetDriver())
+	assert.Equal(t, controltowerv1.PmgSandboxExitStatus_PMG_SANDBOX_EXIT_STATUS_FAILED, report.GetExitStatus())
+	require.Len(t, report.GetViolations(), 1)
+	assert.Equal(t, "1.2.3.4", report.GetViolations()[0].GetHost())
+	assert.Equal(t, uint32(443), report.GetViolations()[0].GetPort())
+	assert.Equal(t, uint32(2), report.GetViolations()[0].GetCount())
 }
 
 func TestCloudSinkDeduplicatesOnlyMatchingHostObservations(t *testing.T) {
