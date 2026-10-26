@@ -162,8 +162,8 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qq
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
-github.com/safedep/dry v0.0.0-20261002073351-d0ae33065533 h1:0iOLnv22SWpZ+FxQiK+shQq5js1OhPTa2J1KGXYP4Q8=
-github.com/safedep/dry v0.0.0-20261002073351-d0ae33065533/go.mod h1:n7UbtpjdFQnveHgsljFHsoMpAfFeTs6hy0jCuK4gY6s=
+github.com/safedep/dry v0.0.0-20261024074623-8f05720e0653 h1:6uXtL6dIrFU9Hnmzj3Xq3m/HUjFJbQvUTlOCp3gu8EM=
+github.com/safedep/dry v0.0.0-20261024074623-8f05720e0653/go.mod h1:NCiHnx9zUAURCysl/icB2nCZpGQQVRPAU3TN0qr90QA=
 github.com/safedep/ptyx v0.2.1-0.20260930140859-2a30ff447821 h1:3/YEQGHD9b2IgDOBOMjophl5gYDqiHJjtoFX+P8ktSk=
 github.com/safedep/ptyx v0.2.1-0.20260930140859-2a30ff447821/go.mod h1:fyt+PACz6dtEoqsnE0BPPv/lHpuBG/8zkDqeIVcyRY4=
 github.com/sagikazarmark/locafero v0.12.0 h1:/NQhBAkUb4+fH1jivKHWusDYFjMOOKU88eegjfxfHb4=

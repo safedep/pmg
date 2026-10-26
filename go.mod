@@ -19,7 +19,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/posthog/posthog-go v1.30.0
 	github.com/rogpeppe/go-internal v1.14.1
-	github.com/safedep/dry v0.0.0-20261002073351-d0ae33065533
+	github.com/safedep/dry v0.0.0-20261024074623-8f05720e0653
 	github.com/safedep/ptyx v0.2.1-0.20260930140859-2a30ff447821
 	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.10.2
