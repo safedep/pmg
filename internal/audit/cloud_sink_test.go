@@ -307,6 +307,46 @@ func TestCloudSinkDeduplicatesSandboxOverridesAcrossInvocations(t *testing.T) {
 	assert.Equal(t, []uint64{4}, repeatCounts(transport))
 }
 
+// A routine denial gives the same report on every run, with other hit
+// counts and in another order. Those runs collapse. A run that adds a new
+// denial has a new key and goes out at once.
+func TestCloudSinkDeduplicatesSandboxViolationReportsAcrossInvocations(t *testing.T) {
+	walPath := t.TempDir() + "/test-sync.db"
+	gitConfig := SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/repo/.git/config", Process: "git", Count: 1}
+	npmrc := SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/Users/dev/.npmrc", Process: "node", Count: 1}
+	sshKey := SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/Users/dev/.ssh/id_rsa", Process: "node", Count: 1}
+
+	runs := [][]SandboxViolation{
+		{gitConfig, npmrc},
+		{npmrc, gitConfig},
+		{gitConfig, {Kind: sandbox.ViolationKindFSRead, Path: "/Users/dev/.npmrc", Process: "node", Count: 7}},
+		{sshKey, gitConfig, npmrc},
+		{gitConfig, npmrc},
+	}
+	for i, violations := range runs {
+		sink := newTestCloudSinkAtPath(t, walPath)
+		sink.invocationID = fmt.Sprintf("invocation-%d", i)
+		require.NoError(t, sink.Handle(context.Background(), AuditEvent{
+			Type: EventTypeSandboxViolation,
+			SandboxViolations: SandboxViolationReport{
+				Driver:     sandbox.DriverSeatbelt,
+				Profile:    "npm",
+				CleanExit:  true,
+				Violations: violations,
+			},
+		}))
+		require.NoError(t, sink.Close())
+	}
+
+	transport := &mockTransport{}
+	assert.Equal(t, 2, drainWAL(t, walPath, transport), "the first report and the one with a new denial")
+
+	// The routine report repeats three times. The new denial never repeats.
+	expireDedupWindows(t, walPath)
+	assert.Equal(t, 1, drainWAL(t, walPath, transport))
+	assert.Equal(t, []uint64{3}, repeatCounts(transport))
+}
+
 func TestCloudSinkDeduplicatesConcurrentInvocations(t *testing.T) {
 	walPath := t.TempDir() + "/test-sync.db"
 	first := newTestCloudSinkAtPath(t, walPath)
