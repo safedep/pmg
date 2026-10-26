@@ -196,6 +196,22 @@ func TestValidate(t *testing.T) {
 			expectErr: false,
 		},
 		{
+			name: "loopback and all-interfaces bind entries are valid",
+			policy: &SandboxPolicy{
+				Name:    "test",
+				Network: NetworkPolicy{AllowBind: []string{"127.0.0.1:5173", "[::1]:5173", "0.0.0.0:*"}},
+			},
+			expectErr: false,
+		},
+		{
+			name: "a bind entry that no driver can keep is refused",
+			policy: &SandboxPolicy{
+				Name:    "test",
+				Network: NetworkPolicy{AllowBind: []string{"192.168.1.5:3000"}},
+			},
+			expectErr: true,
+		},
+		{
 			name: "missing name",
 			policy: &SandboxPolicy{
 				PackageManagers: []string{"npm"},

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/sandbox/util"
 )
 
 // SandboxPolicy represents a parsed and validated sandbox policy that defines
@@ -115,6 +116,12 @@ type EnvironmentPolicy struct {
 func (p *SandboxPolicy) Validate() error {
 	if p.Name == "" {
 		return fmt.Errorf("policy name is required")
+	}
+
+	for _, entry := range p.Network.AllowBind {
+		if _, err := util.ParseBindAddress(entry); err != nil {
+			return fmt.Errorf("network.allow_bind: %w", err)
+		}
 	}
 
 	return nil

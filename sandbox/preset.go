@@ -3,10 +3,8 @@ package sandbox
 import (
 	"bytes"
 	"fmt"
-	"net"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -182,12 +180,6 @@ func validatePresetPath(entry string, read bool) error {
 	return nil
 }
 
-var loopbackHosts = map[string]bool{
-	"localhost": true,
-	"127.0.0.1": true,
-	"::1":       true,
-}
-
 // validatePresetOutbound accepts a rule the proxy reads that names a host.
 // A host suffix such as *.example.com and a port of * are fine. The host *
 // is every host.
@@ -203,19 +195,13 @@ func validatePresetOutbound(entry string) error {
 }
 
 func validatePresetBind(entry string) error {
-	host, port, err := net.SplitHostPort(entry)
+	addr, err := util.ParseBindAddress(entry)
 	if err != nil {
-		return fmt.Errorf("bind %q must be host:port: %w", entry, err)
+		return err
 	}
 
-	if !loopbackHosts[host] {
-		return fmt.Errorf("bind host %q must be loopback (localhost, 127.0.0.1 or ::1)", host)
-	}
-
-	if port != "*" {
-		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
-			return fmt.Errorf("bind port %q must be numeric or '*'", port)
-		}
+	if !addr.IsLoopback() {
+		return fmt.Errorf("bind host in %q must be loopback (localhost, 127.0.0.1, [::1])", entry)
 	}
 
 	return nil

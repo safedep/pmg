@@ -232,6 +232,13 @@ func TestPresetValidate(t *testing.T) {
 			wantErr: "loopback",
 		},
 		{
+			name: "non-loopback ipv6 bind names the entry",
+			mutate: func(p *Preset) {
+				p.Network.AllowBind = []string{"[::]:3000"}
+			},
+			wantErr: `"[::]:3000" must be loopback`,
+		},
+		{
 			name: "loopback bind with wildcard port ok",
 			mutate: func(p *Preset) {
 				p.Network.AllowBind = []string{"localhost:*"}

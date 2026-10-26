@@ -170,3 +170,36 @@ func TestListOverlaysSkipsCorruptFiles(t *testing.T) {
 	require.Len(t, listed, 1)
 	assert.Equal(t, "/repo/a", listed[0].Overlay.RepoRoot)
 }
+
+func TestLoadOverlayIgnoresRefusedBindEntriesAndSaveRemovesThem(t *testing.T) {
+	dir := t.TempDir()
+	repo := "/repo/example"
+	write := OverlayAllow{Type: config.SandboxAllowWrite, Value: "/repo/example/.astro"}
+	bind := OverlayAllow{Type: config.SandboxAllowNetBind, Value: "127.0.0.1:5173"}
+	path, err := SaveOverlay(dir, repo, &Overlay{Allow: []OverlayAllow{
+		{Type: config.SandboxAllowNetBind, Value: "::1:5173"},
+		write,
+		bind,
+	}})
+	require.NoError(t, err)
+
+	loaded, _, err := LoadOverlayForRepo(dir, repo)
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+	assert.Equal(t, []OverlayAllow{write, bind}, loaded.Allow)
+	require.Len(t, loaded.Ignored, 1)
+	assert.Equal(t, "net-bind=::1:5173", loaded.Ignored[0].String())
+	assert.ErrorContains(t, loaded.Ignored[0].Reason, "IPv6 host in brackets")
+
+	_, err = SaveOverlay(dir, repo, loaded)
+	require.NoError(t, err)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "::1:5173")
+
+	reloaded, _, err := LoadOverlayForRepo(dir, repo)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded)
+	assert.Equal(t, []OverlayAllow{write, bind}, reloaded.Allow)
+	assert.Empty(t, reloaded.Ignored)
+}

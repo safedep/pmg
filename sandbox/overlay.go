@@ -14,6 +14,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/sandbox/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -30,13 +31,45 @@ type Overlay struct {
 	CreatedAt     time.Time      `yaml:"created_at,omitempty"`
 	UpdatedAt     time.Time      `yaml:"updated_at,omitempty"`
 	Allow         []OverlayAllow `yaml:"allow"`
+
+	// Ignored holds the saved entries that the current check refuses. A load
+	// moves them out of Allow, so every command sees the same active set. A
+	// save does not write them, which removes them from the file.
+	Ignored []IgnoredOverlayAllow `yaml:"-"`
 }
+
+// IgnoredOverlayHint tells a user how to replace an ignored entry and keep
+// the other entries.
+const IgnoredOverlayHint = "Save the entry in the current form with `pmg sandbox allow`. That removes the ignored entries and keeps the others. `pmg sandbox project reset` removes every entry"
 
 // OverlayAllow is a single persisted allow entry. The field shape matches
 // config.SandboxAllowOverride so conversion is mechanical.
 type OverlayAllow struct {
 	Type  config.SandboxAllowType `yaml:"type"`
 	Value string                  `yaml:"value"`
+}
+
+// String returns the entry as type=value, the form of a --sandbox-allow flag.
+func (a OverlayAllow) String() string {
+	return fmt.Sprintf("%s=%s", a.Type, a.Value)
+}
+
+// IgnoredOverlayAllow is a saved entry that the current check refuses.
+type IgnoredOverlayAllow struct {
+	OverlayAllow
+	Reason error
+}
+
+// check refuses a saved entry that the current rules refuse. An older pmg
+// saved net-bind entries, such as ::1:3000, that ParseBindAddress refuses
+// now. Other types are not checked again because their saved values are
+// already absolute and a new check would resolve paths at load time.
+func (a OverlayAllow) check() error {
+	if a.Type != config.SandboxAllowNetBind {
+		return nil
+	}
+	_, err := util.ParseBindAddress(a.Value)
+	return err
 }
 
 // OverlayListEntry pairs an Overlay with the file path it was loaded from,
@@ -66,7 +99,7 @@ func (o *Overlay) ToAllowOverrides() []config.SandboxAllowOverride {
 		out = append(out, config.SandboxAllowOverride{
 			Type:  a.Type,
 			Value: a.Value,
-			Raw:   fmt.Sprintf("%s=%s", a.Type, a.Value),
+			Raw:   a.String(),
 		})
 	}
 	return out
@@ -196,6 +229,16 @@ func loadOverlayFile(path string) (*Overlay, error) {
 	if overlay.SchemaVersion != 0 && overlay.SchemaVersion != OverlaySchemaVersion {
 		return nil, fmt.Errorf("overlay: %s has unknown schema_version %d", path, overlay.SchemaVersion)
 	}
+
+	active := make([]OverlayAllow, 0, len(overlay.Allow))
+	for _, a := range overlay.Allow {
+		if err := a.check(); err != nil {
+			overlay.Ignored = append(overlay.Ignored, IgnoredOverlayAllow{OverlayAllow: a, Reason: err})
+			continue
+		}
+		active = append(active, a)
+	}
+	overlay.Allow = active
 	return &overlay, nil
 }
 

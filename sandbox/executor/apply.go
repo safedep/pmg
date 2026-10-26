@@ -620,7 +620,11 @@ func applyProjectOverlay(policy *sandbox.SandboxPolicy, overlayDir, repoRoot str
 	if err != nil {
 		return 0, fmt.Errorf("project overlay: load: %w", err)
 	}
-	if overlay == nil || len(overlay.Allow) == 0 {
+	if overlay == nil {
+		return 0, nil
+	}
+	warnIgnoredOverlayEntries(overlay.Ignored)
+	if len(overlay.Allow) == 0 {
 		return 0, nil
 	}
 
@@ -630,6 +634,17 @@ func applyProjectOverlay(policy *sandbox.SandboxPolicy, overlayDir, repoRoot str
 	logSandboxOverrides(policy.Name+"+overlay", entries)
 	log.Infof("Project overlay: applied %d saved allowance(s) for %s", len(entries), repoRoot)
 	return len(entries), nil
+}
+
+// warnIgnoredOverlayEntries names each saved entry that the load ignored.
+// Without the warning a user sees fewer allowances and no reason.
+func warnIgnoredOverlayEntries(ignored []sandbox.IgnoredOverlayAllow) {
+	for _, entry := range ignored {
+		log.Warnf("Project overlay: ignoring %s: %v", entry.String(), entry.Reason)
+		if _, err := fmt.Fprintf(os.Stderr, "pmg: warning: project overlay entry %q is ignored: %v. %s\n", entry.String(), entry.Reason, sandbox.IgnoredOverlayHint); err != nil {
+			log.Warnf("failed to write overlay warning to stderr: %v", err)
+		}
+	}
 }
 
 // logSandboxOverrides records sandbox allow overrides in the audit event log.
