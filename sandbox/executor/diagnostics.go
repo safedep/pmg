@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"slices"
+
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
@@ -71,9 +73,12 @@ func denialKeyOf(v sandbox.Violation) denialKey {
 // denial that ordinary tools cause on almost every run, so both stay out.
 // It reports false when no denial is left.
 func auditReport(report *sandbox.ViolationReport) (audit.SandboxViolationReport, bool) {
+	// The primary of an explanation is the last of the denials with the top
+	// score. Each distinct denial takes the place of its last occurrence, so
+	// the first ranked entry is that primary.
 	var distinct []sandbox.Violation
 	counts := make(map[denialKey]int)
-	for _, v := range report.Violations {
+	for _, v := range slices.Backward(report.Violations) {
 		if v.Kind == sandbox.ViolationKindEnvScrub || sandbox.IsNoise(report.SandboxName, v) {
 			continue
 		}
@@ -82,11 +87,12 @@ func auditReport(report *sandbox.ViolationReport) (audit.SandboxViolationReport,
 		if counts[key] == 0 {
 			distinct = append(distinct, v)
 		}
-		counts[key]++
+		counts[key] += max(v.Hits, 1)
 	}
 	if len(distinct) == 0 {
 		return audit.SandboxViolationReport{}, false
 	}
+	slices.Reverse(distinct)
 
 	sandbox.RankViolations(report.SandboxName, distinct)
 

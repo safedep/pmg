@@ -26,10 +26,12 @@ const landlockAuditEventCap = 512
 const landlockAuditDrainWait = 2 * time.Second
 
 // capturedAuditEvent pairs a decoded audit event with its original JSON line
-// so the violation report can preserve the raw evidence.
+// so the violation report can preserve the raw evidence. hits counts the
+// repeats of a deny event that capture folded into it.
 type capturedAuditEvent struct {
 	auditEvent
-	raw string
+	raw  string
+	hits int
 }
 
 // captureAuditEvents reads newline-delimited auditEvent JSON from the audit
@@ -38,7 +40,7 @@ type capturedAuditEvent struct {
 // corruption, not version skew.
 func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 	scanner := bufio.NewScanner(r)
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 	dropped := false
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -53,16 +55,20 @@ func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 		}
 
 		// Dedupe deny events before the cap: a tight retry loop on one denied
-		// path must not fill the buffer and evict a later distinct denial.
-		// seen is marked only on append so it stays bounded by the cap — the
-		// keys carry attacker-chosen path bytes, so an unbounded map would
-		// reintroduce the memory growth the cap exists to prevent. Once the
-		// buffer is full, new distinct denials hit the drop branch (and its
-		// one-time warning) instead of growing the map.
+		// path must not fill the buffer and evict a later distinct denial. A
+		// repeat counts on the kept event instead. seen maps a key to the
+		// position of its event and is marked only on append, so it stays
+		// bounded by the cap — the keys carry attacker-chosen path bytes, so
+		// an unbounded map would reintroduce the memory growth the cap exists
+		// to prevent. Once the buffer is full, new distinct denials hit the
+		// drop branch (and its one-time warning) instead of growing the map.
 		key := ""
 		if evt.Type == auditSeccompDeny || evt.Type == auditNetworkDeny {
 			key = landlockDenyKey(evt)
-			if seen[key] {
+			if i, ok := seen[key]; ok {
+				s.auditMu.Lock()
+				s.auditEvents[i].hits++
+				s.auditMu.Unlock()
 				continue
 			}
 		}
@@ -70,9 +76,9 @@ func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 		s.auditMu.Lock()
 		if len(s.auditEvents) < landlockAuditEventCap {
 			if key != "" {
-				seen[key] = true
+				seen[key] = len(s.auditEvents)
 			}
-			s.auditEvents = append(s.auditEvents, capturedAuditEvent{auditEvent: evt, raw: string(line)})
+			s.auditEvents = append(s.auditEvents, capturedAuditEvent{auditEvent: evt, raw: string(line), hits: 1})
 		} else if !dropped {
 			dropped = true
 			log.Warnf("landlock diagnostics: audit event buffer full (%d), dropping further events", landlockAuditEventCap)
@@ -122,10 +128,10 @@ func (s *landlockSandbox) BestEffortViolation(error) (*sandbox.ViolationReport, 
 
 // extractLandlockViolations maps seccomp deny events to violations,
 // deduplicating identical (kind, target) pairs — a process commonly retries
-// a denied open many times.
+// a denied open many times. The repeats add to the hits of the kept one.
 func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation {
 	violations := make([]sandbox.Violation, 0, len(events))
-	seen := make(map[string]bool, len(events))
+	seen := make(map[string]int, len(events))
 
 	for _, e := range events {
 		if e.Type != auditSeccompDeny && e.Type != auditNetworkDeny {
@@ -133,10 +139,11 @@ func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation 
 		}
 
 		key := landlockDenyKey(e.auditEvent)
-		if seen[key] {
+		if i, ok := seen[key]; ok {
+			violations[i].Hits = max(violations[i].Hits, 1) + max(e.hits, 1)
 			continue
 		}
-		seen[key] = true
+		seen[key] = len(violations)
 
 		kind := landlockViolationKind(e.auditEvent)
 
@@ -148,6 +155,7 @@ func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation 
 			Process:    e.Comm,
 			RawLog:     e.raw,
 			RuleLabel:  summarizeViolation(kind, e.Path),
+			Hits:       e.hits,
 		})
 	}
 

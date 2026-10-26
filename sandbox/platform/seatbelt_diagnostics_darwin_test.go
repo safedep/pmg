@@ -85,9 +85,10 @@ func TestExtractSeatbeltViolations(t *testing.T) {
 
 func TestSeatbeltDeniedProcess(t *testing.T) {
 	cases := []struct {
-		name  string
-		entry seatbeltLogEntry
-		want  string
+		name     string
+		entry    seatbeltLogEntry
+		want     string
+		wantHits int
 	}{
 		{
 			name: "kernel entry names the program in the message",
@@ -95,7 +96,8 @@ func TestSeatbeltDeniedProcess(t *testing.T) {
 				EventMessage:     "Sandbox: cat(54403) deny(1) file-read-data /Users/dev/.ssh/config\n" + seatbeltLogMessage("run-1", "file-read", "/Users/dev/.ssh"),
 				ProcessImagePath: seatbeltKernelImagePath,
 			},
-			want: "cat",
+			want:     "cat",
+			wantHits: 1,
 		},
 		{
 			name: "program name with spaces and parentheses",
@@ -103,25 +105,67 @@ func TestSeatbeltDeniedProcess(t *testing.T) {
 				EventMessage:     "Sandbox: Code Helper (Plugin)(812) deny(1) file-read-data /x",
 				ProcessImagePath: seatbeltKernelImagePath,
 			},
-			want: "Code Helper (Plugin)",
+			want:     "Code Helper (Plugin)",
+			wantHits: 1,
 		},
 		{
-			name:  "no denial line falls back to the entry process",
-			entry: seatbeltLogEntry{EventMessage: "Sandbox deny", Process: "node", ProcessImagePath: seatbeltKernelImagePath},
-			want:  "node",
+			name: "one duplicate report",
+			entry: seatbeltLogEntry{
+				EventMessage:     "1 duplicate report for Sandbox: node(28986) deny(1) network-outbound remote:*:443\n" + seatbeltLogMessage("run-1", "network-outbound", "direct"),
+				ProcessImagePath: seatbeltKernelImagePath,
+			},
+			want:     "node",
+			wantHits: 1,
 		},
 		{
-			name:  "no denial line and no process falls back to the image path",
-			entry: seatbeltLogEntry{EventMessage: "Sandbox deny", ProcessImagePath: seatbeltKernelImagePath},
-			want:  seatbeltKernelImagePath,
+			name: "several duplicate reports",
+			entry: seatbeltLogEntry{
+				EventMessage:     "12 duplicate reports for Sandbox: git(301) deny(1) file-read-data /repo/.git/config",
+				ProcessImagePath: seatbeltKernelImagePath,
+			},
+			want:     "git",
+			wantHits: 12,
+		},
+		{
+			name:     "no denial line falls back to the entry process",
+			entry:    seatbeltLogEntry{EventMessage: "Sandbox deny", Process: "node", ProcessImagePath: seatbeltKernelImagePath},
+			want:     "node",
+			wantHits: 1,
+		},
+		{
+			name:     "no denial line and no process falls back to the image path",
+			entry:    seatbeltLogEntry{EventMessage: "Sandbox deny", ProcessImagePath: seatbeltKernelImagePath},
+			want:     seatbeltKernelImagePath,
+			wantHits: 1,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, tc.entry.deniedProcess())
+			process, hits := tc.entry.deniedProcess()
+			assert.Equal(t, tc.want, process)
+			assert.Equal(t, tc.wantHits, hits)
 		})
 	}
+}
+
+// The kernel writes "N duplicate reports for" in place of N repeats. That
+// entry must keep the program name, so it groups with the first report.
+func TestExtractSeatbeltViolationsCountsDuplicateReports(t *testing.T) {
+	line := "Sandbox: node(28986) deny(1) network-outbound remote:*:443\n" + seatbeltLogMessage("run-1", "network-outbound", "direct")
+	entries := []seatbeltLogEntry{
+		{EventMessage: line, ProcessImagePath: seatbeltKernelImagePath},
+		{EventMessage: "3 duplicate reports for " + line, ProcessImagePath: seatbeltKernelImagePath},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 2)
+	for _, v := range violations {
+		assert.Equal(t, "node", v.Process)
+		assert.Equal(t, "remote:*:443", v.Target)
+	}
+	assert.Equal(t, 1, violations[0].Hits)
+	assert.Equal(t, 3, violations[1].Hits)
 }
 
 // Regression: a denial that hits the catch-all `(deny default ...)` rule

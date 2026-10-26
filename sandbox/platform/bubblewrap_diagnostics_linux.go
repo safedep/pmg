@@ -76,13 +76,15 @@ var bubblewrapQuotePairs = []struct {
 }
 
 // bubblewrapDenial is one stderr line reduced to the facts a sandbox.Violation
-// carries.
+// carries. hits counts the lines of the same denial that the tap folded into
+// it.
 type bubblewrapDenial struct {
 	kind    sandbox.ViolationKind
 	target  string
 	process string
 	rawKind string
 	raw     string
+	hits    int
 }
 
 // parseBubblewrapDenial extracts a denial from a single stderr line, reporting
@@ -283,12 +285,12 @@ type bubblewrapStderrTap struct {
 	partial  []byte
 	skipping bool
 	denials  []bubblewrapDenial
-	seen     map[string]bool
+	seen     map[string]int
 	dropped  bool
 }
 
 func newBubblewrapStderrTap() *bubblewrapStderrTap {
-	return &bubblewrapStderrTap{seen: make(map[string]bool)}
+	return &bubblewrapStderrTap{seen: make(map[string]int)}
 }
 
 // bubblewrapDenialKey identifies a denial for deduplication: the same kind of
@@ -355,7 +357,8 @@ func (t *bubblewrapStderrTap) flushLine() {
 	}
 
 	key := bubblewrapDenialKey(denial)
-	if t.seen[key] {
+	if i, ok := t.seen[key]; ok {
+		t.denials[i].hits++
 		return
 	}
 
@@ -367,10 +370,12 @@ func (t *bubblewrapStderrTap) flushLine() {
 		return
 	}
 
-	// seen is marked only on append so it stays bounded by the cap. Its keys
-	// carry paths the sandboxed process chose, so growing it unconditionally
-	// would reintroduce the memory growth the cap exists to prevent.
-	t.seen[key] = true
+	// seen maps a key to the position of its denial and is marked only on
+	// append, so it stays bounded by the cap. Its keys carry paths the
+	// sandboxed process chose, so growing it unconditionally would
+	// reintroduce the memory growth the cap exists to prevent.
+	t.seen[key] = len(t.denials)
+	denial.hits = 1
 	t.denials = append(t.denials, denial)
 }
 
@@ -461,6 +466,7 @@ func (b *bubblewrapSandbox) BestEffortViolation(error) (*sandbox.ViolationReport
 			Process:   d.process,
 			RawLog:    d.raw,
 			RuleLabel: summarizeViolation(d.kind, d.target),
+			Hits:      d.hits,
 		})
 	}
 

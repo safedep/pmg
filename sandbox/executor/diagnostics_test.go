@@ -333,3 +333,51 @@ func TestAuditReportRanksAndSplitsTargets(t *testing.T) {
 		{Kind: sandbox.ViolationKindNetworkConnect, Path: "/private/var/run/mDNSResponder", Process: "node", Count: 1},
 	}, got.Violations[1:])
 }
+
+// The first cloud entry must be the denial that `pmg sandbox explain` shows,
+// also when equal scores and repeats decide it.
+func TestAuditReportFirstEntryIsTheExplainPrimary(t *testing.T) {
+	exec := func(target string) sandbox.Violation {
+		return sandbox.Violation{Kind: sandbox.ViolationKindExec, Target: target, Process: "sh"}
+	}
+	read := func(target string) sandbox.Violation {
+		return sandbox.Violation{Kind: sandbox.ViolationKindFSRead, Target: target, Process: "node"}
+	}
+
+	reports := map[string][]sandbox.Violation{
+		"a repeat after an equal denial":     {exec("/tmp/a-bin"), exec("/tmp/b-bin"), exec("/tmp/a-bin")},
+		"equal denials without a repeat":     {exec("/tmp/a-bin"), exec("/tmp/b-bin")},
+		"a higher score before the repeats":  {read("/Users/dev/.ssh/id_rsa"), exec("/tmp/a-bin"), exec("/tmp/a-bin")},
+		"several repeats of several denials": {exec("/tmp/b-bin"), exec("/tmp/a-bin"), exec("/tmp/b-bin"), exec("/tmp/a-bin")},
+	}
+	for name, violations := range reports {
+		t.Run(name, func(t *testing.T) {
+			report := &sandbox.ViolationReport{SandboxName: sandbox.DriverSeatbelt, Violations: violations}
+			primary := sandbox.BuildExplanation(report).Primary
+			require.NotNil(t, primary)
+
+			got, ok := auditReport(report)
+			require.True(t, ok)
+			first := got.Violations[0]
+			assert.Equal(t, primary.Kind, first.Kind)
+			assert.Equal(t, primary.Target, first.Path+first.Executable)
+		})
+	}
+}
+
+// A "N duplicate reports" entry stands for N hits of a denial already in the
+// report, so it adds N to that entry and no entry of its own.
+func TestAuditReportAddsTheHitsOfFoldedRepeats(t *testing.T) {
+	denial := sandbox.Violation{Kind: sandbox.ViolationKindNetworkConnect, Target: "remote:*:443", RuleTarget: "direct", Process: "node"}
+	duplicates := denial
+	duplicates.Hits = 3
+
+	got, ok := auditReport(&sandbox.ViolationReport{
+		SandboxName: sandbox.DriverSeatbelt,
+		Violations:  []sandbox.Violation{denial, duplicates},
+	})
+	require.True(t, ok)
+	require.Len(t, got.Violations, 1)
+	assert.Equal(t, 4, got.Violations[0].Count)
+	assert.Equal(t, "node", got.Violations[0].Process)
+}

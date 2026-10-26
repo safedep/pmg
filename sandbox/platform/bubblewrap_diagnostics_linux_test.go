@@ -343,6 +343,8 @@ func TestBubblewrapStderrTapDedupesBeforeCapping(t *testing.T) {
 	require.Len(t, denials, 2)
 	assert.Equal(t, "/work/.env", denials[0].target)
 	assert.Equal(t, "/work/.npmrc", denials[1].target)
+	assert.Equal(t, bubblewrapDenialCap*2, denials[0].hits, "every repeat counts on the kept denial")
+	assert.Equal(t, 1, denials[1].hits)
 }
 
 func TestBubblewrapStderrTapBoundsDistinctDenials(t *testing.T) {
@@ -468,6 +470,7 @@ func TestBestEffortViolation(t *testing.T) {
 				Process:   "cat",
 				RawLog:    "cat: /work/.env: Permission denied",
 				RuleLabel: "read access denied: /work/.env",
+				Hits:      1,
 			}}, report.Violations)
 		})
 	}

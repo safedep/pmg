@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,8 +40,10 @@ var seatbeltDenyVerbPattern = regexp.MustCompile(`\bdeny\(\d+\)\s+(\S+)`)
 
 // seatbeltDenyProcessPattern captures the program name from the same line. A
 // name can hold spaces and parentheses, so the match ends at the last
-// `(<pid>) deny(` of the line.
-var seatbeltDenyProcessPattern = regexp.MustCompile(`(?m)^Sandbox: (.+)\(\d+\) deny\(\d+\)`)
+// `(<pid>) deny(` of the line. When a denial repeats, the kernel writes
+// "N duplicate reports for Sandbox: ..." in place of the N repeats, and the
+// pattern captures N.
+var seatbeltDenyProcessPattern = regexp.MustCompile(`(?m)^(?:(\d+) duplicate reports? for )?Sandbox: (.+)\(\d+\) deny\(\d+\)`)
 
 type seatbeltLogEntry struct {
 	EventMessage     string `json:"eventMessage"`
@@ -56,16 +59,21 @@ func (e seatbeltLogEntry) fromKernel() bool {
 	return e.ProcessImagePath == seatbeltKernelImagePath
 }
 
-// deniedProcess names the program that tried the operation. The kernel
-// writes a denial, so the process of the entry is the kernel itself.
-func (e seatbeltLogEntry) deniedProcess() string {
+// deniedProcess names the program that tried the operation, and the number
+// of denials the entry stands for. The kernel writes a denial, so the
+// process of the entry is the kernel itself.
+func (e seatbeltLogEntry) deniedProcess() (process string, hits int) {
 	if m := seatbeltDenyProcessPattern.FindStringSubmatch(e.EventMessage); m != nil {
-		return m[1]
+		hits = 1
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			hits = n
+		}
+		return m[2], hits
 	}
 	if e.Process != "" {
-		return e.Process
+		return e.Process, 1
 	}
-	return e.ProcessImagePath
+	return e.ProcessImagePath, 1
 }
 
 // kernelEntries drops the entries that the kernel did not write.
@@ -216,7 +224,7 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 			continue
 		}
 
-		process := entry.deniedProcess()
+		process, hits := entry.deniedProcess()
 
 		// The lockdown marker names the rule, not the denied operand, so a
 		// network denial under it recovers the operand from the log line.
@@ -262,6 +270,7 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 			Process:    process,
 			RawLog:     strings.TrimSpace(entry.EventMessage),
 			RuleLabel:  summarizeSeatbeltViolation(labelKind, labelTarget),
+			Hits:       hits,
 		})
 	}
 
