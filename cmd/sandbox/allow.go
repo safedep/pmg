@@ -255,6 +255,14 @@ func suggestionsFromCache(cache *pmgsandbox.ViolationCache, all bool) ([]pmgsand
 		)
 	}
 
+	if entry.Record.Report.CleanExit {
+		return nil, invalidArgumentError(
+			"the latest violation report cannot be promoted to an allowance",
+			"The command exited 0, so nothing needs an allowance, and a program that catches a denial can be an attack. "+
+				"Review it with `pmg sandbox explain --last`, then add the allowance explicitly with `pmg sandbox allow <type>=<value>`.",
+		)
+	}
+
 	if all {
 		return pmgsandbox.BuildAllOverrides(entry.Record.Report), nil
 	}

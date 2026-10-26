@@ -342,6 +342,12 @@
   guarantee: "`pmg sandbox doctor --json` has a network.exec-path probe that says whether this host's driver confines `pmg sandbox exec` to the proxy."
   labels: [sandbox, exec, doctor, offline]
 
+- id: sandbox/observe/caught-denial-recorded
+  title: "sandbox records a denial that the program catches"
+  category: sandbox
+  tier: P1
+  guarantee: "After a sandboxed program catches a credential read denial and exits 0, `pmg sandbox violations list` names the denied file. A clean run records nothing."
+  labels: [sandbox, observe]
 - id: sandbox/observe/env-scrub-recorded
   title: "sandbox records env scrubs to the violation cache"
   category: sandbox

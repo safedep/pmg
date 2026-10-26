@@ -13,16 +13,20 @@ import (
 // of violations recorded. Failures are logged and swallowed; observability MUST
 // NOT affect command exit.
 //
+// Call it after every run, once the result holds the exit error. A program
+// can catch a denial and exit 0, so a clean run can still carry a denial.
+//
 // This is the sandbox package's only stake in command-failure handling. It
 // deliberately does not classify or shape the failure: causation cannot be
 // inferred from EPERM/EACCES returns alone, so attribution is left to the
 // execution layer (see internal/runner classify).
-func ObserveViolations(result *sandbox.ExecutionResult, runErr error) int {
+func ObserveViolations(result *sandbox.ExecutionResult) int {
 	if result == nil {
 		return 0
 	}
+	runErr := result.ExitError()
 
-	report, diagErr := result.BestEffortViolation(runErr)
+	report, diagErr := result.BestEffortViolation()
 	if diagErr != nil {
 		// Env scrubs come from the executor, not the driver, so a failed
 		// collection must not discard them.
@@ -30,10 +34,18 @@ func ObserveViolations(result *sandbox.ExecutionResult, runErr error) int {
 		report = nil
 	}
 
+	// A clean run records a report only when the driver saw a denial. Most
+	// runs scrub an environment variable, and a scrub-only record for each
+	// clean run would push the denials out of the cache.
+	if runErr == nil && (report == nil || len(report.Violations) == 0) {
+		return 0
+	}
+
 	report = sandbox.MergeEnvScrub(report, result.EnvScrub())
 	if report == nil || len(report.Violations) == 0 {
 		return 0
 	}
+	report.CleanExit = runErr == nil
 
 	persistViolationReport(report)
 	return len(report.Violations)
