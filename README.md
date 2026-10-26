@@ -290,15 +290,14 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 ```yaml
 - uses: actions/checkout@v4
 - uses: safedep/pmg@v0.34.0
-  with:
-    server-mode: true
 
-# intercepted via HTTP_PROXY automatically
+# goes through the PMG proxy
 - run: npm ci
 ```
 
-At the end of the job, the action stops PMG, fails the job on a block, and
-writes a job summary. The summary proposes a network profile from the
+The action runs the PMG proxy for the job, with kernel enforcement where the
+runner allows it. At the end of the job, the action stops PMG, fails the job
+on a block, and writes a job summary. The summary proposes a network profile from the
 destinations the job reached.
 
 By default you get malware blocking and dependency cooldown. Sandbox isolation
@@ -309,17 +308,18 @@ is opt-in via the `sandbox` input. Tune behavior via inputs (`paranoid`,
 
 ### Kernel Enforcement (Linux)
 
-A step can ignore `HTTP_PROXY`. With `enforce`, PMG attaches eBPF programs
-that make the Linux kernel route every eligible process through the proxy. A
-step cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own.
-Enforcement needs passwordless `sudo`, which GitHub-hosted Ubuntu runners have.
-npm needs Node 22.19 or later. The `enforce` input needs action version
-`v0.31.0` or later.
+A step can ignore `HTTP_PROXY`. With kernel enforcement, PMG attaches eBPF
+programs that make the Linux kernel route every eligible process through the
+proxy. A step cannot bypass it with `env -i`, `sudo`, or an HTTP client of
+its own. Enforcement needs passwordless `sudo` on the runner host, which
+GitHub-hosted Ubuntu runners have. The `enforce` input is `auto` by default.
+The action enforces where the runner can, and runs the proxy without
+enforcement in a job container or without `sudo`. Set `enforce: true` to fail
+the job where the runner cannot enforce.
 
 ```yaml
 - uses: safedep/pmg@v0.34.0
   with:
-    server-mode: true
     enforce: true
 
 - run: npm ci

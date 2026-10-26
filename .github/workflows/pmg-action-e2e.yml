@@ -44,6 +44,8 @@ jobs:
         uses: $/ # action.yml
         with:
           server-mode: true
+          # The assertions read HTTP_PROXY, which enforcement does not set.
+          enforce: false
           api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
           tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
 

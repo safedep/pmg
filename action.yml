@@ -74,9 +74,9 @@ inputs:
     default: "false"
 
   server-mode:
-    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job, with PMG_PROXY_RUN, the id of the run in the event log. The post step of the action stops the proxy at the end of the job. network-profile turns server mode on.
+    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job, with PMG_PROXY_RUN, the id of the run in the event log. The post step of the action stops the proxy at the end of the job. Empty means server mode, except with sandbox true, which needs the shims. Set false for shims. network-profile turns server mode on.
     required: false
-    default: "false"
+    default: ""
   fail-on-violation:
     description: With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state. When PMG cannot stop the proxy, the job fails with every setting.
     required: false
@@ -95,9 +95,9 @@ inputs:
     default: "false"
 
   enforce:
-    description: With server-mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. Needs passwordless sudo on the runner. The action installs the PMG CA into the system trust store and starts the daemon as root. The action exports PMG_BIN and PMG_PROXY_STATE, so a step can run "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE". With config-file it also exports PMG_PROXY_CONFIG_DIR, the daemon's config directory.
+    description: With server mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. auto enforces where the runner can, which needs the runner host and passwordless sudo, and runs the proxy without enforcement elsewhere. true fails where the runner cannot enforce. false turns it off. The action installs the PMG CA into the system trust store, starts the daemon as root, and sets NODE_EXTRA_CA_CERTS for Node before 22.19 unless the job sets it. The action exports PMG_BIN and PMG_PROXY_STATE, so a step can run "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE". With config-file it also exports PMG_PROXY_CONFIG_DIR, the daemon's config directory.
     required: false
-    default: "false"
+    default: "auto"
   enforce-ports:
     description: With enforce, destination ports to route in addition to proxy.server.enforce.ports (comma or newline separated). Passed as --enforce-port.
     required: false

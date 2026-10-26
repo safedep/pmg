@@ -1,8 +1,9 @@
 # PMG GitHub Action
 
-The PMG GitHub Action installs PMG on a Linux GitHub Actions runner. PMG
-then wraps package manager commands such as `npm install`, `pip install`,
-or `poetry add`. The proxy blocks malicious packages before they run.
+The PMG GitHub Action installs PMG on a Linux GitHub Actions runner and
+starts the PMG proxy for the job. Package manager commands such as `npm
+install`, `pip install`, or `poetry add` go through the proxy. The proxy
+blocks malicious packages before they run.
 
 ```yaml
 - uses: safedep/pmg@v0.34.0
@@ -37,24 +38,31 @@ Out of the box the action gives:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - uses: safedep/pmg@v0.34.0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: safedep/pmg@v0.34.0
       - run: npm ci
 ```
 
-**Use the correct step order.** Put `safedep/pmg` after `setup-node` or
-`setup-python`. Each of these steps prepends to `PATH`. PMG must put its
-shims in front of the real toolchain shims on `PATH`. Run
-`pmg setup info --json`. The `user_shims.dir` value shows the PMG shim
-directory.
+Put the action right after `actions/checkout`, so the proxy sees the
+traffic of every later step. By default the action runs the proxy in
+[server mode](#server-mode) with [kernel enforcement](#kernel-enforcement)
+where the runner allows it. At the end of the job its post step stops the
+proxy, writes a job summary, and fails the job when PMG blocked a package.
 
-This step order also works when releases change the shim location. Pre-v2
-releases put shims in one directory. Newer releases put them under the XDG
-data directory. The action adds whichever directory the install creates.
+### Shim mode
+
+With `server-mode: false` the action wraps the package managers with shims
+on `PATH` instead. Put `safedep/pmg` after `setup-node` or `setup-python`.
+Each of these steps prepends to `PATH`. PMG must put its shims in front of
+the real toolchain shims on `PATH`. Run `pmg setup info --json`. The
+`user_shims.dir` value shows the PMG shim directory. A tool that does not
+go through a shim, such as `go` or a script with its own HTTP client, is
+not protected in shim mode.
 
 ## Inputs
 
@@ -81,12 +89,12 @@ default.
 | `skip-event-logging` | `PMG_SKIP_EVENT_LOGGING` | `false` |
 | `config-file` | Path to a YAML file in the repository. The action copies it to the PMG config directory before setup. Use it to override any config key. | unset |
 | `cache` | Reuse a previously extracted PMG binary from `$RUNNER_TOOL_CACHE`. On a cache hit the action fetches `checksums.txt` from upstream and verifies the cached tarball again. | `false` (download each run) |
-| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job, with `PMG_PROXY_RUN`, the id of the run in the event log. The post step of the action stops the daemon at the end of the job. See [Server mode](#server-mode). | `false` (shims) |
+| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job, with `PMG_PROXY_RUN`, the id of the run in the event log. The post step of the action stops the daemon at the end of the job. Set `false` for [shim mode](#shim-mode). See [Server mode](#server-mode). | server mode, or shims with `sandbox: true` |
 | `fail-on-violation` | With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state. | `true` |
 | `auto-stop` | With server mode, stop the daemon in the post step. Set it to `false` only when a step of the job stops the daemon and needs its output. | `true` |
 | `baseline` | With server mode, propose a network profile from the destinations the job reached, and show it in the job summary. | `true` |
 | `expose-to-job-network` | With `server-mode` in a job that has a job container, bind the proxy to the job container's address on the job network. Docker actions and `docker://` steps in the job can then reach the proxy. The action fails when the job has no job container. See [Job containers and Docker actions](#job-containers-and-docker-actions). | `false` |
-| `enforce` | With `server-mode`, route every eligible process through the proxy in the kernel. Needs passwordless `sudo`. The action exports `PMG_BIN` and `PMG_PROXY_STATE`, so a step can run `sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE"`. With `config-file` it also exports `PMG_PROXY_CONFIG_DIR`, the daemon's config directory. | `false` |
+| `enforce` | With server mode, route every eligible process through the proxy in the kernel. `auto` enforces where the runner can and runs the proxy without enforcement elsewhere. `true` fails where the runner cannot enforce. `false` turns it off. See [Kernel enforcement](#kernel-enforcement). The action exports `PMG_BIN` and `PMG_PROXY_STATE`, so a step can run `sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE"`. With `config-file` it also exports `PMG_PROXY_CONFIG_DIR`, the daemon's config directory. | `auto` |
 | `enforce-ports` | With `enforce`, destination ports to route in addition to the config, comma or newline separated. Passed as `--enforce-port`. | unset |
 | `enforce-exempt-users` | With `enforce`, users never routed, in addition to the config. Passed as `--enforce-exempt-user`. | unset |
 | `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config. Passed as `--enforce-exempt-executable`. | unset |
@@ -158,22 +166,10 @@ file. Specify only the keys to override.
 
 ### Server mode
 
-With `server-mode`, the action starts the PMG proxy as a daemon and exports
-the proxy variables to the job. Put the action right after
+Server mode is the default. The action starts the PMG proxy as a daemon and
+exports the proxy variables to the job. Put the action right after
 `actions/checkout`, so the proxy sees the traffic of every later step. The
-job needs no other PMG step.
-
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: safedep/pmg@v0.34.0
-    with:
-      server-mode: true
-  - uses: actions/setup-node@v4
-    with:
-      node-version: 24
-  - run: npm ci
-```
+job needs no other PMG step. See the [Quick start](#quick-start).
 
 At the end of the job, the post step of the action:
 
@@ -209,9 +205,16 @@ destinations out.
 
 ### Kernel enforcement
 
-Environment variables are a request a process can ignore. With `enforce`,
-the Linux kernel routes every eligible process through the proxy. A step
-cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own. The
+Environment variables are a request a process can ignore. With kernel
+enforcement the Linux kernel routes every eligible process through the
+proxy. A step cannot bypass it with `env -i`, `sudo`, or an HTTP client of
+its own.
+
+`enforce` is `auto` by default. The action enforces when the job runs on the
+runner host and the runner has passwordless `sudo`. In a job container,
+without `sudo`, or when the enforced start fails, the action runs the proxy
+without enforcement and says so in the log. Set `enforce: true` to fail the
+job instead. Set `enforce: false` to turn enforcement off. The
 action installs the PMG CA into the system trust store, starts the daemon as
 root, and exports the trust variables. The daemon runs as root, and `sudo`
 resets `HOME` and `PATH`, so the action exports the binary path as `PMG_BIN`
@@ -225,7 +228,6 @@ describes how enforcement works.
 ```yaml
 - uses: safedep/pmg@v0.34.0
   with:
-    server-mode: true
     enforce: true
     api-key: ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
@@ -236,12 +238,9 @@ describes how enforcement works.
 Set `timeout-minutes` on every enforced job. See
 [Runner traffic](#runner-traffic).
 
-Node, and with it npm, needs version 22.19 or later. For an older Node, add
-this step after the action:
-
-```yaml
-- run: echo "NODE_EXTRA_CA_CERTS=$PMG_CA_BUNDLE" >> "$GITHUB_ENV"
-```
+Node reads the system trust store from version 22.19 on. For an older Node,
+the action sets `NODE_EXTRA_CA_CERTS` to the bundle with the PMG CA, unless
+the job sets it.
 
 The policy inputs cover the common cases without a config file. Each list
 adds to the config's list. The config is the staged `config-file` when the
@@ -253,7 +252,6 @@ daemon log and `pmg proxy status` name the file it loaded.
 ```yaml
 - uses: safedep/pmg@v0.34.0
   with:
-    server-mode: true
     enforce: true
     enforce-exempt-executables: /opt/agent/bin/agent
     enforce-skip-destinations: 10.20.0.0/16
@@ -276,7 +274,6 @@ variables. See
 ```yaml
 - uses: safedep/pmg@v0.34.0
   with:
-    server-mode: true
     enforce: true
     network-profile: .pmg/profiles/ci.yml
     network-mode: enforce
@@ -382,7 +379,6 @@ A redirected container must trust the PMG CA, which the action exports as
 ```yaml
 - uses: safedep/pmg@v0.34.0
   with:
-    server-mode: true
     enforce: true
     enforce-namespaces: redirect
 - run: docker build --secret id=pmg-ca,src=$PMG_CA_BUNDLE -t app .
@@ -428,7 +424,9 @@ v0.32.0 and older runs every step with `bash` and fails on an image without
 it. On those versions, run `apk add --no-cache bash curl` in a step before
 the action.
 
-`enforce` does not work in a job container. See [Containers](#containers).
+Kernel enforcement does not run in a job container. With `enforce: auto`
+the action runs the proxy without it there. With `enforce: true` the action
+fails. See [Containers](#containers).
 `sandbox` changes kernel settings of the runner host, and may not start in a
 job container. Run those jobs on the runner.
 
@@ -448,7 +446,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: safedep/pmg@v0.34.0
         with:
-          server-mode: true
           expose-to-job-network: true
       - run: npm ci
       - uses: docker://node:24
@@ -490,6 +487,9 @@ it, `pmg proxy stop` waits until its timeout and fails.
     sandbox-driver: landlock   # or "bubblewrap"
 - run: npm ci
 ```
+
+The sandbox runs the package managers through the PMG shims, so `sandbox:
+true` turns on [shim mode](#shim-mode) unless the job sets `server-mode`.
 
 The action runs `systemctl stop apparmor` and clears
 `kernel.apparmor_restrict_unprivileged_userns`. This lets unprivileged

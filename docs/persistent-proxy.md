@@ -72,7 +72,6 @@ GitHub Actions with the [safedep/pmg action](../action.yml), described in
 ```yaml
 - uses: safedep/pmg@v0.34.0
   with:
-    server-mode: true
     api-key: ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
 

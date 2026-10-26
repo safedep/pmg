@@ -18,9 +18,9 @@ function main() {
   }
 
   const jobContainer = lib.inJobContainer();
-  const enforce = lib.boolInput('enforce');
   const profile = lib.input('network-profile');
-  const serverMode = lib.boolInput('server-mode') || profile !== '';
+  const serverMode = resolveServerMode(profile);
+  const enforce = lib.input('enforce').toLowerCase() || 'auto';
   warnIgnoredInputs(serverMode, enforce);
 
   const { outputs } = lib.group('Install PMG', () =>
@@ -60,37 +60,105 @@ function main() {
   return verify.status === 0 ? 0 : 1;
 }
 
+// resolveServerMode is true unless the job asks for shims. The sandbox wraps
+// the package managers through the shims, so sandbox true keeps them.
+function resolveServerMode(profile) {
+  const input = lib.input('server-mode').toLowerCase();
+  if (profile !== '' || input === 'true') {
+    return true;
+  }
+  if (input === 'false') {
+    return false;
+  }
+  return !lib.boolInput('sandbox');
+}
+
 function warnIgnoredInputs(serverMode, enforce) {
-  if (!enforce && enforceInputs.some((name) => lib.input(name) !== '')) {
-    lib.warning('The enforce-* inputs apply only with enforce true. They are ignored.');
+  if (enforce === 'false' && enforceInputs.some((name) => lib.input(name) !== '')) {
+    lib.warning('The enforce-* inputs apply only with kernel enforcement. They are ignored.');
   }
   if (!serverMode && lib.input('network-mode') !== '') {
-    lib.warning('network-mode applies only with network-profile or server-mode true. It is ignored.');
+    lib.warning('network-mode applies only with server mode. It is ignored.');
   }
-  if (enforce && !serverMode) {
-    lib.warning('enforce applies only with server-mode true or network-profile. It is ignored.');
+  if (enforce === 'true' && !serverMode) {
+    lib.warning('enforce applies only with server mode. It is ignored.');
   }
-  if (lib.boolInput('expose-to-job-network') && (!serverMode || enforce)) {
-    lib.warning('expose-to-job-network applies only with server-mode true and enforce false. It is ignored.');
+  if (lib.boolInput('expose-to-job-network') && (!serverMode || enforce === 'true')) {
+    lib.warning('expose-to-job-network applies only with server mode and without enforce. It is ignored.');
   }
 }
 
-function startProxy(binDir, profile, enforce, jobContainer) {
+// enforceMode decides whether the daemon starts with kernel enforcement.
+// true must enforce or fail. auto enforces where the runner can: on the
+// runner host, with passwordless sudo, and without expose-to-job-network.
+function enforceMode(enforce, jobContainer) {
+  if (enforce === 'true') {
+    return 'required';
+  }
+  if (enforce !== 'auto') {
+    return 'off';
+  }
+  let reason = '';
+  if (jobContainer) {
+    reason = 'the job runs in a job container';
+  } else if (lib.boolInput('expose-to-job-network')) {
+    reason = 'expose-to-job-network is set';
+  } else if (spawnSync('sudo', ['-n', 'true']).status !== 0) {
+    reason = 'the runner has no passwordless sudo';
+  }
+  if (reason !== '') {
+    lib.notice(`PMG runs the proxy without kernel enforcement, because ${reason}. A step can bypass the proxy by dropping the proxy variables.`);
+    return 'off';
+  }
+  return 'auto';
+}
+
+function startProxy(binDir, profile, enforceInput, jobContainer) {
   const network = networkInputs(profile);
   const env = {
     INPUT_NETWORK_PROFILE: network.profile,
     INPUT_NETWORK_MODE: network.mode,
   };
 
-  if (enforce && jobContainer) {
-    throw new Error('enforce attaches kernel programs on the runner host, and this job runs in a job container (jobs.<job_id>.container). Run the job on the runner, or use server-mode without enforce.');
+  const mode = enforceMode(enforceInput, jobContainer);
+  if (mode === 'required' && jobContainer) {
+    throw new Error('enforce attaches kernel programs on the runner host, and this job runs in a job container (jobs.<job_id>.container). Run the job on the runner, or set enforce to auto or false.');
   }
+  if (mode !== 'off') {
+    try {
+      startOnce(binDir, true, jobContainer, env);
+      trustBundleForOldNode();
+      return;
+    } catch (err) {
+      if (mode === 'required') {
+        throw err;
+      }
+      lib.warning(`PMG could not start kernel enforcement, so it runs the proxy without it: ${err.message}`);
+      // enforce.sh exports the root daemon's state path before it starts
+      // the daemon. A later step must not read that path.
+      lib.appendFile('GITHUB_ENV', 'PMG_PROXY_STATE=');
+      lib.appendFile('GITHUB_ENV', 'PMG_PROXY_CONFIG_DIR=');
+    }
+  }
+  startOnce(binDir, false, jobContainer, env);
+}
 
+function startOnce(binDir, enforce, jobContainer, env) {
   try {
     saveProxyState(binDir, enforce, runStartScript(binDir, enforce, jobContainer, env));
   } catch (err) {
     stopAfterFailedStart(binDir, enforce);
     throw err;
+  }
+}
+
+// trustBundleForOldNode points NODE_EXTRA_CA_CERTS at the system bundle with
+// the PMG CA. Under enforcement Node trusts the store only from 22.19 on,
+// through NODE_USE_SYSTEM_CA. A value the job sets stays.
+function trustBundleForOldNode() {
+  const bundle = process.env.PMG_CA_BUNDLE || '';
+  if (bundle !== '' && !process.env.NODE_EXTRA_CA_CERTS) {
+    lib.appendFile('GITHUB_ENV', `NODE_EXTRA_CA_CERTS=${bundle}`);
   }
 }
 
