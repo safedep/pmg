@@ -149,14 +149,20 @@ func TestSandboxOverrideDedupRule(t *testing.T) {
 	}{
 		{
 			name:      "overrides are sorted",
-			event:     overrideEvent("pnpm+overlay", "value:/tmp", "type:read"),
-			wantParts: []string{"pnpm+overlay", "type:read", "value:/tmp"},
+			event:     overrideEvent("pnpm+overlay", "write=/b", "read=/a"),
+			wantParts: []string{"pnpm+overlay", "read=/a", "write=/b"},
+			wantMatch: true,
+		},
+		{
+			name:      "swapped targets have another key",
+			event:     overrideEvent("pnpm+overlay", "read=/b", "write=/a"),
+			wantParts: []string{"pnpm+overlay", "read=/b", "write=/a"},
 			wantMatch: true,
 		},
 		{
 			name:      "another profile has another key",
-			event:     overrideEvent("npm+overlay", "type:read", "value:/tmp"),
-			wantParts: []string{"npm+overlay", "type:read", "value:/tmp"},
+			event:     overrideEvent("npm+overlay", "read=/a", "write=/b"),
+			wantParts: []string{"npm+overlay", "read=/a", "write=/b"},
 			wantMatch: true,
 		},
 		{

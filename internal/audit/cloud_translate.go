@@ -69,13 +69,13 @@ func newSandboxOverrideEvent(event AuditEvent) *controltowerv1.PmgEvent {
 	override := &controltowerv1.PmgSandboxOverride{}
 	override.SetSandboxProfile(event.ProfileName)
 
-	var flattened []string
+	// One string per override, in the --sandbox-allow form, so the type and
+	// the value of an override stay together.
+	overrides := make([]string, 0, len(event.Overrides))
 	for _, m := range event.Overrides {
-		for k, v := range m {
-			flattened = append(flattened, fmt.Sprintf("%s:%s", k, v))
-		}
+		overrides = append(overrides, m["type"]+"="+m["value"])
 	}
-	override.SetOverrides(flattened)
+	override.SetOverrides(overrides)
 
 	e := &controltowerv1.PmgEvent{}
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_OVERRIDE)

@@ -95,8 +95,9 @@ func sandboxViolationDedupRule() endpointsync.DedupRule {
 		})
 }
 
-// sandboxOverrideDedupKey sorts the overrides, because the translation lists
-// them in map order, which changes from run to run.
+// sandboxOverrideDedupKey sorts the overrides, so the same set in another
+// order is the same key. Each override is one type=value string, so two
+// sets with swapped targets keep different keys.
 func sandboxOverrideDedupKey(override *controltowerv1.PmgSandboxOverride) []string {
 	return append([]string{override.GetSandboxProfile()}, slices.Sorted(slices.Values(override.GetOverrides()))...)
 }

@@ -116,8 +116,8 @@ func TestTranslateSandboxOverride(t *testing.T) {
 		Type:        EventTypeSandboxOverride,
 		ProfileName: "strict",
 		Overrides: []map[string]string{
-			{"read": "/tmp"},
-			{"write": "/var/log"},
+			{"type": "read", "value": "/tmp"},
+			{"type": "write", "value": "/var/log"},
 		},
 	}
 
@@ -130,7 +130,7 @@ func TestTranslateSandboxOverride(t *testing.T) {
 
 	override := result.GetSandboxOverride()
 	assert.Equal(t, "strict", override.GetSandboxProfile())
-	assert.ElementsMatch(t, []string{"read:/tmp", "write:/var/log"}, override.GetOverrides())
+	assert.Equal(t, []string{"read=/tmp", "write=/var/log"}, override.GetOverrides())
 }
 
 func TestTranslateError(t *testing.T) {
