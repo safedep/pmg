@@ -86,7 +86,7 @@ inputs:
     required: false
     default: "true"
   baseline:
-    description: With server mode, propose a network profile from the destinations the job reached, and show it in the job summary. The summary lists each destination host. On a public repository anyone can read the summary.
+    description: With server mode, propose a network profile from the destinations the job reached, and show it in the job summary with each destination host. On a public repository anyone can read the summary. A denied connection shows in the summary also when baseline is false.
     required: false
     default: "true"
   expose-to-job-network:

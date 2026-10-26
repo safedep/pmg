@@ -20,7 +20,7 @@ function main() {
   const jobContainer = lib.inJobContainer();
   const profile = lib.input('network-profile');
   const serverMode = resolveServerMode(profile);
-  const enforce = lib.input('enforce').toLowerCase() || 'auto';
+  const enforce = choice('enforce', ['auto', 'true', 'false'], 'auto');
   warnIgnoredInputs(serverMode, enforce);
 
   const { outputs } = lib.group('Install PMG', () =>
@@ -63,7 +63,7 @@ function main() {
 // resolveServerMode is true unless the job asks for shims. The sandbox wraps
 // the package managers through the shims, so sandbox true keeps them.
 function resolveServerMode(profile) {
-  const input = lib.input('server-mode').toLowerCase();
+  const input = choice('server-mode', ['', 'true', 'false'], '');
   if (profile !== '' || input === 'true') {
     return true;
   }
@@ -71,6 +71,16 @@ function resolveServerMode(profile) {
     return false;
   }
   return !lib.boolInput('sandbox');
+}
+
+// choice reads an input that takes one of a few values. A security input
+// with a typo must fail, not fall back to a weaker setting.
+function choice(name, allowed, fallback) {
+  const value = lib.input(name).toLowerCase() || fallback;
+  if (!allowed.includes(value)) {
+    throw new Error(`${name} must be one of ${allowed.filter((v) => v !== '').join(', ')}, not ${JSON.stringify(lib.input(name))}.`);
+  }
+  return value;
 }
 
 function warnIgnoredInputs(serverMode, enforce) {
@@ -95,7 +105,7 @@ function enforceMode(enforce, jobContainer) {
   if (enforce === 'true') {
     return 'required';
   }
-  if (enforce !== 'auto') {
+  if (enforce === 'false') {
     return 'off';
   }
   let reason = '';

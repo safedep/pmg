@@ -200,8 +200,10 @@ binary before the post step runs. PMG blocks a malicious package before its
 install code runs, so such a step must come from the workflow itself.
 
 The summary lists the destination hosts of the job. On a public repository
-anyone can read the job summary. Set `baseline: false` to leave the
-destinations out.
+anyone can read the job summary. Set `baseline: false` to leave out the
+proposal and the table of destinations. A connection that the network
+policy denies still shows in the summary and as an annotation, with its
+host.
 
 ### Kernel enforcement
 
@@ -238,9 +240,10 @@ describes how enforcement works.
 Set `timeout-minutes` on every enforced job. See
 [Runner traffic](#runner-traffic).
 
-Node reads the system trust store from version 22.19 on. For an older Node,
-the action sets `NODE_EXTRA_CA_CERTS` to the bundle with the PMG CA, unless
-the job sets it.
+Under enforcement the action sets `NODE_USE_SYSTEM_CA=1`, so Node 22.19 and
+later reads the system trust store. For an older Node, the action sets
+`NODE_EXTRA_CA_CERTS` to the bundle with the PMG CA, unless the job sets it.
+A bundle that the job sets must hold the PMG CA, or TLS to a registry fails.
 
 The policy inputs cover the common cases without a config file. Each list
 adds to the config's list. The config is the staged `config-file` when the
