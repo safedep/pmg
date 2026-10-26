@@ -18,12 +18,15 @@ import (
 //
 // A sandboxed run sends the overrides of the saved project overlay every
 // time, and a routine denial gives the same violation report on every run.
-// Their rules collapse the repeats of separate runs.
+// Runs come minutes or hours apart, so a 15-minute window merges almost
+// none of them. A day leaves one first event and one count per key on each
+// machine. A new override set or a new denial has a new key and goes out at
+// once.
 const (
 	hostObservationDedupWindow  = 15 * time.Minute
 	networkPolicyDedupWindow    = 15 * time.Minute
-	sandboxOverrideDedupWindow  = 15 * time.Minute
-	sandboxViolationDedupWindow = 15 * time.Minute
+	sandboxOverrideDedupWindow  = 24 * time.Hour
+	sandboxViolationDedupWindow = 24 * time.Hour
 )
 
 // pmgDedupRule builds the dedup rule of one PMG event type. key reports

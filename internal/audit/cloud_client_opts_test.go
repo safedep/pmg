@@ -129,7 +129,7 @@ func TestSandboxOverrideDedupRule(t *testing.T) {
 	rule := sandboxOverrideDedupRule()
 
 	assert.Equal(t, "pmg-sandbox-override", rule.Name)
-	assert.Equal(t, 15*time.Minute, rule.Window)
+	assert.Equal(t, 24*time.Hour, rule.Window)
 
 	overrideEvent := func(profile string, overrides ...string) *servicev1.ToolEvent {
 		override := &controltowerv1.PmgSandboxOverride{}
@@ -236,7 +236,7 @@ func TestSandboxViolationDedupRule(t *testing.T) {
 	rule := sandboxViolationDedupRule()
 
 	assert.Equal(t, "pmg-sandbox-violation", rule.Name)
-	assert.Equal(t, 15*time.Minute, rule.Window)
+	assert.Equal(t, 24*time.Hour, rule.Window)
 
 	_, ok := rule.Key(toolEventWithPmgEvent(&controltowerv1.PmgEvent{
 		EventType: controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_VIOLATION,
