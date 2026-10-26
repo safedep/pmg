@@ -2,6 +2,7 @@ package audit
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -189,7 +190,7 @@ func newSandboxViolation(v SandboxViolation) (*controltowerv1.PmgSandboxViolatio
 	if process != "" {
 		violation.SetProcess(process)
 	}
-	violation.SetCount(uint32(max(v.Count, 1)))
+	violation.SetCount(uint32(min(max(int64(v.Count), 1), math.MaxUint32)))
 
 	return violation, len(target) + len(rule) + len(process), true
 }

@@ -3,6 +3,7 @@ package audit
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -350,6 +351,33 @@ func TestTranslateSandboxViolationCleansStrings(t *testing.T) {
 	assert.True(t, utf8.ValidString(v.GetProcess()), "a cut must not split a character")
 	assert.LessOrEqual(t, len(v.GetProcess()), maxSandboxViolationProcess)
 	assert.Equal(t, uint32(1), v.GetCount(), "the proto requires a count of at least 1")
+}
+
+func TestTranslateSandboxViolationLimitsTheCount(t *testing.T) {
+	cases := []struct {
+		name  string
+		count int
+		want  uint32
+	}{
+		{"zero", 0, 1},
+		{"in range", 7, 7},
+		{"wraps to zero as uint32", 1 << 32, math.MaxUint32},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			event := AuditEvent{
+				Type: EventTypeSandboxViolation,
+				SandboxViolations: SandboxViolationReport{
+					Driver:     sandbox.DriverBubblewrap,
+					Violations: []SandboxViolation{{Kind: sandbox.ViolationKindFSRead, Path: "/etc/hosts", Count: tc.count}},
+				},
+			}
+
+			report := testSink.translateToPmgEvents(event)[0].GetSandboxViolationReport()
+			assert.Equal(t, tc.want, report.GetViolations()[0].GetCount())
+		})
+	}
 }
 
 func TestMapSandboxViolationKind(t *testing.T) {
