@@ -414,10 +414,9 @@ func TestBestEffortViolation(t *testing.T) {
 		wantNil bool
 	}{
 		{
-			name:    "successful run reports nothing",
-			stderr:  "cat: /work/.env: Permission denied\n",
-			attach:  true,
-			wantNil: true,
+			name:   "denial on a clean run is reported",
+			stderr: "cat: /work/.env: Permission denied\n",
+			attach: true,
 		},
 		{
 			name:    "execute never ran",
@@ -487,7 +486,8 @@ func TestExecutionResultReachesBubblewrapReporter(t *testing.T) {
 
 	result := sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(b))
 
-	report, err := result.BestEffortViolation(errors.New("exit status 1"))
+	result.SetExitError(errors.New("exit status 1"))
+	report, err := result.BestEffortViolation()
 	require.NoError(t, err)
 	require.NotNil(t, report)
 

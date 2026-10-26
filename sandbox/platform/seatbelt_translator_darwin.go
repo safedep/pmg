@@ -30,6 +30,7 @@ func generateLogTag() string {
 // Shared vocabulary between rule emission (translator) and violation
 // parsing (diagnostics); a drift between the two breaks message rendering.
 const (
+	seatbeltKindDefault          = "default"
 	seatbeltKindNetworkOutbound  = "network-outbound"
 	seatbeltLockdownTargetDirect = "direct"
 	seatbeltTargetUnixSocket     = "unix-socket"
@@ -247,7 +248,7 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy, rt *
 
 	// Default policy: deny by default for maximum security
 	// Add log tag to track what gets denied by the default rule
-	sb.WriteString(fmt.Sprintf("(deny default (with message \"%s\"))\n\n", seatbeltLogMessage(t.logTag, "default", "")))
+	sb.WriteString(fmt.Sprintf("(deny default (with message \"%s\"))\n\n", seatbeltLogMessage(t.logTag, seatbeltKindDefault, "")))
 
 	// Essential system permissions - based on Chrome/Chromium sandbox policy
 	// These are the minimum permissions needed for stable process execution

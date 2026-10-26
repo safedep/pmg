@@ -93,8 +93,8 @@ func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 // (auditNetworkDeny), not kernel Landlock denials. Operational events
 // (namespace_isolation_unavailable, memfd_open_failed) are deliberately
 // excluded from the report; they are degradation warnings, not denials.
-func (s *landlockSandbox) BestEffortViolation(err error) (*sandbox.ViolationReport, error) {
-	if err == nil || s.auditDone == nil {
+func (s *landlockSandbox) BestEffortViolation(error) (*sandbox.ViolationReport, error) {
+	if s.auditDone == nil {
 		return nil, nil
 	}
 
