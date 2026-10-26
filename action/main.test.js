@@ -2,7 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { checkInputs, enforceMode, resolveServerMode } = require('./main');
+const lib = require('./lib');
+const { checkInputs, enforceMode, resolveServerMode, runnerCannotEnforce } = require('./main');
 
 // withEnv sets the variables for one call and restores them after it.
 function withEnv(vars, fn) {
@@ -68,4 +69,16 @@ test('enforceMode fails when auto cannot enforce and an enforce input is set', (
     () => withEnv({ RUNNER_ENVIRONMENT: 'github-hosted', 'INPUT_ENFORCE-NAMESPACES': 'redirect' }, () => enforceMode('auto', true)),
     /enforce-\* inputs need kernel enforcement, .* job container/,
   );
+});
+
+test('runnerCannotEnforce is true only for a runner error code', async (t) => {
+  for (const [name, err, want] of [
+    ['missing kernel support', new lib.ScriptError('enforce.sh', 1, '', ['EnforceRequirements']), true],
+    ['unsupported platform', new lib.ScriptError('enforce.sh', 1, '', ['UnsupportedPlatform']), true],
+    ['a policy error', new lib.ScriptError('enforce.sh', 1, '', ['InvalidArgument']), false],
+    ['no code', new lib.ScriptError('enforce.sh', 1), false],
+    ['not a script error', new Error('x'), false],
+  ]) {
+    await t.test(name, () => assert.strictEqual(runnerCannotEnforce(err), want));
+  }
 });

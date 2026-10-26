@@ -22,7 +22,9 @@ hung proxy blocks the job until the timeout. See
 > `fail-on-violation`, `auto-stop` and `baseline` inputs need
 > `safedep/pmg@v0.34.0` or later, and a runner that runs Node 24 actions. On an
 > older version, add a stop step at the end of the job, as the documentation
-> of that version shows. The `enforce`, `enforce-*` and
+> of that version shows. To upgrade to `v0.34.0`, remove the stop step, or set
+> `auto-stop: false` when a step of the job must stop PMG. The post step fails
+> a job that stops PMG in its own step and keeps `auto-stop: true`. The `enforce`, `enforce-*` and
 > `expose-to-job-network` inputs need `safedep/pmg@v0.31.0` or later. The
 > `network-profile` and `network-mode` inputs need `safedep/pmg@v0.33.0` or
 > later. GitHub warns about an unknown
@@ -222,10 +224,12 @@ its own.
 `enforce` is `auto` by default. The action enforces when the job runs on a
 GitHub-hosted runner, on the runner host, and the runner has passwordless
 `sudo`. On a self-hosted runner, in a job container, without `sudo`, or when
-the enforced start fails, the action runs the proxy without enforcement and
-says so in the log. When the job sets an `enforce-*` input and the action
-cannot enforce, the action fails, because a typo or a runner change must not
-turn enforcement off. Set `enforce: true` to fail the job in every case. Set
+the kernel of the runner cannot enforce, the action runs the proxy without
+enforcement and says so in the log. Any other failure of the enforced start
+fails the action, such as a typo in the `enforce` section of `config-file`.
+When the job sets an `enforce-*` input and the action cannot enforce, the
+action fails too, because a typo or a runner change must not turn
+enforcement off. Set `enforce: true` to fail the job in every case. Set
 `enforce: false` to turn enforcement off. `enforce: true` with shim mode
 fails, because shim mode has no daemon to enforce. The
 action installs the PMG CA into the system trust store, starts the daemon as

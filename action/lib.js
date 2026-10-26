@@ -144,7 +144,7 @@ function run(shell, script, env, { captureStderr = false } = {}) {
     throw res.error;
   }
   if (res.status !== 0) {
-    throw new ScriptError(script, res.status, lastLines(res.stderr || '', 3));
+    throw new ScriptError(script, res.status, lastLines(res.stderr || '', 3), errorCodes(res.stderr || ''));
   }
 
   const exported = parseKeyValues(readFrom('GITHUB_ENV', offsets.GITHUB_ENV));
@@ -189,16 +189,30 @@ function runPMG(bin, args, { sudo = false, configDir = '', capture = false } = {
   return res;
 }
 
+// A ScriptError holds the error codes that pmg printed, so a caller can tell
+// a runner that cannot enforce from a policy with an error.
 class ScriptError extends Error {
-  constructor(script, status, cause = '') {
+  constructor(script, status, cause = '', codes = []) {
     super(`${script} exited with status ${status}${cause === '' ? '' : `: ${cause}`}`);
     this.status = status;
+    this.codes = codes;
   }
 }
 
+const stripColors = (text) => text.replace(/\x1b\[[0-9;]*m/g, '');
+
+// errorCodes reads the code that pmg prints first on an error line, as in
+// " InvalidArgument   the enforce policy is not valid".
+function errorCodes(text) {
+  return stripColors(text)
+    .split('\n')
+    .map((line) => /^\s*([A-Z][A-Za-z]+)\s{2,}\S/.exec(line))
+    .filter(Boolean)
+    .map((match) => match[1]);
+}
+
 function lastLines(text, n) {
-  return text
-    .replace(/\x1b\[[0-9;]*m/g, '')
+  return stripColors(text)
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '' && !line.startsWith('::'))
@@ -229,6 +243,7 @@ module.exports = {
   boolInput,
   childEnv,
   error,
+  errorCodes,
   group,
   inJobContainer,
   input,

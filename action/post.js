@@ -122,7 +122,7 @@ function stateArgs(enforce) {
 // supportsReport is false for a PMG release older than the job summary.
 // The action installs the release that the version input names.
 function supportsReport(bin) {
-  const res = spawnSync(bin, ['proxy', 'stop', '--help'], { encoding: 'utf8' });
+  const res = spawnSync(bin, ['proxy', 'stop', '--help'], { encoding: 'utf8', env: lib.childEnv() });
   return res.status === 0 && res.stdout.includes('--if-running');
 }
 
@@ -139,7 +139,7 @@ function legacyStop(pmg, enforce, failOnViolation) {
   });
   clearProxyVars();
   if (stop.status !== 0 && /no proxy state found|File or directory not found/.test(stop.stdout + stop.stderr)) {
-    return 0;
+    return checkNotRunning(failOnViolation).status;
   }
   return stop.status ?? 1;
 }

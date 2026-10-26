@@ -73,7 +73,7 @@ func Markdown(in Input) string {
 func verdict(in Input) string {
 	switch {
 	case !in.Stop.Stopped && in.FailOnViolation:
-		return "**Failed.** No PMG proxy ran at the end of the job. A step stopped it or removed its state file, so the job has no verdict. When a step of the job stops PMG, set `auto-stop: false`."
+		return "**Failed.** The post step found no PMG proxy state. A step stopped the proxy or removed its state file, so the job has no verdict. The log of the post step names the cause. When a step stops PMG on purpose, set `auto-stop: false`."
 	case !in.Stop.Stopped:
 		return "No PMG proxy ran at the end of the job. A step stopped it or removed its state file, so this summary has no stop result."
 	case in.Stop.Violation != "" && in.FailOnViolation:

@@ -9,6 +9,11 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const lib = require('./lib');
 
+// runnerErrorCodes are the start failures that come from the runner, not
+// from the policy. enforce auto runs the proxy without enforcement only for
+// these.
+const runnerErrorCodes = ['EnforceRequirements', 'UnsupportedPlatform'];
+
 const enforceInputs = ['enforce-ports', 'enforce-exempt-users', 'enforce-exempt-executables', 'enforce-skip-destinations', 'enforce-namespaces'];
 
 // rootStatePath is the state file of the root daemon. enforce.sh starts the
@@ -60,7 +65,7 @@ function main() {
     lib.group('Install the PMG shims', () => lib.run('sh', 'shim.sh'));
   }
 
-  const verify = spawnSync('sh', ['-c', 'pmg version && printf "%s\\n" "npm resolves to: $(command -v npm || printf "%s" "<not installed>")"'], { stdio: 'inherit' });
+  const verify = spawnSync('sh', ['-c', 'pmg version && printf "%s\\n" "npm resolves to: $(command -v npm || printf "%s" "<not installed>")"'], { stdio: 'inherit', env: lib.childEnv() });
   return verify.status === 0 ? 0 : 1;
 }
 
@@ -147,6 +152,10 @@ function enforceMode(enforce, jobContainer) {
   return 'off';
 }
 
+function runnerCannotEnforce(err) {
+  return err instanceof lib.ScriptError && err.codes.some((code) => runnerErrorCodes.includes(code));
+}
+
 function enforceInputsSet() {
   return enforceInputs.some((name) => lib.input(name) !== '');
 }
@@ -168,12 +177,14 @@ function startProxy(binDir, profile, enforceInput, jobContainer) {
       trustBundleForOldNode();
       return;
     } catch (err) {
-      // An enforce-* input that the daemon rejects is a typo in the
-      // policy. It fails, as choice() does, and does not fall back.
-      if (mode === 'required' || enforceInputsSet()) {
-        throw new Error(`PMG could not start kernel enforcement: ${err.message}`);
+      // Only a runner that cannot enforce falls back. A policy error, such
+      // as a typo in an enforce-* input or in config-file, fails as
+      // choice() does, and does not turn enforcement off.
+      const cause = err.message.replace(/\.?$/, '.');
+      if (mode === 'required' || enforceInputsSet() || !runnerCannotEnforce(err)) {
+        throw new Error(`PMG could not start kernel enforcement: ${cause} Fix the cause, or set enforce to false to run without enforcement.`);
       }
-      lib.warning(`PMG could not start kernel enforcement, so it runs the proxy without it: ${err.message} Set enforce to true to fail the job instead.`);
+      lib.warning(`PMG could not start kernel enforcement, so it runs the proxy without it: ${cause} Set enforce to true to fail the job instead.`);
       // enforce.sh exports the root daemon's state path before it starts
       // the daemon. A later step and the saved state must not use it.
       for (const name of ['PMG_PROXY_STATE', 'PMG_PROXY_CONFIG_DIR']) {
@@ -296,4 +307,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkInputs, enforceMode, resolveServerMode };
+module.exports = { checkInputs, enforceMode, resolveServerMode, runnerCannotEnforce };

@@ -50,6 +50,18 @@ jobs:
           api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
           tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
 
+      - name: No pmg process holds the job tokens
+        run: |
+          set -euo pipefail
+          pids="$(pgrep -x pmg || true)"
+          test -n "$pids"
+          for pid in $pids; do
+            if sudo cat "/proc/${pid}/environ" | tr '\0' '\n' | grep -Eq '^ACTIONS_(RUNTIME|ID_TOKEN_REQUEST)_TOKEN='; then
+              echo "::error::pmg process ${pid} holds a job token: $(tr '\0' ' ' < "/proc/${pid}/cmdline")" >&2
+              exit 1
+            fi
+          done
+
       - name: Run proxy E2E assertions
         uses: $/.github/actions/proxy-e2e-assertions
 

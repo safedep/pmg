@@ -49,3 +49,10 @@ test('lastLines keeps the cause and drops colors and workflow commands', () => {
   const stderr = 'starting\n\x1b[31m InvalidArgument \x1b[0m bad prefix\n → fix the CIDR\n::error::x\n\n';
   assert.strictEqual(lib.lastLines(stderr, 2), 'InvalidArgument  bad prefix → fix the CIDR');
 });
+
+test('errorCodes reads the code of each pmg error line', () => {
+  const stderr = '✓ CA already installed\n\x1b[41m EnforceRequirements \x1b[0m  this host cannot enforce\n → load the BTF\n';
+  assert.deepStrictEqual(lib.errorCodes(stderr), ['EnforceRequirements']);
+  assert.deepStrictEqual(lib.errorCodes(' InvalidArgument   the enforce policy is not valid\n'), ['InvalidArgument']);
+  assert.deepStrictEqual(lib.errorCodes('Network: 2 destination(s) observed\n'), []);
+});

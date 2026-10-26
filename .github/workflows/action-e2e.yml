@@ -783,7 +783,7 @@ jobs:
           grep -q "not running" status.txt
 
   enforce-input-typo:
-    name: A typo in an enforce input fails the action under enforce auto
+    name: A typo in the enforce policy fails the action under enforce auto
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -804,6 +804,31 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ steps.run.outcome }}" = "failure"
+          if pgrep -x pmg; then
+            echo "::error::A PMG proxy runs after the failed start." >&2
+            exit 1
+          fi
+      - name: Write a config file with a typo in the enforce section
+        run: |
+          cat > pmg-typo.yml <<'YAML'
+          proxy:
+            server:
+              enforce:
+                skip_destinations:
+                  - 10.0.0.0/33
+          YAML
+      - name: Action with the config file must exit non-zero
+        id: config
+        continue-on-error: true
+        uses: $/
+        with:
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+          config-file: pmg-typo.yml
+      - name: The action failed on the config file and no proxy runs
+        run: |
+          set -euo pipefail
+          test "${{ steps.config.outcome }}" = "failure"
           if pgrep -x pmg; then
             echo "::error::A PMG proxy runs after the failed start." >&2
             exit 1
