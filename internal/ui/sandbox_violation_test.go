@@ -135,6 +135,24 @@ func TestFormatSandboxDetailsIncludesMatchedRule(t *testing.T) {
 	assert.Contains(t, details, "Sandbox: seatbelt")
 }
 
+func TestFormatSandboxDetailsOmitsLockdownRule(t *testing.T) {
+	report := &pmgsandbox.ViolationReport{
+		SandboxName: "seatbelt",
+		PolicyName:  "npm-restrictive",
+		Violations: []pmgsandbox.Violation{
+			{
+				Kind:       pmgsandbox.ViolationKindNetworkConnect,
+				Target:     "remote:*:443",
+				RuleTarget: pmgsandbox.DirectNetworkRuleTarget,
+				Process:    "node",
+				RuleLabel:  "network connect denied: remote:*:443",
+			},
+		},
+	}
+	details := FormatSandboxDetails(report, &report.Violations[0])
+	assert.NotContains(t, details, "Matched rule")
+}
+
 func TestFormatSandboxDetailsEmpty(t *testing.T) {
 	assert.Empty(t, FormatSandboxDetails(nil, nil))
 	assert.Empty(t, FormatSandboxDetails(&pmgsandbox.ViolationReport{}, nil))
