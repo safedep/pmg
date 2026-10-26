@@ -27,7 +27,7 @@ func TestRunGitHubSummary(t *testing.T) {
 		{
 			name:        "summary file and proposal",
 			summaryPath: filepath.Join(dir, "summary.md"),
-			opts:        githubSummaryOptions{report: report, proposal: proposal, failOnViolation: true},
+			opts:        githubSummaryOptions{report: report, proposal: proposal, profile: ".pmg/network.yml", failOnViolation: true},
 			wantOut:     []string{"::error title=PMG::PMG blocked 2 package(s)", "::notice title=PMG::PMG proposes 1 network rule(s)"},
 			wantSummary: []string{"# existing\n## PMG", "**Failed.** 2 package(s) were blocked by the proxy.", "name: network"},
 		},

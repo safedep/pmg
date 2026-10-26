@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the post step of the action by hand, as the runner runs it, so a job
-# can check its exit status and its job summary. The post step at the end of
-# the job then finds no proxy and passes. Usage:
+# can check its exit status and its job summary. The action step of the job
+# sets auto-stop to false, so the post step at the end of the job does not
+# fail on the stopped proxy. Usage:
 #   action-post.sh <expected exit status> [NAME=value ...]
 # The pairs set the STATE_* values and the INPUT_* inputs of the post step.
 set -uo pipefail

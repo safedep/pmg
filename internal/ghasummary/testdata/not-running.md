@@ -1,6 +1,6 @@
 ## PMG
 
-No PMG proxy ran at the end of the job. A step stopped it or removed its state file, so this summary has no stop result.
+**Failed.** No PMG proxy ran at the end of the job. A step stopped it or removed its state file, so the job has no verdict. When a step of the job stops PMG, set `auto-stop: false`.
 
 ### Observed destinations
 
@@ -28,4 +28,4 @@ network:
 
 </details>
 
-Add the profile to CODEOWNERS, so that a security reviewer approves each change to it.
+Add the profile to CODEOWNERS, so that a security reviewer approves each change to it. Set `baseline: false` on the PMG step to leave this section out.

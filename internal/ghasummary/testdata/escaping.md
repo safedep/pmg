@@ -34,4 +34,4 @@ network:
 
 </details>
 
-Add the profile to CODEOWNERS, so that a security reviewer approves each change to it.
+Add the profile to CODEOWNERS, so that a security reviewer approves each change to it. Set `baseline: false` on the PMG step to leave this section out.

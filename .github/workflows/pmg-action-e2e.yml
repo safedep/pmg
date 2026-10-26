@@ -43,6 +43,7 @@ jobs:
       - name: Run PMG action in server mode
         uses: $/ # action.yml
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           server-mode: true
           # The assertions read HTTP_PROXY, which enforcement does not set.
           enforce: false

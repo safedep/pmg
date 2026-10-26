@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts the PMG proxy daemon as root with kernel enforcement. It runs on
-# the runner host only, where bash and sudo exist. Reads PMG_BIN_DIR and the
-# enforce and network inputs.
+# the runner host only, where bash and sudo exist. Reads PMG_BIN_DIR,
+# PMG_ROOT_STATE and the enforce and network inputs.
 set -euo pipefail
 if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true 2>/dev/null; then
   echo "::error::enforce needs passwordless sudo on the runner. Attaching the kernel programs needs root." >&2
@@ -15,7 +15,7 @@ fi
 # does the config directory: the daemon gets a root-owned copy of a
 # staged config-file, so it never writes into the user's directory.
 pmg_bin="${PMG_BIN_DIR}/pmg"
-state="${RUNNER_TEMP}/pmg-proxy-state.json"
+state="${PMG_ROOT_STATE}"
 echo "PMG_BIN=${pmg_bin}" >> "$GITHUB_ENV"
 echo "PMG_PROXY_STATE=${state}" >> "$GITHUB_ENV"
 if [ -n "$INPUT_CONFIG_FILE" ]; then

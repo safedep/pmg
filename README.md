@@ -295,13 +295,17 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 - run: npm ci
 ```
 
+Set `timeout-minutes` on the job. A hung proxy blocks the job until the
+timeout, and the GitHub default is 360 minutes.
+
 The action runs the PMG proxy for the job, with kernel enforcement where the
 runner allows it. At the end of the job, the action stops PMG, fails the job
 on a block, and writes a job summary. The summary proposes a network profile from the
 destinations the job reached.
 
 By default you get malware blocking and dependency cooldown. Sandbox isolation
-is opt-in via the `sandbox` input. Tune behavior via inputs (`paranoid`,
+is opt-in via the `sandbox` input. `sandbox: true` uses the shims instead of
+the proxy daemon, so it turns off kernel enforcement. Tune behavior via inputs (`paranoid`,
 `sandbox`, `cooldown-days`, ...) or point
 `config-file` at a YAML in the repo. See
 [docs/github-action.md](docs/github-action.md) for the full reference.
@@ -313,9 +317,9 @@ programs that make the Linux kernel route every eligible process through the
 proxy. A step cannot bypass it with `env -i`, `sudo`, or an HTTP client of
 its own. Enforcement needs passwordless `sudo` on the runner host, which
 GitHub-hosted Ubuntu runners have. The `enforce` input is `auto` by default.
-The action enforces where the runner can, and runs the proxy without
-enforcement in a job container or without `sudo`. Set `enforce: true` to fail
-the job where the runner cannot enforce.
+The action enforces on a GitHub-hosted runner, and runs the proxy without
+enforcement on a self-hosted runner, in a job container, or without `sudo`.
+Set `enforce: true` to fail the job where the runner cannot enforce.
 
 ```yaml
 - uses: safedep/pmg@v0.34.0

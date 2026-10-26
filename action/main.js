@@ -11,6 +11,10 @@ const lib = require('./lib');
 
 const enforceInputs = ['enforce-ports', 'enforce-exempt-users', 'enforce-exempt-executables', 'enforce-skip-destinations', 'enforce-namespaces'];
 
+// rootStatePath is the state file of the root daemon. enforce.sh starts the
+// daemon on it, and the failed-start stop reads it.
+const rootStatePath = () => path.join(process.env.RUNNER_TEMP || '', 'pmg-proxy-state.json');
+
 function main() {
   if (process.env.RUNNER_OS !== 'Linux') {
     lib.error('safedep/pmg action currently supports Linux runners only. See https://github.com/safedep/pmg/issues/248 for cross-platform tracking.');
@@ -21,7 +25,7 @@ function main() {
   const profile = lib.input('network-profile');
   const serverMode = resolveServerMode(profile);
   const enforce = choice('enforce', ['auto', 'true', 'false'], 'auto');
-  warnIgnoredInputs(serverMode, enforce);
+  checkInputs(serverMode, enforce);
 
   const { outputs } = lib.group('Install PMG', () =>
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
@@ -64,6 +68,9 @@ function main() {
 // the package managers through the shims, so sandbox true keeps them.
 function resolveServerMode(profile) {
   const input = choice('server-mode', ['', 'true', 'false'], '');
+  if (profile !== '' && input === 'false') {
+    throw new Error('network-profile needs server mode, and server-mode is false. Remove one of them.');
+  }
   if (profile !== '' || input === 'true') {
     return true;
   }
@@ -83,7 +90,12 @@ function choice(name, allowed, fallback) {
   return value;
 }
 
-function warnIgnoredInputs(serverMode, enforce) {
+// checkInputs fails on an input that asks for enforcement the action cannot
+// give, and warns on an input that has no effect.
+function checkInputs(serverMode, enforce) {
+  if (enforce === 'true' && !serverMode) {
+    throw new Error('enforce true needs server mode. sandbox true and server-mode false select shim mode. Remove one of them.');
+  }
   if (lib.boolInput('sandbox') && serverMode) {
     lib.warning('sandbox applies only with shim mode. network-profile or server-mode true turns on server mode, so PMG runs without the sandbox.');
   }
@@ -93,17 +105,16 @@ function warnIgnoredInputs(serverMode, enforce) {
   if (!serverMode && lib.input('network-mode') !== '') {
     lib.warning('network-mode applies only with server mode. It is ignored.');
   }
-  if (enforce === 'true' && !serverMode) {
-    lib.warning('enforce applies only with server mode. It is ignored.');
-  }
   if (lib.boolInput('expose-to-job-network') && (!serverMode || enforce === 'true')) {
     lib.warning('expose-to-job-network applies only with server mode and without enforce. It is ignored.');
   }
 }
 
 // enforceMode decides whether the daemon starts with kernel enforcement.
-// true must enforce or fail. auto enforces where the runner can: on the
-// runner host, with passwordless sudo, and without expose-to-job-network.
+// true must enforce or fail. auto enforces on a GitHub-hosted runner, on
+// the runner host, with passwordless sudo, and without
+// expose-to-job-network. A self-hosted runner can be shared, and
+// enforcement adds the PMG CA to its trust store, so it needs true.
 function enforceMode(enforce, jobContainer) {
   if (enforce === 'true') {
     return 'required';
@@ -111,19 +122,29 @@ function enforceMode(enforce, jobContainer) {
   if (enforce === 'false') {
     return 'off';
   }
+  const off = 'Set enforce to false to turn off this notice.';
   let reason = '';
+  let hint = off;
   if (jobContainer) {
     reason = 'the job runs in a job container';
   } else if (lib.boolInput('expose-to-job-network')) {
     reason = 'expose-to-job-network is set';
+  } else if (process.env.RUNNER_ENVIRONMENT !== 'github-hosted') {
+    reason = 'the runner is self-hosted';
+    hint = 'Set enforce to true to enforce on this runner. ' + off;
   } else if (spawnSync('sudo', ['-n', 'true']).status !== 0) {
     reason = 'the runner has no passwordless sudo';
   }
-  if (reason !== '') {
-    lib.notice(`PMG runs the proxy without kernel enforcement, because ${reason}. A step can bypass the proxy by dropping the proxy variables.`);
-    return 'off';
+  if (reason === '') {
+    return 'auto';
   }
-  return 'auto';
+  // An enforce-* input asks for enforcement. It must not be dropped
+  // without a word, as a failed enforced start must not be.
+  if (enforceInputsSet()) {
+    throw new Error(`The enforce-* inputs need kernel enforcement, and PMG cannot enforce here, because ${reason}. Remove the enforce-* inputs, or set enforce to false.`);
+  }
+  lib.notice(`PMG runs the proxy without kernel enforcement, because ${reason}. A step can bypass the proxy by dropping the proxy variables. ${hint}`);
+  return 'off';
 }
 
 function enforceInputsSet() {
@@ -152,11 +173,13 @@ function startProxy(binDir, profile, enforceInput, jobContainer) {
       if (mode === 'required' || enforceInputsSet()) {
         throw new Error(`PMG could not start kernel enforcement: ${err.message}`);
       }
-      lib.warning(`PMG could not start kernel enforcement, so it runs the proxy without it: ${err.message}`);
+      lib.warning(`PMG could not start kernel enforcement, so it runs the proxy without it: ${err.message} Set enforce to true to fail the job instead.`);
       // enforce.sh exports the root daemon's state path before it starts
-      // the daemon. A later step must not read that path.
-      lib.appendFile('GITHUB_ENV', 'PMG_PROXY_STATE=');
-      lib.appendFile('GITHUB_ENV', 'PMG_PROXY_CONFIG_DIR=');
+      // the daemon. A later step and the saved state must not use it.
+      for (const name of ['PMG_PROXY_STATE', 'PMG_PROXY_CONFIG_DIR']) {
+        lib.appendFile('GITHUB_ENV', `${name}=`);
+        delete process.env[name];
+      }
     }
   }
   startOnce(binDir, false, jobContainer, env);
@@ -186,12 +209,9 @@ function runStartScript(binDir, enforce, jobContainer, env) {
     return lib.group('Start the PMG proxy with kernel enforcement', () => lib.run('bash', 'enforce.sh', {
       ...env,
       PMG_BIN_DIR: binDir,
+      PMG_ROOT_STATE: rootStatePath(),
       INPUT_CONFIG_FILE: lib.input('config-file'),
-      INPUT_ENFORCE_PORTS: lib.input('enforce-ports'),
-      INPUT_ENFORCE_EXEMPT_USERS: lib.input('enforce-exempt-users'),
-      INPUT_ENFORCE_EXEMPT_EXECUTABLES: lib.input('enforce-exempt-executables'),
-      INPUT_ENFORCE_SKIP_DESTINATIONS: lib.input('enforce-skip-destinations'),
-      INPUT_ENFORCE_NAMESPACES: lib.input('enforce-namespaces'),
+      ...Object.fromEntries(enforceInputs.map((name) => [`INPUT_${name.toUpperCase().replace(/-/g, '_')}`, lib.input(name)])),
     }, { captureStderr: true }));
   }
   return lib.group('Start the PMG proxy', () => lib.run('sh', 'server.sh', {
@@ -205,11 +225,18 @@ function runStartScript(binDir, enforce, jobContainer, env) {
 // save failed. post.js may then lack the state to stop it, and a root
 // daemon on a self-hosted runner would outlive the job.
 function stopAfterFailedStart(binDir, enforce) {
-  const bin = path.join(binDir, 'pmg');
-  const res = enforce
-    ? spawnSync('sudo', ['-n', bin, 'proxy', 'stop', '--if-running', '--state', path.join(process.env.RUNNER_TEMP || '', 'pmg-proxy-state.json')], { stdio: 'inherit' })
-    : spawnSync(bin, ['proxy', 'stop', '--if-running'], { stdio: 'inherit' });
-  if (res.error || res.status !== 0) {
+  const args = ['proxy', 'stop', '--if-running'];
+  if (enforce) {
+    args.push('--state', rootStatePath());
+  }
+  let status;
+  try {
+    status = lib.runPMG(path.join(binDir, 'pmg'), args, { sudo: enforce, configDir: process.env.PMG_PROXY_CONFIG_DIR || '' }).status;
+  } catch (err) {
+    lib.warning(`PMG could not stop the proxy after the start failed: ${err.message}`);
+    return;
+  }
+  if (status !== 0) {
     lib.warning('PMG could not stop the proxy after the start failed. See the log of the main step.');
   }
 }
@@ -231,15 +258,14 @@ function saveProxyState(binDir, enforce, result) {
 }
 
 // daemonPID lets post.js tell a daemon that a step stopped from one whose
-// state file a step removed while it still runs.
+// state file a step removed while it still runs. cmd/proxy/stop_test.go
+// pins the status line it reads.
 function daemonPID(bin, enforce) {
   const args = ['proxy', 'status'];
   if (enforce) {
     args.push('--state', process.env.PMG_PROXY_STATE || '');
   }
-  const res = enforce
-    ? spawnSync('sudo', ['-n', bin, ...args], { encoding: 'utf8' })
-    : spawnSync(bin, args, { encoding: 'utf8' });
+  const res = lib.runPMG(bin, args, { sudo: enforce, configDir: process.env.PMG_PROXY_CONFIG_DIR || '', capture: 'all' });
   const match = /running \(pid (\d+)/.exec(res.stdout || '');
   return match ? match[1] : '';
 }
@@ -259,11 +285,15 @@ function networkInputs(profile) {
   return { profile: '', mode: '' };
 }
 
-try {
-  process.exitCode = main();
-} catch (err) {
-  if (!(err instanceof lib.ScriptError)) {
-    lib.error(err.message);
+if (require.main === module) {
+  try {
+    process.exitCode = main();
+  } catch (err) {
+    if (!(err instanceof lib.ScriptError)) {
+      lib.error(err.message);
+    }
+    process.exitCode = 1;
   }
-  process.exitCode = 1;
 }
+
+module.exports = { checkInputs, enforceMode, resolveServerMode };

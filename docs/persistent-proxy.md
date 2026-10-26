@@ -78,8 +78,8 @@ GitHub Actions with the [safedep/pmg action](../action.yml), described in
 - run: npm ci          # intercepted automatically
 ```
 
-With `server-mode` the action starts the daemon and sets the variables for
-the job. Its post step stops the proxy at the end of the job, flushes
+By default the action starts the daemon and sets the variables for the
+job. Its post step stops the proxy at the end of the job, flushes
 events to the cloud, fails the job when a package was blocked, and writes a
 job summary.
 

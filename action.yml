@@ -78,15 +78,15 @@ inputs:
     required: false
     default: ""
   fail-on-violation:
-    description: With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state. When PMG cannot stop the proxy, the job fails with every setting.
+    description: With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state. When PMG cannot stop the proxy, the job fails with every setting. When a step stopped the proxy, the job fails, so set auto-stop to false on such a job.
     required: false
     default: "true"
   auto-stop:
-    description: With server mode, stop the proxy in the post step of the action at the end of the job. Set it to false only when a workflow step stops the proxy and needs its output.
+    description: With server mode, stop the proxy in the post step of the action at the end of the job. Set it to false when a workflow step stops the proxy. With true, a proxy that a step stopped fails the job when fail-on-violation is true.
     required: false
     default: "true"
   baseline:
-    description: With server mode, propose a network profile from the destinations the job reached, and show it in the job summary with each destination host. On a public repository anyone can read the summary. A denied connection shows in the summary also when baseline is false.
+    description: With server mode, propose a network profile from the destinations the job reached, and show it in the job summary with each destination host. Without network-profile the proposal is for .pmg/network.yml. skip-event-logging true turns it off. On a public repository anyone can read the summary. A denied connection shows in the summary also when baseline is false.
     required: false
     default: "true"
   expose-to-job-network:
@@ -95,7 +95,7 @@ inputs:
     default: "false"
 
   enforce:
-    description: With server mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. auto enforces where the runner can, which needs the runner host and passwordless sudo, and runs the proxy without enforcement elsewhere. true fails where the runner cannot enforce. false turns it off. The action installs the PMG CA into the system trust store, starts the daemon as root, and sets NODE_EXTRA_CA_CERTS for Node before 22.19 unless the job sets it. The action exports PMG_BIN and PMG_PROXY_STATE, so a step can run "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE". With config-file it also exports PMG_PROXY_CONFIG_DIR, the daemon's config directory.
+    description: With server mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. auto enforces on a GitHub-hosted runner, on the runner host, with passwordless sudo, and runs the proxy without enforcement elsewhere. An enforce-* input with auto fails where the action cannot enforce. true fails where the runner cannot enforce, and with shim mode. false turns it off. A self-hosted runner needs true, because the PMG CA stays in its trust store. The action installs the PMG CA into the system trust store, starts the daemon as root, and sets NODE_EXTRA_CA_CERTS for Node before 22.19 unless the job sets it. The action exports PMG_BIN and PMG_PROXY_STATE, so a step can run "sudo $PMG_BIN proxy status --state $PMG_PROXY_STATE". With config-file it also exports PMG_PROXY_CONFIG_DIR, the daemon's config directory.
     required: false
     default: "auto"
   enforce-ports:
@@ -119,7 +119,7 @@ inputs:
     required: false
     default: ""
   network-profile:
-    description: The sandbox profile whose network rules the proxy applies, as a path in the workspace or a built-in name. Passed as --profile. Turns server mode on. When the path does not exist and network-mode is not enforce, the proxy starts with no profile and the job summary proposes one for that path. See docs/github-action.md.
+    description: The sandbox profile whose network rules the proxy applies, as a path in the workspace or a built-in name. Passed as --profile. Turns server mode on, and fails with server-mode false. When the path does not exist and network-mode is not enforce, the proxy starts with no profile and the job summary proposes one for that path. See docs/github-action.md.
     required: false
     default: ""
   network-mode:

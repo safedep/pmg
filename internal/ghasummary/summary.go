@@ -40,11 +40,17 @@ type Input struct {
 	Workspace string
 }
 
+// profilePath is the file a proposal goes to. A built-in profile cannot
+// change, so a proposal for it is a new file.
 func (in Input) profilePath() string {
-	if in.Profile != "" {
+	if in.profileFile() {
 		return in.Profile
 	}
 	return DefaultProfilePath
+}
+
+func (in Input) profileFile() bool {
+	return in.Profile != "" && executor.IsProfilePath(in.Profile)
 }
 
 func (in Input) enforced() bool {
@@ -66,6 +72,8 @@ func Markdown(in Input) string {
 
 func verdict(in Input) string {
 	switch {
+	case !in.Stop.Stopped && in.FailOnViolation:
+		return "**Failed.** No PMG proxy ran at the end of the job. A step stopped it or removed its state file, so the job has no verdict. When a step of the job stops PMG, set `auto-stop: false`."
 	case !in.Stop.Stopped:
 		return "No PMG proxy ran at the end of the job. A step stopped it or removed its state file, so this summary has no stop result."
 	case in.Stop.Violation != "" && in.FailOnViolation:
@@ -125,7 +133,7 @@ func writeDenials(b *strings.Builder, in Input) {
 	}
 	switch {
 	case in.Profile == "":
-	case executor.IsProfilePath(in.Profile):
+	case in.profileFile():
 		fmt.Fprintf(b, "\nTo allow a destination, add it to `network.allow_outbound` in %s.\n", code(in.Profile))
 	default:
 		fmt.Fprintf(b, "\n%s is a built-in profile. To allow a destination, make a profile file that inherits %s, add the destination to its `network.allow_outbound`, and set `network-profile` to the file.\n", code(in.Profile), code(in.Profile))
@@ -176,7 +184,7 @@ func writeProposal(b *strings.Builder, in Input) {
 	case p.New:
 		fmt.Fprintf(b, "PMG proposes a network profile from the %d destination(s) this job reached. ", countDestinations(p.Destinations))
 		fmt.Fprintf(b, "Review each rule. Save the file as %s and commit it.", path)
-		if in.Profile == "" {
+		if !in.profileFile() {
 			fmt.Fprintf(b, " Then set `network-profile: %s` on the PMG step.", strings.Trim(path, "`"))
 		}
 		b.WriteString(" Later runs report each destination the profile does not name. Set `network-mode: enforce` to refuse them.\n\n")
@@ -200,7 +208,7 @@ func writeProposal(b *strings.Builder, in Input) {
 		b.WriteString("\n")
 	}
 	fmt.Fprintf(b, "%s\n\n</details>\n\n", fence)
-	b.WriteString("Add the profile to CODEOWNERS, so that a security reviewer approves each change to it.\n")
+	b.WriteString("Add the profile to CODEOWNERS, so that a security reviewer approves each change to it. Set `baseline: false` on the PMG step to leave this section out.\n")
 }
 
 // writeUnproposed explains each destination that gets no proposed rule and

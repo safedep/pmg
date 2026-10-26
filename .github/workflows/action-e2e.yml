@@ -53,6 +53,7 @@ jobs:
         uses: $/.github/actions/stage-pmg-build
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           version: ${{ steps.stage.outputs.version }}
           cache: true
       - name: The defaults start the proxy with kernel enforcement
@@ -189,7 +190,7 @@ jobs:
           set -euo pipefail
           test -z "$(action/enforce-flags.sh)"
       - name: The action library reads the runner files
-        run: node --test action/lib.test.js
+        run: node --test action/lib.test.js action/main.test.js action/post.test.js
 
   # The jobs below run the action against a build of this pull request, so
   # the post step uses the stop report and the job summary. Each job runs the
@@ -211,6 +212,7 @@ jobs:
       - id: pmg
         uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           version: ${{ steps.stage.outputs.version }}
           cache: true
           server-mode: true
@@ -233,6 +235,13 @@ jobs:
           grep -Eq '\*\*Failed\.\*\* [0-9]+ package\(s\) were blocked by the proxy' post.log
           grep -Eq '::error title=PMG::PMG blocked [0-9]+ package\(s\)' post.log
           grep -q '^HTTPS_PROXY=$' "$GITHUB_ENV"
+      - name: A post step that finds the proxy stopped fails the job
+        env:
+          BIN_DIR: ${{ steps.pmg.outputs.bin-dir }}
+        run: |
+          set -euo pipefail
+          .github/scripts/action-post.sh 1 "STATE_bin=${BIN_DIR}/pmg" | tee post.log
+          grep -q 'set `auto-stop: false`' post.log
 
   post-step-audit-bootstrap:
     name: The post step proposes a missing network profile
@@ -250,6 +259,7 @@ jobs:
       - id: pmg
         uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           version: ${{ steps.stage.outputs.version }}
           cache: true
           network-profile: .pmg/e2e-network.yml
@@ -333,6 +343,7 @@ jobs:
           YAML
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           version: ${{ steps.stage.outputs.version }}
           cache: true
           server-mode: true
@@ -386,6 +397,7 @@ jobs:
           persist-credentials: false
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           server-mode: true
       - name: The proxy listens on loopback
         run: |
@@ -438,6 +450,7 @@ jobs:
           persist-credentials: false
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           server-mode: true
           expose-to-job-network: true
       - name: The proxy listens on the job container address
@@ -598,6 +611,7 @@ jobs:
           persist-credentials: false
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           server-mode: true
       - name: The proxy listens on loopback
         run: |
@@ -663,6 +677,7 @@ jobs:
           persist-credentials: false
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           version: v0.32.0
           server-mode: ${{ matrix.mode == 'server' }}
       - name: The pinned release runs

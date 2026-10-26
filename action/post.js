@@ -24,7 +24,7 @@ function main() {
   const failOnViolation = lib.boolInput('fail-on-violation');
   const profile = lib.input('network-profile');
   const tmp = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'pmg-post-'));
-  const pmg = (args, opts = {}) => runPMG(bin, args, { sudo: enforce, ...opts });
+  const pmg = (args, opts = {}) => lib.runPMG(bin, args, { sudo: enforce, configDir: lib.state('config_dir'), ...opts });
 
   if (!supportsReport(bin)) {
     return legacyStop(pmg, enforce, failOnViolation);
@@ -39,7 +39,7 @@ function main() {
   clearProxyVars();
 
   if (!fs.existsSync(reportPath)) {
-    const message = 'PMG could not stop the proxy, so the job has no verdict. See the log of the post step.';
+    const message = 'PMG could not stop the proxy, so the job has no verdict. The daemon may have exited before the post step. See the log of the post step, and re-run the job.';
     lib.error(message);
     lib.appendFile('GITHUB_STEP_SUMMARY', `## PMG\n\n**Failed.** ${message}\n`);
     return stop.status || 1;
@@ -49,11 +49,14 @@ function main() {
   let status = stop.status ?? 1;
   let lost = false;
   if (!report.stopped) {
-    lost = checkNotRunning(failOnViolation) !== 0;
-    status = Math.max(status, lost ? 1 : 0);
+    const check = checkNotRunning(failOnViolation);
+    lost = check.lost;
+    status = Math.max(status, check.status);
   }
+  // A proposal reads the run from the event log.
+  const baseline = lib.boolInput('baseline') && !lib.boolInput('skip-event-logging');
   let proposalPath = '';
-  if (lib.boolInput('baseline') && !lost && (!report.stopped || report.observed > 0)) {
+  if (baseline && !lost && (!report.stopped || report.observed > 0)) {
     proposalPath = lib.group('Propose a network profile', () =>
       propose(pmg, report.run_id || lib.state('run'), profile, tmp));
   }
@@ -68,25 +71,29 @@ function main() {
   if (failOnViolation) {
     summaryArgs.push('--fail-on-violation');
   }
-  if (runPMG(bin, summaryArgs).status !== 0) {
+  if (lib.runPMG(bin, summaryArgs).status !== 0) {
     lib.warning('PMG could not write the job summary. See the log of the post step.');
   }
   return status;
 }
 
-// checkNotRunning handles a post step that finds no proxy state. A step that
-// ran pmg proxy stop explains it. A daemon that still runs without its
-// state file means a step removed the file, and the job has no verdict.
+// checkNotRunning handles a post step that finds no proxy state. The
+// denials and blocks of the run die with the state, so a step that stops
+// PMG can hide them. With fail-on-violation the job fails. lost is true
+// when a step removed the state file of a daemon that still runs.
 function checkNotRunning(failOnViolation) {
   const pid = lib.state('pid');
   if (pid !== '' && pmgRuns(pid)) {
     lib.error(`The PMG proxy (pid ${pid}) still runs, but its state file is gone. A step of the job removed it, so the job has no verdict.`);
-    return 1;
+    return { status: 1, lost: true };
   }
+  const message = 'The PMG proxy was not running at the end of the job, so the job has no verdict. When a step of the job stops PMG, set auto-stop to false.';
   if (failOnViolation) {
-    lib.warning('The PMG proxy was not running at the end of the job, so the post step has no verdict. When a step of the job stops PMG, set auto-stop to false.');
+    lib.error(message);
+    return { status: 1, lost: false };
   }
-  return 0;
+  lib.warning(message);
+  return { status: 0, lost: false };
 }
 
 // pmgRuns is true when pid is a live pmg process. A stopped daemon that no
@@ -112,32 +119,6 @@ function stateArgs(enforce) {
   return enforce ? ['--state', lib.state('state')] : [];
 }
 
-// runPMG runs pmg as the runner user, or as root under enforce, where the
-// daemon and its event log belong to root. Only root gets the root
-// daemon's config directory. The runner user cannot write it, and every pmg
-// command opens the event log there.
-function runPMG(bin, args, { sudo = false, capture = false } = {}) {
-  let file = bin;
-  let argv = args;
-  const env = lib.childEnv();
-  if (sudo) {
-    if (lib.state('config_dir') !== '') {
-      env.PMG_CONFIG_DIR = lib.state('config_dir');
-    }
-    file = 'sudo';
-    argv = ['-n', '--preserve-env=PMG_CONFIG_DIR,GITHUB_ACTIONS', bin, ...args];
-  }
-  const res = spawnSync(file, argv, {
-    env,
-    stdio: capture ? ['ignore', 'pipe', capture === 'all' ? 'pipe' : 'inherit'] : 'inherit',
-    encoding: 'utf8',
-  });
-  if (res.error) {
-    throw res.error;
-  }
-  return res;
-}
-
 // supportsReport is false for a PMG release older than the job summary.
 // The action installs the release that the version input names.
 function supportsReport(bin) {
@@ -146,7 +127,7 @@ function supportsReport(bin) {
 }
 
 function legacyStop(pmg, enforce, failOnViolation) {
-  lib.notice('This PMG release has no job summary. Use a newer release in the version input to get one.');
+  lib.notice('This PMG release has no job summary. Set the version input to v0.34.0 or later to get one.');
   const args = ['proxy', 'stop', ...stateArgs(enforce)];
   if (failOnViolation) {
     args.push('--fail-on-violation');
@@ -184,9 +165,9 @@ function propose(pmg, runId, profile, tmp) {
     return '';
   }
   const args = ['sandbox', 'profile', 'propose', '--run', runId, '--json'];
-  if (profile === '') {
+  if (!lib.isProfilePath(profile)) {
     args.push('--new', path.join(tmp, 'proposal', 'network.yml'), '--dry-run');
-  } else if (lib.isProfilePath(profile)) {
+  } else {
     const file = lib.workspacePath(profile);
     args.push(fs.existsSync(file) ? '--into' : '--new', file, '--dry-run');
   }
@@ -200,9 +181,13 @@ function propose(pmg, runId, profile, tmp) {
   return out;
 }
 
-try {
-  process.exitCode = main();
-} catch (err) {
-  lib.error(err.message);
-  process.exitCode = 1;
+if (require.main === module) {
+  try {
+    process.exitCode = main();
+  } catch (err) {
+    lib.error(err.message);
+    process.exitCode = 1;
+  }
 }
+
+module.exports = { checkNotRunning, pmgRuns };

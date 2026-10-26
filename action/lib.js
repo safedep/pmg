@@ -162,6 +162,33 @@ function run(shell, script, env, { captureStderr = false } = {}) {
   };
 }
 
+// runPMG runs pmg as the runner user, or as root under enforce, where the
+// daemon and its event log belong to root. Only root gets the root
+// daemon's config directory. The runner user cannot write it, and every pmg
+// command opens the event log there. capture pipes stdout, and 'all'
+// pipes stderr too.
+function runPMG(bin, args, { sudo = false, configDir = '', capture = false } = {}) {
+  let file = bin;
+  let argv = args;
+  const env = childEnv();
+  if (sudo) {
+    if (configDir !== '') {
+      env.PMG_CONFIG_DIR = configDir;
+    }
+    file = 'sudo';
+    argv = ['-n', '--preserve-env=PMG_CONFIG_DIR,GITHUB_ACTIONS', bin, ...args];
+  }
+  const res = spawnSync(file, argv, {
+    env,
+    stdio: capture ? ['ignore', 'pipe', capture === 'all' ? 'pipe' : 'inherit'] : 'inherit',
+    encoding: 'utf8',
+  });
+  if (res.error) {
+    throw res.error;
+  }
+  return res;
+}
+
 class ScriptError extends Error {
   constructor(script, status, cause = '') {
     super(`${script} exited with status ${status}${cause === '' ? '' : `: ${cause}`}`);
@@ -210,6 +237,7 @@ module.exports = {
   notice,
   parseKeyValues,
   run,
+  runPMG,
   saveState,
   ScriptError,
   state,

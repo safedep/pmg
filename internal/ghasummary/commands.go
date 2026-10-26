@@ -10,7 +10,7 @@ const annotationTitle = "PMG"
 // Commands are the workflow commands that annotate the run: an error or a
 // warning per denial and per blocked package set, a warning per new host
 // when the workflow names a profile, and a notice that points at the
-// proposal. Each kind stops at a fixed count, so a noisy run does not
+// proposal when the workflow names a profile. Each kind stops at a fixed count, so a noisy run does not
 // bury the job.
 func Commands(in Input) []string {
 	var out []string
@@ -26,7 +26,9 @@ func Commands(in Input) []string {
 	}
 	out = append(out, denialCommands(in, kind)...)
 	out = append(out, newHostCommands(in)...)
-	if p := in.Proposal; p != nil && len(p.Added) > 0 {
+	// Without a profile the job asked for no network policy, so the
+	// proposal stays in the summary and adds no annotation to the run.
+	if p := in.Proposal; p != nil && len(p.Added) > 0 && in.Profile != "" {
 		out = append(out, command("notice", fmt.Sprintf("PMG proposes %d network rule(s) for %s. See the job summary.", len(p.Added), in.profilePath())))
 	}
 	return out

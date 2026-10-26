@@ -114,7 +114,6 @@ func TestSummary(t *testing.T) {
 			name:   "audit bootstrap without a named profile",
 			golden: "bootstrap.md",
 			in:     Input{Stop: clean(), Proposal: twoPrograms, FailOnViolation: true},
-			cmds:   []string{"::notice title=PMG::PMG proposes 1 network rule(s) for .pmg/network.yml. See the job summary."},
 		},
 		{
 			name:   "audit run with hosts the named profile does not allow",
@@ -157,13 +156,22 @@ func TestSummary(t *testing.T) {
 			name:   "proxy stopped by an earlier step",
 			golden: "not-running.md",
 			in:     Input{Proposal: bootstrap(), FailOnViolation: true},
+		},
+		{
+			name:   "proxy stopped by an earlier step with fail-on-violation off",
+			golden: "not-running-not-failing.md",
+			in:     Input{},
+		},
+		{
+			name:   "proposal for a built-in network profile",
+			golden: "builtin-profile-proposal.md",
+			in:     Input{Stop: clean(), Proposal: bootstrap(), Profile: "github-actions", FailOnViolation: true},
 			cmds:   []string{"::notice title=PMG::PMG proposes 1 network rule(s) for .pmg/network.yml. See the job summary."},
 		},
 		{
 			name:   "network text cannot break the table or the code block",
 			golden: "escaping.md",
 			in:     Input{Stop: clean(), Proposal: injected},
-			cmds:   []string{"::notice title=PMG::PMG proposes 1 network rule(s) for .pmg/network.yml. See the job summary."},
 		},
 	}
 	for _, tt := range tests {
