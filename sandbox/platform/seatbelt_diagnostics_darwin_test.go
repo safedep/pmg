@@ -83,6 +83,47 @@ func TestExtractSeatbeltViolations(t *testing.T) {
 	assert.Equal(t, "node", violations[0].Process)
 }
 
+func TestSeatbeltDeniedProcess(t *testing.T) {
+	cases := []struct {
+		name  string
+		entry seatbeltLogEntry
+		want  string
+	}{
+		{
+			name: "kernel entry names the program in the message",
+			entry: seatbeltLogEntry{
+				EventMessage:     "Sandbox: cat(54403) deny(1) file-read-data /Users/dev/.ssh/config\n" + seatbeltLogMessage("run-1", "file-read", "/Users/dev/.ssh"),
+				ProcessImagePath: seatbeltKernelImagePath,
+			},
+			want: "cat",
+		},
+		{
+			name: "program name with spaces and parentheses",
+			entry: seatbeltLogEntry{
+				EventMessage:     "Sandbox: Code Helper (Plugin)(812) deny(1) file-read-data /x",
+				ProcessImagePath: seatbeltKernelImagePath,
+			},
+			want: "Code Helper (Plugin)",
+		},
+		{
+			name:  "no denial line falls back to the entry process",
+			entry: seatbeltLogEntry{EventMessage: "Sandbox deny", Process: "node", ProcessImagePath: seatbeltKernelImagePath},
+			want:  "node",
+		},
+		{
+			name:  "no denial line and no process falls back to the image path",
+			entry: seatbeltLogEntry{EventMessage: "Sandbox deny", ProcessImagePath: seatbeltKernelImagePath},
+			want:  seatbeltKernelImagePath,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.entry.deniedProcess())
+		})
+	}
+}
+
 // Regression: a denial that hits the catch-all `(deny default ...)` rule
 // must still be classified as the typed kind (and get a typed label) by
 // recovering the verb from the sandbox-exec preamble. Without this, the
@@ -246,9 +287,31 @@ func TestExtractSeatbeltViolationsLockdownDirectDenial(t *testing.T) {
 
 	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
 	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
+	assert.Empty(t, violations[0].Target, "the verb is not an operand")
 
 	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[1].Kind)
 	assert.Equal(t, "network connect denied: 1.2.3.4:443", violations[1].RuleLabel)
+}
+
+// The lockdown marker names the rule. The target keeps the operand that
+// Seatbelt logs, which for a direct connect is only the remote port.
+func TestExtractSeatbeltViolationsLockdownDenialKeepsTheOperand(t *testing.T) {
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage: "Sandbox: curl(18813) deny(1) network-outbound remote:*:443\n" +
+				seatbeltLogMessage("run-1", "network-outbound", "direct"),
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 1)
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
+	assert.Equal(t, "remote:*:443", violations[0].Target)
+	assert.Equal(t, "direct", violations[0].RuleTarget)
+	assert.Equal(t, "curl", violations[0].Process)
+	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
 }
 
 func TestExtractSeatbeltViolationsLockdownDenialWithPathOperand(t *testing.T) {

@@ -37,6 +37,11 @@ var seatbeltMessagePattern = regexp.MustCompile(`PMG_SBX\|run=([^|]+)\|kind=([^|
 // `(deny default ...)` rule (which only carries `kind=default` in our marker).
 var seatbeltDenyVerbPattern = regexp.MustCompile(`\bdeny\(\d+\)\s+(\S+)`)
 
+// seatbeltDenyProcessPattern captures the program name from the same line. A
+// name can hold spaces and parentheses, so the match ends at the last
+// `(<pid>) deny(` of the line.
+var seatbeltDenyProcessPattern = regexp.MustCompile(`(?m)^Sandbox: (.+)\(\d+\) deny\(\d+\)`)
+
 type seatbeltLogEntry struct {
 	EventMessage     string `json:"eventMessage"`
 	Process          string `json:"process"`
@@ -49,6 +54,18 @@ const seatbeltKernelImagePath = "/kernel"
 // writes a denial. Any process can write an entry with the run marker in it.
 func (e seatbeltLogEntry) fromKernel() bool {
 	return e.ProcessImagePath == seatbeltKernelImagePath
+}
+
+// deniedProcess names the program that tried the operation. The kernel
+// writes a denial, so the process of the entry is the kernel itself.
+func (e seatbeltLogEntry) deniedProcess() string {
+	if m := seatbeltDenyProcessPattern.FindStringSubmatch(e.EventMessage); m != nil {
+		return m[1]
+	}
+	if e.Process != "" {
+		return e.Process
+	}
+	return e.ProcessImagePath
 }
 
 // kernelEntries drops the entries that the kernel did not write.
@@ -199,13 +216,12 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 			continue
 		}
 
-		process := entry.Process
-		if process == "" {
-			process = entry.ProcessImagePath
-		}
+		process := entry.deniedProcess()
 
+		// The lockdown marker names the rule, not the denied operand, so a
+		// network denial under it recovers the operand from the log line.
 		target := extractSeatbeltDeniedPath(entry.EventMessage, payload)
-		if target == "" {
+		if target == "" && payload.Target != seatbeltLockdownTargetDirect {
 			target = payload.Target
 		}
 
@@ -332,8 +348,12 @@ func extractSeatbeltDeniedToken(raw string, payload *seatbeltLogPayload) string 
 		return ""
 	}
 
-	last := strings.TrimSpace(fields[len(fields)-1])
-	return strings.Trim(last, "\"',;:()[]{}")
+	last := strings.Trim(strings.TrimSpace(fields[len(fields)-1]), "\"',;:()[]{}")
+	// With no operand, the last field is the verb itself.
+	if m := seatbeltDenyVerbPattern.FindStringSubmatch(prefix); m != nil && m[1] == last {
+		return ""
+	}
+	return last
 }
 
 // seatbeltRunPredicate selects the unified log entries of one run by the
