@@ -125,6 +125,125 @@ func TestCloudSyncOptionsAreValid(t *testing.T) {
 	require.NoError(t, client.Close())
 }
 
+func TestSandboxOverrideDedupRule(t *testing.T) {
+	rule := sandboxOverrideDedupRule()
+
+	assert.Equal(t, "pmg-sandbox-override", rule.Name)
+	assert.Equal(t, 15*time.Minute, rule.Window)
+
+	overrideEvent := func(profile string, overrides ...string) *servicev1.ToolEvent {
+		override := &controltowerv1.PmgSandboxOverride{}
+		override.SetSandboxProfile(profile)
+		override.SetOverrides(overrides)
+		return toolEventWithPmgEvent(&controltowerv1.PmgEvent{
+			EventType:       controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_OVERRIDE,
+			SandboxOverride: override,
+		})
+	}
+
+	tests := []struct {
+		name      string
+		event     *servicev1.ToolEvent
+		wantParts []string
+		wantMatch bool
+	}{
+		{
+			name:      "overrides are sorted",
+			event:     overrideEvent("pnpm+overlay", "value:/tmp", "type:read"),
+			wantParts: []string{"pnpm+overlay", "type:read", "value:/tmp"},
+			wantMatch: true,
+		},
+		{
+			name:      "another profile has another key",
+			event:     overrideEvent("npm+overlay", "type:read", "value:/tmp"),
+			wantParts: []string{"npm+overlay", "type:read", "value:/tmp"},
+			wantMatch: true,
+		},
+		{
+			name: "missing sandbox override payload",
+			event: toolEventWithPmgEvent(&controltowerv1.PmgEvent{
+				EventType: controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_OVERRIDE,
+			}),
+		},
+		{
+			name: "host observation is not covered",
+			event: toolEventWithPmgEvent(&controltowerv1.PmgEvent{
+				EventType:       controltowerv1.PmgEventType_PMG_EVENT_TYPE_HOST_OBSERVATION,
+				HostObservation: &controltowerv1.PmgHostObservation{Hostname: "registry.example.com"},
+			}),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			parts, ok := rule.Key(tc.event)
+			require.Equal(t, tc.wantMatch, ok)
+			assert.Equal(t, tc.wantParts, parts)
+		})
+	}
+}
+
+func TestSandboxViolationDedupKey(t *testing.T) {
+	sshRead := func(count uint32) *controltowerv1.PmgSandboxViolation {
+		v := &controltowerv1.PmgSandboxViolation{}
+		v.SetKind(controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_FILESYSTEM_READ)
+		v.SetPath("/Users/dev/.ssh/id_rsa")
+		v.SetRule("/Users/dev/.ssh")
+		v.SetProcess("node")
+		v.SetCount(count)
+		return v
+	}
+	connect := func(process string) *controltowerv1.PmgSandboxViolation {
+		v := &controltowerv1.PmgSandboxViolation{}
+		v.SetKind(controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_NETWORK_CONNECT)
+		v.SetHost("1.2.3.4")
+		v.SetPort(443)
+		v.SetProcess(process)
+		v.SetCount(1)
+		return v
+	}
+	report := func(exit controltowerv1.PmgSandboxExitStatus, violations ...*controltowerv1.PmgSandboxViolation) *controltowerv1.PmgSandboxViolationReport {
+		r := &controltowerv1.PmgSandboxViolationReport{}
+		r.SetDriver(controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_SEATBELT)
+		r.SetSandboxProfile("npm-restrictive")
+		r.SetExitStatus(exit)
+		r.SetViolations(violations)
+		r.SetDistinctCount(uint32(len(violations)))
+		return r
+	}
+	success := controltowerv1.PmgSandboxExitStatus_PMG_SANDBOX_EXIT_STATUS_SUCCESS
+	failed := controltowerv1.PmgSandboxExitStatus_PMG_SANDBOX_EXIT_STATUS_FAILED
+
+	base := sandboxViolationDedupKey(report(success, sshRead(3), connect("curl")))
+
+	assert.Equal(t, base, sandboxViolationDedupKey(report(success, connect("curl"), sshRead(9))),
+		"another hit count or order is the same report")
+	assert.NotEqual(t, base, sandboxViolationDedupKey(report(failed, sshRead(3), connect("curl"))),
+		"another exit status is another report")
+	assert.NotEqual(t, base, sandboxViolationDedupKey(report(success, sshRead(3), connect("wget"))),
+		"another program is another report")
+	assert.NotEqual(t, base, sandboxViolationDedupKey(report(success, sshRead(3))),
+		"another set of denials is another report")
+}
+
+func TestSandboxViolationDedupRule(t *testing.T) {
+	rule := sandboxViolationDedupRule()
+
+	assert.Equal(t, "pmg-sandbox-violation", rule.Name)
+	assert.Equal(t, 15*time.Minute, rule.Window)
+
+	_, ok := rule.Key(toolEventWithPmgEvent(&controltowerv1.PmgEvent{
+		EventType: controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_VIOLATION,
+	}))
+	assert.False(t, ok, "a missing report payload is not covered")
+
+	_, ok = rule.Key(toolEventWithPmgEvent(&controltowerv1.PmgEvent{
+		EventType:       controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_OVERRIDE,
+		SandboxOverride: &controltowerv1.PmgSandboxOverride{},
+	}))
+	assert.False(t, ok, "a sandbox override is not covered")
+}
+
 func TestNetworkPolicyDedupRule(t *testing.T) {
 	rule := networkPolicyDedupRule()
 
