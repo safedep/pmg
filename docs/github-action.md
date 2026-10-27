@@ -324,9 +324,11 @@ downloads from another host needs a rule in your profile. A profile that inherit
 as `npm-restrictive`, must allow these hosts itself, or the proxy refuses
 the runner's connections to GitHub.
 
-`github-actions` allows `*.blob.core.windows.net:443`, because the runner,
-`actions/upload-artifact` and `actions/cache` use Azure storage. That rule
-allows every Azure storage account, so a script can send data to one.
+The runner, `actions/upload-artifact` and `actions/cache` store logs,
+artifacts and caches in Azure storage. `github-actions` allows only the 20
+accounts that GitHub uses for them, `productionresultssa0` to
+`productionresultssa19.blob.core.windows.net`. It does not allow other Azure
+storage accounts.
 
 `deny_ip_literals` refuses a connection to an IP literal no allow rule
 names. An allow list of names does not stop a workflow that posts to an IP
