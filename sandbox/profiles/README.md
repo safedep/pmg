@@ -26,7 +26,9 @@ package manager. See [sandbox-exec.md](../../docs/sandbox-exec.md).
 
 Network base for the persistent PMG proxy on a GitHub Actions runner. It allows
 the hosts of the runner, its agents, GitHub releases, and the cache and
-artifact storage. It refuses every other host, and has no filesystem rules.
+artifact storage. The storage rule is `*.blob.core.windows.net:443`, so it
+allows every Azure storage account. It refuses every other host, and has no
+filesystem rules.
 An action that downloads from another host needs a rule in the child profile. A proposal from a run in GitHub Actions inherits it. See
 [github-action.md](../../docs/github-action.md).
 
