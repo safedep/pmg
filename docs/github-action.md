@@ -55,8 +55,8 @@ jobs:
 ```
 
 Put the action right after `actions/checkout`, so the proxy sees the
-traffic of every later step. Use one `safedep/pmg` step per job. A second
-step fails, and the proxy of the first step keeps running. By default the action runs the proxy in
+traffic of every later step. Use one `safedep/pmg` step per job. In server
+mode a second step fails, and the proxy of the first step keeps running. By default the action runs the proxy in
 [server mode](#server-mode) with [kernel enforcement](#kernel-enforcement)
 where the runner allows it. At the end of the job its post step stops the
 proxy, writes a job summary, and fails the job when PMG blocked a package.
