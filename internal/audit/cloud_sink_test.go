@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -234,6 +235,36 @@ func TestCloudSinkDeduplicatesAcrossInvocations(t *testing.T) {
 	expireDedupWindows(t, walPath)
 	assert.Equal(t, 1, drainWAL(t, walPath, transport))
 	assert.Equal(t, []uint64{1}, repeatCounts(transport))
+}
+
+// Every sandboxed run in a repository with a saved overlay logs the same
+// overrides. The translation lists them in map order, which changes from run
+// to run, and the runs must still collapse.
+func TestCloudSinkDeduplicatesSandboxOverridesAcrossInvocations(t *testing.T) {
+	walPath := t.TempDir() + "/test-sync.db"
+	overlay := []map[string]string{
+		{"type": "read", "value": "/tmp/cache"},
+		{"type": "write", "value": "./.gitignore"},
+	}
+
+	for i := range 5 {
+		sink := newTestCloudSinkAtPath(t, walPath)
+		sink.invocationID = fmt.Sprintf("invocation-%d", i)
+		require.NoError(t, sink.Handle(context.Background(), AuditEvent{
+			Type:        EventTypeSandboxOverride,
+			ProfileName: "pnpm+overlay",
+			Overrides:   overlay,
+		}))
+		require.NoError(t, sink.Close())
+	}
+
+	transport := &mockTransport{}
+	assert.Equal(t, 1, drainWAL(t, walPath, transport))
+
+	// One delivered event plus four repeats equal the five runs.
+	expireDedupWindows(t, walPath)
+	assert.Equal(t, 1, drainWAL(t, walPath, transport))
+	assert.Equal(t, []uint64{4}, repeatCounts(transport))
 }
 
 func TestCloudSinkDeduplicatesConcurrentInvocations(t *testing.T) {
