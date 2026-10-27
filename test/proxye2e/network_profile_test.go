@@ -241,16 +241,23 @@ func hostPort(d proxy.NetworkDecision) string {
 // other Azure storage account, so a script cannot send data to its own.
 func TestProxyFlow_GitHubActionsStorage(t *testing.T) {
 	const inheritsGitHubActions = "name: ci\ninherits: github-actions\n"
+	listed := []int{8, 42, 150}
 	RunCases(t, []TestCase{
 		{
-			Name:    "a GitHub result storage account is allowed",
+			Name:    "a GitHub result storage account of each listed range is allowed",
 			Options: []Option{profilePolicy(t, inheritsGitHubActions, nil, nil)},
 			Exec: func(h *Harness) ExecResult {
-				return ExecResult{Requests: []RequestOutcome{h.get("https://productionresultssa8.blob.core.windows.net/x", nil)}}
+				var res ExecResult
+				for _, n := range listed {
+					res.Requests = append(res.Requests, h.get(fmt.Sprintf("https://productionresultssa%d.blob.core.windows.net/x", n), nil))
+				}
+				return res
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.Empty(t, h.NetworkDecisions())
-				assert.Contains(t, h.DialedAddrs(), "productionresultssa8.blob.core.windows.net:443")
+				for _, n := range listed {
+					assert.Contains(t, h.DialedAddrs(), fmt.Sprintf("productionresultssa%d.blob.core.windows.net:443", n))
+				}
 			},
 		},
 		{

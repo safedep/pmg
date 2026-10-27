@@ -16,9 +16,9 @@ package_managers:
 #
 # The runner, actions/upload-artifact and actions/cache store job logs,
 # artifacts and caches in the productionresultssa<N> Azure storage accounts.
-# GitHub lists these 20 accounts for self-hosted runners. A wildcard on
-# blob.core.windows.net would allow every Azure storage account, so a
-# script could send data to an account it controls.
+# GitHub lists N from 0 to 19, 30 to 49 and 100 to 199. A wildcard would
+# also match an Azure storage account that an attacker registers, so the
+# profile names each account. When GitHub adds an account, add it here.
 #
 # *.githubapp.com is for the agents of a GitHub-hosted runner, such as
 # hosted-compute-watchdog-prod-<region>.githubapp.com. The region changes
@@ -49,6 +49,126 @@ network:
     - productionresultssa17.blob.core.windows.net:443
     - productionresultssa18.blob.core.windows.net:443
     - productionresultssa19.blob.core.windows.net:443
+    - productionresultssa30.blob.core.windows.net:443
+    - productionresultssa31.blob.core.windows.net:443
+    - productionresultssa32.blob.core.windows.net:443
+    - productionresultssa33.blob.core.windows.net:443
+    - productionresultssa34.blob.core.windows.net:443
+    - productionresultssa35.blob.core.windows.net:443
+    - productionresultssa36.blob.core.windows.net:443
+    - productionresultssa37.blob.core.windows.net:443
+    - productionresultssa38.blob.core.windows.net:443
+    - productionresultssa39.blob.core.windows.net:443
+    - productionresultssa40.blob.core.windows.net:443
+    - productionresultssa41.blob.core.windows.net:443
+    - productionresultssa42.blob.core.windows.net:443
+    - productionresultssa43.blob.core.windows.net:443
+    - productionresultssa44.blob.core.windows.net:443
+    - productionresultssa45.blob.core.windows.net:443
+    - productionresultssa46.blob.core.windows.net:443
+    - productionresultssa47.blob.core.windows.net:443
+    - productionresultssa48.blob.core.windows.net:443
+    - productionresultssa49.blob.core.windows.net:443
+    - productionresultssa100.blob.core.windows.net:443
+    - productionresultssa101.blob.core.windows.net:443
+    - productionresultssa102.blob.core.windows.net:443
+    - productionresultssa103.blob.core.windows.net:443
+    - productionresultssa104.blob.core.windows.net:443
+    - productionresultssa105.blob.core.windows.net:443
+    - productionresultssa106.blob.core.windows.net:443
+    - productionresultssa107.blob.core.windows.net:443
+    - productionresultssa108.blob.core.windows.net:443
+    - productionresultssa109.blob.core.windows.net:443
+    - productionresultssa110.blob.core.windows.net:443
+    - productionresultssa111.blob.core.windows.net:443
+    - productionresultssa112.blob.core.windows.net:443
+    - productionresultssa113.blob.core.windows.net:443
+    - productionresultssa114.blob.core.windows.net:443
+    - productionresultssa115.blob.core.windows.net:443
+    - productionresultssa116.blob.core.windows.net:443
+    - productionresultssa117.blob.core.windows.net:443
+    - productionresultssa118.blob.core.windows.net:443
+    - productionresultssa119.blob.core.windows.net:443
+    - productionresultssa120.blob.core.windows.net:443
+    - productionresultssa121.blob.core.windows.net:443
+    - productionresultssa122.blob.core.windows.net:443
+    - productionresultssa123.blob.core.windows.net:443
+    - productionresultssa124.blob.core.windows.net:443
+    - productionresultssa125.blob.core.windows.net:443
+    - productionresultssa126.blob.core.windows.net:443
+    - productionresultssa127.blob.core.windows.net:443
+    - productionresultssa128.blob.core.windows.net:443
+    - productionresultssa129.blob.core.windows.net:443
+    - productionresultssa130.blob.core.windows.net:443
+    - productionresultssa131.blob.core.windows.net:443
+    - productionresultssa132.blob.core.windows.net:443
+    - productionresultssa133.blob.core.windows.net:443
+    - productionresultssa134.blob.core.windows.net:443
+    - productionresultssa135.blob.core.windows.net:443
+    - productionresultssa136.blob.core.windows.net:443
+    - productionresultssa137.blob.core.windows.net:443
+    - productionresultssa138.blob.core.windows.net:443
+    - productionresultssa139.blob.core.windows.net:443
+    - productionresultssa140.blob.core.windows.net:443
+    - productionresultssa141.blob.core.windows.net:443
+    - productionresultssa142.blob.core.windows.net:443
+    - productionresultssa143.blob.core.windows.net:443
+    - productionresultssa144.blob.core.windows.net:443
+    - productionresultssa145.blob.core.windows.net:443
+    - productionresultssa146.blob.core.windows.net:443
+    - productionresultssa147.blob.core.windows.net:443
+    - productionresultssa148.blob.core.windows.net:443
+    - productionresultssa149.blob.core.windows.net:443
+    - productionresultssa150.blob.core.windows.net:443
+    - productionresultssa151.blob.core.windows.net:443
+    - productionresultssa152.blob.core.windows.net:443
+    - productionresultssa153.blob.core.windows.net:443
+    - productionresultssa154.blob.core.windows.net:443
+    - productionresultssa155.blob.core.windows.net:443
+    - productionresultssa156.blob.core.windows.net:443
+    - productionresultssa157.blob.core.windows.net:443
+    - productionresultssa158.blob.core.windows.net:443
+    - productionresultssa159.blob.core.windows.net:443
+    - productionresultssa160.blob.core.windows.net:443
+    - productionresultssa161.blob.core.windows.net:443
+    - productionresultssa162.blob.core.windows.net:443
+    - productionresultssa163.blob.core.windows.net:443
+    - productionresultssa164.blob.core.windows.net:443
+    - productionresultssa165.blob.core.windows.net:443
+    - productionresultssa166.blob.core.windows.net:443
+    - productionresultssa167.blob.core.windows.net:443
+    - productionresultssa168.blob.core.windows.net:443
+    - productionresultssa169.blob.core.windows.net:443
+    - productionresultssa170.blob.core.windows.net:443
+    - productionresultssa171.blob.core.windows.net:443
+    - productionresultssa172.blob.core.windows.net:443
+    - productionresultssa173.blob.core.windows.net:443
+    - productionresultssa174.blob.core.windows.net:443
+    - productionresultssa175.blob.core.windows.net:443
+    - productionresultssa176.blob.core.windows.net:443
+    - productionresultssa177.blob.core.windows.net:443
+    - productionresultssa178.blob.core.windows.net:443
+    - productionresultssa179.blob.core.windows.net:443
+    - productionresultssa180.blob.core.windows.net:443
+    - productionresultssa181.blob.core.windows.net:443
+    - productionresultssa182.blob.core.windows.net:443
+    - productionresultssa183.blob.core.windows.net:443
+    - productionresultssa184.blob.core.windows.net:443
+    - productionresultssa185.blob.core.windows.net:443
+    - productionresultssa186.blob.core.windows.net:443
+    - productionresultssa187.blob.core.windows.net:443
+    - productionresultssa188.blob.core.windows.net:443
+    - productionresultssa189.blob.core.windows.net:443
+    - productionresultssa190.blob.core.windows.net:443
+    - productionresultssa191.blob.core.windows.net:443
+    - productionresultssa192.blob.core.windows.net:443
+    - productionresultssa193.blob.core.windows.net:443
+    - productionresultssa194.blob.core.windows.net:443
+    - productionresultssa195.blob.core.windows.net:443
+    - productionresultssa196.blob.core.windows.net:443
+    - productionresultssa197.blob.core.windows.net:443
+    - productionresultssa198.blob.core.windows.net:443
+    - productionresultssa199.blob.core.windows.net:443
     - "*.githubapp.com:443"
     - github.com:443
     - api.github.com:443
