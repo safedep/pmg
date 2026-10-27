@@ -484,12 +484,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -uo pipefail
-          .github/scripts/action-post.sh 0 "STATE_bin=${PMG_BIN}" STATE_enforce=true "STATE_state=${PMG_PROXY_STATE}" \
-            "INPUT_NETWORK-PROFILE=.pmg/e2e-storage.yml" > post.log 2>&1
-          cat post.log
           # The image runs other system services, such as snapd and apt,
-          # that the profile can deny. The check reads only the storage
-          # hosts and the programs of the runner and the actions.
+          # that the profile can deny. The post step must not fail on them,
+          # so the check reads only the storage hosts and the programs of
+          # the runner and the actions.
+          .github/scripts/action-post.sh 0 "STATE_bin=${PMG_BIN}" STATE_enforce=true "STATE_state=${PMG_PROXY_STATE}" \
+            "INPUT_NETWORK-PROFILE=.pmg/e2e-storage.yml" INPUT_FAIL-ON-VIOLATION=false > post.log 2>&1
+          cat post.log
           if grep -E '^\| `[^`]*blob\.core\.windows\.net:443`' post.log | grep -v '| parent rule'; then
             echo "::error::A storage host is not in the github-actions profile." >&2
             exit 1
