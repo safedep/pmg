@@ -80,8 +80,8 @@ GitHub Actions with the [safedep/pmg action](../action.yml), described in
 
 By default the action starts the daemon and sets the variables for the
 job. With the default `enforce: auto` it starts the daemon with
-[kernel enforcement](#kernel-enforcement-linux) where the runner allows it,
-such as on the host of a GitHub-hosted runner. github-action.md lists the
+[kernel enforcement](#kernel-enforcement-linux) on a GitHub-hosted runner,
+when the job runs on the runner host. github-action.md lists the
 [conditions](./github-action.md#kernel-enforcement). Its post step stops the
 proxy at the end of the job, flushes events to the cloud, fails the job when
 a package was blocked or a connection was denied, and writes a job summary.
