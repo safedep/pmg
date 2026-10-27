@@ -236,3 +236,32 @@ func TestProxyFlow_NetworkDestinationsObserved(t *testing.T) {
 func hostPort(d proxy.NetworkDecision) string {
 	return fmt.Sprintf("%s:%d", d.Host, d.Port)
 }
+
+// The github-actions profile allows the storage accounts of GitHub and no
+// other Azure storage account, so a script cannot send data to its own.
+func TestProxyFlow_GitHubActionsStorage(t *testing.T) {
+	const inheritsGitHubActions = "name: ci\ninherits: github-actions\n"
+	RunCases(t, []TestCase{
+		{
+			Name:    "a GitHub result storage account is allowed",
+			Options: []Option{profilePolicy(t, inheritsGitHubActions, nil, nil)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("https://productionresultssa8.blob.core.windows.net/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Empty(t, h.NetworkDecisions())
+				assert.Contains(t, h.DialedAddrs(), "productionresultssa8.blob.core.windows.net:443")
+			},
+		},
+		{
+			Name:    "another Azure storage account is refused before the dial",
+			Options: []Option{profilePolicy(t, inheritsGitHubActions, nil, nil)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("https://attacker.blob.core.windows.net/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRefused(t, h, res, "attacker.blob.core.windows.net", "*:*")
+			},
+		},
+	})
+}
