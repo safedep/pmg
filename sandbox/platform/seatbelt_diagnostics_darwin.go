@@ -36,7 +36,11 @@ var seatbeltMessagePattern = regexp.MustCompile(`PMG_SBX\|run=([^|]+)\|kind=([^|
 // raw log line such as `Sandbox: node(123) deny(1) file-write-data /path`. The
 // program chooses its own name, and a name can hold spaces, parentheses and
 // "deny(1)". So the match ends at the last `(<pid>) deny(<n>)` of the line,
-// and the verb follows it. When a denial repeats, the kernel writes
+// and the verb follows it. The operand can also hold that sequence. The match
+// then ends in the operand, and that denial loses its target. Only a path
+// that the program makes up can hold the sequence. The first match is worse,
+// because then the name of the program can hide any denial. When a denial
+// repeats, the kernel writes
 // "N duplicate reports for Sandbox: ..." in place of the N repeats, and the
 // pattern captures N.
 var seatbeltDenyPattern = regexp.MustCompile(`(?m)^(?:(\d+) duplicate reports? for )?Sandbox: (.+)\(\d+\) deny\(\d+\)(?: (\S+))?`)
