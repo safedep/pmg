@@ -348,6 +348,22 @@ func LogSandboxOverride(sandboxProfile string, overrides []map[string]string) {
 	})
 }
 
+// LogSandboxViolations records the denials of one sandboxed run.
+func LogSandboxViolations(report SandboxViolationReport) {
+	logEvent(AuditEvent{
+		Type:    EventTypeSandboxViolation,
+		Message: fmt.Sprintf("Sandbox denied operations (%d distinct)", len(report.Violations)),
+		Details: map[string]any{
+			"sandbox_driver":  string(report.Driver),
+			"sandbox_profile": report.Profile,
+			"clean_exit":      report.CleanExit,
+			"violations":      report.Violations,
+		},
+		ProfileName:       report.Profile,
+		SandboxViolations: report,
+	})
+}
+
 // LogError records a significant error during PMG operation.
 func LogError(message string, err error) {
 	event := AuditEvent{

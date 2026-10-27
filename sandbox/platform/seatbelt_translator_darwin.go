@@ -32,7 +32,7 @@ func generateLogTag() string {
 const (
 	seatbeltKindDefault          = "default"
 	seatbeltKindNetworkOutbound  = "network-outbound"
-	seatbeltLockdownTargetDirect = "direct"
+	seatbeltLockdownTargetDirect = sandbox.DirectNetworkRuleTarget
 	seatbeltTargetUnixSocket     = "unix-socket"
 )
 

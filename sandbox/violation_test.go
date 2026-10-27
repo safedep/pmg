@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -145,6 +146,68 @@ func TestPrimaryViolationPrefersLaterViolationOnScoreTie(t *testing.T) {
 	primary := primaryViolation(report)
 	require.NotNil(t, primary)
 	assert.Equal(t, "/tmp/second-bin", primary.Target)
+}
+
+func TestRankViolations(t *testing.T) {
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	noise := Violation{Kind: ViolationKindFSWrite, Target: "/dev/dtracehelper"}
+	bind := Violation{Kind: ViolationKindNetworkBind, Target: "local:*:0"}
+	envRead := Violation{Kind: ViolationKindFSRead, Target: filepath.Join(cwd, ".env")}
+	firstExec := Violation{Kind: ViolationKindExec, Target: "/tmp/first-bin"}
+	secondExec := Violation{Kind: ViolationKindExec, Target: "/tmp/second-bin"}
+
+	violations := []Violation{noise, firstExec, bind, envRead, secondExec}
+	RankViolations(DriverSeatbelt, violations)
+
+	assert.Equal(t, []Violation{envRead, secondExec, firstExec, bind, noise}, violations,
+		"the project file first, a later denial before an equal earlier one, the noise last")
+
+	for _, vs := range [][]Violation{
+		{noise, envRead},
+		{noise, bind},
+		{firstExec, secondExec},
+	} {
+		primary := primaryViolation(&ViolationReport{SandboxName: DriverSeatbelt, Violations: slices.Clone(vs)})
+		RankViolations(DriverSeatbelt, vs)
+		assert.Equal(t, *primary, vs[0], "the first ranked entry is the primary of an explanation")
+	}
+}
+
+func TestSplitTarget(t *testing.T) {
+	port := func(p uint16) *uint16 { return &p }
+
+	tests := []struct {
+		name   string
+		v      Violation
+		want   ViolationTarget
+		wantOK bool
+	}{
+		{"file read", Violation{Kind: ViolationKindFSRead, Target: "/Users/dev/.ssh/id_rsa"}, ViolationTarget{Path: "/Users/dev/.ssh/id_rsa"}, true},
+		{"generic deny", Violation{Kind: ViolationKindGenericDeny, Target: "/dev/foo"}, ViolationTarget{Path: "/dev/foo"}, true},
+		{"exec", Violation{Kind: ViolationKindExec, Target: "/usr/bin/curl"}, ViolationTarget{Executable: "/usr/bin/curl"}, true},
+		{"IPv4 connect", Violation{Kind: ViolationKindNetworkConnect, Target: "1.2.3.4:443"}, ViolationTarget{Host: "1.2.3.4", Port: port(443)}, true},
+		{"IPv6 connect from Landlock", Violation{Kind: ViolationKindNetworkConnect, Target: "[::1]:443"}, ViolationTarget{Host: "::1", Port: port(443)}, true},
+		{"IPv6 connect with a trimmed bracket", Violation{Kind: ViolationKindNetworkConnect, Target: "::1]:443"}, ViolationTarget{Host: "::1", Port: port(443)}, true},
+		{"IPv6 connect without brackets", Violation{Kind: ViolationKindNetworkConnect, Target: "2606:4700::1111:443"}, ViolationTarget{Host: "2606:4700::1111", Port: port(443)}, true},
+		{"Seatbelt bind of any port", Violation{Kind: ViolationKindNetworkBind, Target: "local:*:0"}, ViolationTarget{Host: "*", Port: port(0)}, true},
+		{"Seatbelt direct connect", Violation{Kind: ViolationKindNetworkConnect, Target: "remote:*:443"}, ViolationTarget{Host: "*", Port: port(443)}, true},
+		{"bind with a star port", Violation{Kind: ViolationKindNetworkBind, Target: "localhost:*"}, ViolationTarget{Host: "localhost", Port: port(0)}, true},
+		{"Unix socket connect", Violation{Kind: ViolationKindNetworkConnect, Target: "/private/var/run/mDNSResponder"}, ViolationTarget{Path: "/private/var/run/mDNSResponder"}, true},
+		{"host without a port", Violation{Kind: ViolationKindNetworkConnect, Target: "1.2.3.4"}, ViolationTarget{Host: "1.2.3.4"}, true},
+		{"port out of range", Violation{Kind: ViolationKindNetworkConnect, Target: "h:70000"}, ViolationTarget{Host: "h:70000"}, true},
+		{"empty target", Violation{Kind: ViolationKindFSRead}, ViolationTarget{}, false},
+		{"empty network host", Violation{Kind: ViolationKindNetworkBind, Target: "local:"}, ViolationTarget{}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := tc.v.SplitTarget()
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestIsProjectPathRejectsParentRelativeTargets(t *testing.T) {

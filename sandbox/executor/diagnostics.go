@@ -1,17 +1,20 @@
 package executor
 
 import (
+	"slices"
+
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/sandbox"
 )
 
 // ObserveViolations collects any sandbox violation report associated with the
 // run, folds in the environment scrubs recorded by the executor, persists the
 // result to the violation cache for forensic review (via
-// `pmg sandbox violations list` / `pmg sandbox explain`), and returns the number
-// of violations recorded. Failures are logged and swallowed; observability MUST
-// NOT affect command exit.
+// `pmg sandbox violations list` / `pmg sandbox explain`), records the denials
+// in the audit log, and returns the number of violations recorded. Failures
+// are logged and swallowed. Observability MUST NOT affect command exit.
 //
 // Call it after every run, once the result holds the exit error. A program
 // can catch a denial and exit 0, so a clean run can still carry a denial.
@@ -48,7 +51,74 @@ func ObserveViolations(result *sandbox.ExecutionResult) int {
 	report.CleanExit = runErr == nil
 
 	persistViolationReport(report)
+	if denials, ok := auditReport(report); ok {
+		audit.LogSandboxViolations(denials)
+	}
 	return len(report.Violations)
+}
+
+type denialKey struct {
+	kind    sandbox.ViolationKind
+	target  string
+	process string
+}
+
+func denialKeyOf(v sandbox.Violation) denialKey {
+	return denialKey{kind: v.Kind, target: v.Target, process: v.Process}
+}
+
+// auditReport groups the denials of report into distinct entries with a
+// count, the most relevant first. A driver can report one denial thousands
+// of times in a retry loop. Env scrubs are not denials, and noise is a
+// denial that ordinary tools cause on almost every run, so both stay out.
+// It reports false when no denial is left.
+func auditReport(report *sandbox.ViolationReport) (audit.SandboxViolationReport, bool) {
+	// The primary of an explanation is the last of the denials with the top
+	// score. Each distinct denial takes the place of its last occurrence, so
+	// the first ranked entry is that primary.
+	var distinct []sandbox.Violation
+	counts := make(map[denialKey]int)
+	for _, v := range slices.Backward(report.Violations) {
+		if v.Kind == sandbox.ViolationKindEnvScrub || sandbox.IsNoise(report.SandboxName, v) {
+			continue
+		}
+
+		key := denialKeyOf(v)
+		if counts[key] == 0 {
+			distinct = append(distinct, v)
+		}
+		counts[key] += max(v.Hits, 1)
+	}
+	if len(distinct) == 0 {
+		return audit.SandboxViolationReport{}, false
+	}
+	slices.Reverse(distinct)
+
+	sandbox.RankViolations(report.SandboxName, distinct)
+
+	out := audit.SandboxViolationReport{
+		Driver:     report.SandboxName,
+		Profile:    report.PolicyName,
+		CleanExit:  report.CleanExit,
+		Violations: make([]audit.SandboxViolation, 0, len(distinct)),
+	}
+	for _, v := range distinct {
+		// An entry with no usable target keeps its kind and count for the
+		// local log. The cloud translation drops it.
+		target, _ := v.SplitTarget()
+		out.Violations = append(out.Violations, audit.SandboxViolation{
+			Kind:       v.Kind,
+			Path:       target.Path,
+			Executable: target.Executable,
+			Host:       target.Host,
+			Port:       target.Port,
+			Rule:       v.RuleTarget,
+			Process:    v.Process,
+			Count:      counts[denialKeyOf(v)],
+		})
+	}
+
+	return out, true
 }
 
 // ObserveNetworkDenials records the connections the proxy refused under
