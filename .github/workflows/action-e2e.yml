@@ -491,6 +491,16 @@ jobs:
           .github/scripts/action-post.sh 0 "STATE_bin=${PMG_BIN}" STATE_enforce=true "STATE_state=${PMG_PROXY_STATE}" \
             "INPUT_NETWORK-PROFILE=.pmg/e2e-storage.yml" INPUT_FAIL-ON-VIOLATION=false > post.log 2>&1
           cat post.log
+          # The overview row has a blocked count only when the proxy stopped
+          # with a verified state.
+          if ! grep -Eq '^\| [0-9]+ \| enforce \|' post.log; then
+            echo "::error::The post step has no verified stop result under enforce." >&2
+            exit 1
+          fi
+          if ! grep -Eq '^\| `productionresultssa[0-9]+\.blob\.core\.windows\.net:443` .*\| parent rule' post.log; then
+            echo "::error::The proxy saw no traffic to a GitHub storage account." >&2
+            exit 1
+          fi
           if grep -E '^\| `[^`]*blob\.core\.windows\.net:443`' post.log | grep -v '| parent rule'; then
             echo "::error::A storage host is not in the github-actions profile." >&2
             exit 1
