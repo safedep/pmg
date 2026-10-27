@@ -375,6 +375,38 @@ func TestExtractSeatbeltViolationsLockdownDenialWithPathOperand(t *testing.T) {
 	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
 }
 
+// A program chooses its own name. A name that holds "deny(1)" must not move
+// the verb, or the denial loses its kind or its target and becomes noise.
+func TestExtractSeatbeltViolationsIgnoresDenyInTheProcessName(t *testing.T) {
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage: "Sandbox: x deny(1) y(5555) deny(1) network-outbound remote:*:443\n" +
+				seatbeltLogMessage("run-1", "network-outbound", "direct"),
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+		{
+			EventMessage: "Sandbox: x deny(1) /Users/me/secret (5556) deny(1) file-read-data /Users/me/secret\n" +
+				seatbeltLogMessage("run-1", "default", ""),
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 2)
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
+	assert.Equal(t, "remote:*:443", violations[0].Target)
+	assert.Equal(t, "x deny(1) y", violations[0].Process)
+
+	assert.Equal(t, sandbox.ViolationKindFSRead, violations[1].Kind)
+	assert.Equal(t, "/Users/me/secret", violations[1].Target)
+	assert.Equal(t, "x deny(1) /Users/me/secret ", violations[1].Process)
+
+	for _, v := range violations {
+		assert.False(t, sandbox.IsNoise(sandbox.DriverSeatbelt, v), v.RawLog)
+	}
+}
+
 // seatbeltCleanExitPolicy reads and runs system binaries, and denies the read
 // of one secret file.
 func seatbeltCleanExitPolicy(secret string) *sandbox.SandboxPolicy {
