@@ -16,6 +16,7 @@ import (
 	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/pmg/internal/runerror"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -159,6 +160,45 @@ func TestCloudSinkEmitAndSync(t *testing.T) {
 	assert.Equal(t, 1, len(transport.requests))
 }
 
+func TestCloudSinkSyncsSandboxViolationReports(t *testing.T) {
+	sink, walPath := newTestCloudSink(t)
+	ctx := context.Background()
+	port := uint16(443)
+
+	require.NoError(t, sink.Handle(ctx, AuditEvent{
+		Type: EventTypeSandboxViolation,
+		SandboxViolations: SandboxViolationReport{
+			Driver:     sandbox.DriverLandlock,
+			Profile:    "npm",
+			Violations: []SandboxViolation{{Kind: sandbox.ViolationKindNetworkConnect, Host: "1.2.3.4", Port: &port, Process: "node", Count: 2}},
+		},
+	}))
+	// A report whose only denial has no usable target sends no event.
+	require.NoError(t, sink.Handle(ctx, AuditEvent{
+		Type: EventTypeSandboxViolation,
+		SandboxViolations: SandboxViolationReport{
+			Driver:     sandbox.DriverLandlock,
+			Violations: []SandboxViolation{{Kind: sandbox.ViolationKindFSRead, Count: 1}},
+		},
+	}))
+	require.NoError(t, sink.Close())
+
+	transport := &mockTransport{}
+	require.Equal(t, 1, drainWAL(t, walPath, transport))
+
+	event := transport.requests[0].GetEvents()[0]
+	assert.Equal(t, "test-invocation", event.GetInvocationId())
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_VIOLATION, event.GetPmgEvent().GetEventType())
+
+	report := event.GetPmgEvent().GetSandboxViolationReport()
+	assert.Equal(t, controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_LANDLOCK, report.GetDriver())
+	assert.Equal(t, controltowerv1.PmgSandboxExitStatus_PMG_SANDBOX_EXIT_STATUS_FAILED, report.GetExitStatus())
+	require.Len(t, report.GetViolations(), 1)
+	assert.Equal(t, "1.2.3.4", report.GetViolations()[0].GetHost())
+	assert.Equal(t, uint32(443), report.GetViolations()[0].GetPort())
+	assert.Equal(t, uint32(2), report.GetViolations()[0].GetCount())
+}
+
 func TestCloudSinkDeduplicatesOnlyMatchingHostObservations(t *testing.T) {
 	sink, walPath := newTestCloudSink(t)
 	ctx := context.Background()
@@ -265,6 +305,46 @@ func TestCloudSinkDeduplicatesSandboxOverridesAcrossInvocations(t *testing.T) {
 	expireDedupWindows(t, walPath)
 	assert.Equal(t, 1, drainWAL(t, walPath, transport))
 	assert.Equal(t, []uint64{4}, repeatCounts(transport))
+}
+
+// A routine denial gives the same report on every run, with other hit
+// counts and in another order. Those runs collapse. A run that adds a new
+// denial has a new key and goes out at once.
+func TestCloudSinkDeduplicatesSandboxViolationReportsAcrossInvocations(t *testing.T) {
+	walPath := t.TempDir() + "/test-sync.db"
+	gitConfig := SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/repo/.git/config", Process: "git", Count: 1}
+	npmrc := SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/Users/dev/.npmrc", Process: "node", Count: 1}
+	sshKey := SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/Users/dev/.ssh/id_rsa", Process: "node", Count: 1}
+
+	runs := [][]SandboxViolation{
+		{gitConfig, npmrc},
+		{npmrc, gitConfig},
+		{gitConfig, {Kind: sandbox.ViolationKindFSRead, Path: "/Users/dev/.npmrc", Process: "node", Count: 7}},
+		{sshKey, gitConfig, npmrc},
+		{gitConfig, npmrc},
+	}
+	for i, violations := range runs {
+		sink := newTestCloudSinkAtPath(t, walPath)
+		sink.invocationID = fmt.Sprintf("invocation-%d", i)
+		require.NoError(t, sink.Handle(context.Background(), AuditEvent{
+			Type: EventTypeSandboxViolation,
+			SandboxViolations: SandboxViolationReport{
+				Driver:     sandbox.DriverSeatbelt,
+				Profile:    "npm",
+				CleanExit:  true,
+				Violations: violations,
+			},
+		}))
+		require.NoError(t, sink.Close())
+	}
+
+	transport := &mockTransport{}
+	assert.Equal(t, 2, drainWAL(t, walPath, transport), "the first report and the one with a new denial")
+
+	// The routine report repeats three times. The new denial never repeats.
+	expireDedupWindows(t, walPath)
+	assert.Equal(t, 1, drainWAL(t, walPath, transport))
+	assert.Equal(t, []uint64{3}, repeatCounts(transport))
 }
 
 func TestCloudSinkDeduplicatesConcurrentInvocations(t *testing.T) {

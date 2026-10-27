@@ -1,9 +1,13 @@
 package sandbox
 
 import (
+	"cmp"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/safedep/pmg/proxy/netpolicy"
@@ -98,6 +102,80 @@ func overrideSuggestion(v Violation) *OverrideSuggestion {
 	}
 
 	return &OverrideSuggestion{Kind: v.Kind, Target: v.Target}
+}
+
+// RankViolations orders vs most relevant first, with the score that picks
+// the primary violation of an explanation, so the first entry is that
+// primary. On equal scores the later denial comes first, as for the primary.
+func RankViolations(driver DriverName, vs []Violation) {
+	cwd, _ := os.Getwd()
+	slices.Reverse(vs)
+	slices.SortStableFunc(vs, func(a, b Violation) int {
+		return cmp.Compare(scoreViolation(driver, b, cwd), scoreViolation(driver, a, cwd))
+	})
+}
+
+// ViolationTarget is the target of a violation in the field its kind uses.
+// Exactly one of Path, Executable and Host is set.
+type ViolationTarget struct {
+	Path       string
+	Executable string
+	Host       string
+	Port       *uint16
+}
+
+// SplitTarget puts the target of v in the field its kind uses. A network
+// target is host:port, or the path of a Unix socket. It reports false when
+// no target is left.
+func (v Violation) SplitTarget() (ViolationTarget, bool) {
+	if v.Target == "" {
+		return ViolationTarget{}, false
+	}
+
+	switch v.Kind {
+	case ViolationKindExec:
+		return ViolationTarget{Executable: v.Target}, true
+	case ViolationKindNetworkConnect, ViolationKindNetworkBind:
+		if strings.HasPrefix(v.Target, "/") {
+			return ViolationTarget{Path: v.Target}, true
+		}
+		// Seatbelt marks a local address with "local:" and a remote one with
+		// "remote:".
+		host, port := splitNetworkTarget(strings.TrimPrefix(strings.TrimPrefix(v.Target, "local:"), "remote:"))
+		if host == "" {
+			return ViolationTarget{}, false
+		}
+		return ViolationTarget{Host: host, Port: port}, true
+	default:
+		return ViolationTarget{Path: v.Target}, true
+	}
+}
+
+// splitNetworkTarget splits host:port. Seatbelt trims the brackets off the
+// ends of its token, so an IPv6 target can arrive as ::1]:443, and the split
+// then falls back to the last colon. A * port is any port, 0.
+//
+// ponytail: an IPv6 address with no port splits at its last colon. No driver
+// reports one.
+func splitNetworkTarget(target string) (string, *uint16) {
+	host, port, err := net.SplitHostPort(target)
+	if err != nil {
+		i := strings.LastIndex(target, ":")
+		if i < 0 {
+			return strings.Trim(target, "[]"), nil
+		}
+		host, port = target[:i], target[i+1:]
+	}
+
+	if port == "*" {
+		port = "0"
+	}
+	n, err := strconv.ParseUint(port, 10, 16)
+	if err != nil {
+		return strings.Trim(target, "[]"), nil
+	}
+	p := uint16(n)
+	return strings.Trim(host, "[]"), &p
 }
 
 func primaryViolation(report *ViolationReport) *Violation {

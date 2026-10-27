@@ -107,7 +107,33 @@ func TestExtractLandlockViolations(t *testing.T) {
 				Process:   "node",
 				RawLog:    `{"type":"seccomp_deny"}`,
 				RuleLabel: "read access denied: /home/dev/.netrc",
+				Hits:      3,
 			}},
+		},
+		{
+			name: "one target from two processes stays two denials",
+			events: []capturedAuditEvent{
+				denyEvent("openat", "/home/dev/.netrc", "read", "git"),
+				denyEvent("openat", "/home/dev/.netrc", "read", "node"),
+			},
+			want: []sandbox.Violation{
+				{
+					Kind:      sandbox.ViolationKindFSRead,
+					RawKind:   "openat",
+					Target:    "/home/dev/.netrc",
+					Process:   "git",
+					RawLog:    `{"type":"seccomp_deny"}`,
+					RuleLabel: "read access denied: /home/dev/.netrc",
+				},
+				{
+					Kind:      sandbox.ViolationKindFSRead,
+					RawKind:   "openat",
+					Target:    "/home/dev/.netrc",
+					Process:   "node",
+					RawLog:    `{"type":"seccomp_deny"}`,
+					RuleLabel: "read access denied: /home/dev/.netrc",
+				},
+			},
 		},
 		{
 			name: "rule target populated from rule_path",
@@ -171,6 +197,7 @@ func TestExtractLandlockViolations(t *testing.T) {
 				Process:   "node",
 				RawLog:    "{}",
 				RuleLabel: "direct network access blocked by network_via_proxy_only (8.8.8.8:53) — traffic must flow through the PMG proxy (a tool may have ignored HTTP_PROXY/HTTPS_PROXY)",
+				Hits:      2,
 			}},
 		},
 		{
@@ -265,6 +292,13 @@ func TestCaptureAuditEventsDedupesDenials(t *testing.T) {
 	require.Len(t, s.auditEvents, 2)
 	assert.Equal(t, "/tmp/.env", s.auditEvents[0].Path)
 	assert.Equal(t, "/usr/bin/curl", s.auditEvents[1].Path)
+	assert.Equal(t, landlockAuditEventCap+10, s.auditEvents[0].hits, "every repeat counts on the kept event")
+	assert.Equal(t, 1, s.auditEvents[1].hits)
+
+	violations := extractLandlockViolations(s.auditEvents)
+	require.Len(t, violations, 2)
+	assert.Equal(t, landlockAuditEventCap+10, violations[0].Hits)
+	assert.Equal(t, 1, violations[1].Hits)
 }
 
 // An O_RDWR open denied by a read-only rule must be labeled a read denial so

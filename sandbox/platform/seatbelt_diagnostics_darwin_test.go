@@ -83,6 +83,91 @@ func TestExtractSeatbeltViolations(t *testing.T) {
 	assert.Equal(t, "node", violations[0].Process)
 }
 
+func TestSeatbeltDeniedProcess(t *testing.T) {
+	cases := []struct {
+		name     string
+		entry    seatbeltLogEntry
+		want     string
+		wantHits int
+	}{
+		{
+			name: "kernel entry names the program in the message",
+			entry: seatbeltLogEntry{
+				EventMessage:     "Sandbox: cat(54403) deny(1) file-read-data /Users/dev/.ssh/config\n" + seatbeltLogMessage("run-1", "file-read", "/Users/dev/.ssh"),
+				ProcessImagePath: seatbeltKernelImagePath,
+			},
+			want:     "cat",
+			wantHits: 1,
+		},
+		{
+			name: "program name with spaces and parentheses",
+			entry: seatbeltLogEntry{
+				EventMessage:     "Sandbox: Code Helper (Plugin)(812) deny(1) file-read-data /x",
+				ProcessImagePath: seatbeltKernelImagePath,
+			},
+			want:     "Code Helper (Plugin)",
+			wantHits: 1,
+		},
+		{
+			name: "one duplicate report",
+			entry: seatbeltLogEntry{
+				EventMessage:     "1 duplicate report for Sandbox: node(28986) deny(1) network-outbound remote:*:443\n" + seatbeltLogMessage("run-1", "network-outbound", "direct"),
+				ProcessImagePath: seatbeltKernelImagePath,
+			},
+			want:     "node",
+			wantHits: 1,
+		},
+		{
+			name: "several duplicate reports",
+			entry: seatbeltLogEntry{
+				EventMessage:     "12 duplicate reports for Sandbox: git(301) deny(1) file-read-data /repo/.git/config",
+				ProcessImagePath: seatbeltKernelImagePath,
+			},
+			want:     "git",
+			wantHits: 12,
+		},
+		{
+			name:     "no denial line falls back to the entry process",
+			entry:    seatbeltLogEntry{EventMessage: "Sandbox deny", Process: "node", ProcessImagePath: seatbeltKernelImagePath},
+			want:     "node",
+			wantHits: 1,
+		},
+		{
+			name:     "no denial line and no process falls back to the image path",
+			entry:    seatbeltLogEntry{EventMessage: "Sandbox deny", ProcessImagePath: seatbeltKernelImagePath},
+			want:     seatbeltKernelImagePath,
+			wantHits: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			process, hits := tc.entry.deniedProcess()
+			assert.Equal(t, tc.want, process)
+			assert.Equal(t, tc.wantHits, hits)
+		})
+	}
+}
+
+// The kernel writes "N duplicate reports for" in place of N repeats. That
+// entry must keep the program name, so it groups with the first report.
+func TestExtractSeatbeltViolationsCountsDuplicateReports(t *testing.T) {
+	line := "Sandbox: node(28986) deny(1) network-outbound remote:*:443\n" + seatbeltLogMessage("run-1", "network-outbound", "direct")
+	entries := []seatbeltLogEntry{
+		{EventMessage: line, ProcessImagePath: seatbeltKernelImagePath},
+		{EventMessage: "3 duplicate reports for " + line, ProcessImagePath: seatbeltKernelImagePath},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 2)
+	for _, v := range violations {
+		assert.Equal(t, "node", v.Process)
+		assert.Equal(t, "remote:*:443", v.Target)
+	}
+	assert.Equal(t, 1, violations[0].Hits)
+	assert.Equal(t, 3, violations[1].Hits)
+}
+
 // Regression: a denial that hits the catch-all `(deny default ...)` rule
 // must still be classified as the typed kind (and get a typed label) by
 // recovering the verb from the sandbox-exec preamble. Without this, the
@@ -246,9 +331,31 @@ func TestExtractSeatbeltViolationsLockdownDirectDenial(t *testing.T) {
 
 	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
 	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
+	assert.Empty(t, violations[0].Target, "the verb is not an operand")
 
 	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[1].Kind)
 	assert.Equal(t, "network connect denied: 1.2.3.4:443", violations[1].RuleLabel)
+}
+
+// The lockdown marker names the rule. The target keeps the operand that
+// Seatbelt logs, which for a direct connect is only the remote port.
+func TestExtractSeatbeltViolationsLockdownDenialKeepsTheOperand(t *testing.T) {
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage: "Sandbox: curl(18813) deny(1) network-outbound remote:*:443\n" +
+				seatbeltLogMessage("run-1", "network-outbound", "direct"),
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 1)
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
+	assert.Equal(t, "remote:*:443", violations[0].Target)
+	assert.Equal(t, "direct", violations[0].RuleTarget)
+	assert.Equal(t, "curl", violations[0].Process)
+	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
 }
 
 func TestExtractSeatbeltViolationsLockdownDenialWithPathOperand(t *testing.T) {
@@ -266,6 +373,69 @@ func TestExtractSeatbeltViolationsLockdownDenialWithPathOperand(t *testing.T) {
 	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
 	assert.Equal(t, "/private/var/run/mDNSResponder", violations[0].Target)
 	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
+}
+
+// The unix-socket marker names the rule. A denial under it keeps a socket
+// path, and with no path it has no target, so the cloud gets no false host.
+func TestExtractSeatbeltViolationsUnixSocketDenial(t *testing.T) {
+	marker := seatbeltLogMessage("run-1", "network-outbound", "unix-socket")
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage:     "Sandbox: ssh(301) deny(1) network-outbound /private/tmp/agent.sock\n" + marker,
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+		{
+			EventMessage:     "Sandbox: ssh(302) deny(1) network-outbound\n" + marker,
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+		{
+			EventMessage:     "Sandbox: ssh(303) deny(1) network-outbound agent\n" + marker,
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 3)
+
+	assert.Equal(t, "/private/tmp/agent.sock", violations[0].Target)
+	for _, v := range violations[1:] {
+		assert.Equal(t, sandbox.ViolationKindNetworkConnect, v.Kind)
+		assert.Empty(t, v.Target, v.RawLog)
+		assert.Equal(t, "unix-socket", v.RuleTarget)
+		assert.False(t, sandbox.IsNoise(sandbox.DriverSeatbelt, v), v.RawLog)
+	}
+}
+
+// A program chooses its own name. A name that holds "deny(1)" must not move
+// the verb, or the denial loses its kind or its target and becomes noise.
+func TestExtractSeatbeltViolationsIgnoresDenyInTheProcessName(t *testing.T) {
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage: "Sandbox: x deny(1) y(5555) deny(1) network-outbound remote:*:443\n" +
+				seatbeltLogMessage("run-1", "network-outbound", "direct"),
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+		{
+			EventMessage: "Sandbox: x deny(1) /Users/me/secret (5556) deny(1) file-read-data /Users/me/secret\n" +
+				seatbeltLogMessage("run-1", "default", ""),
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 2)
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
+	assert.Equal(t, "remote:*:443", violations[0].Target)
+	assert.Equal(t, "x deny(1) y", violations[0].Process)
+
+	assert.Equal(t, sandbox.ViolationKindFSRead, violations[1].Kind)
+	assert.Equal(t, "/Users/me/secret", violations[1].Target)
+	assert.Equal(t, "x deny(1) /Users/me/secret ", violations[1].Process)
+
+	for _, v := range violations {
+		assert.False(t, sandbox.IsNoise(sandbox.DriverSeatbelt, v), v.RawLog)
+	}
 }
 
 // seatbeltCleanExitPolicy reads and runs system binaries, and denies the read

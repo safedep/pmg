@@ -118,7 +118,8 @@ func FormatSandboxDetails(report *pmgsandbox.ViolationReport, primary *pmgsandbo
 		"Violation: "+primary.RuleLabel,
 	)
 
-	if primary.RuleTarget != "" && primary.RuleTarget != primary.Target {
+	if primary.RuleTarget != "" && primary.RuleTarget != primary.Target &&
+		primary.RuleTarget != pmgsandbox.DirectNetworkRuleTarget {
 		lines = append(lines, "Matched rule: "+primary.RuleTarget)
 	}
 

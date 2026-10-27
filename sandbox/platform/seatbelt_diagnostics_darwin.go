@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,11 +32,18 @@ const macOSUnifiedLogPath = "/usr/bin/log"
 
 var seatbeltMessagePattern = regexp.MustCompile(`PMG_SBX\|run=([^|]+)\|kind=([^|]+)\|target=([^"\s]*)`)
 
-// seatbeltDenyVerbPattern captures the sandbox-exec denial verb from a raw log
-// line such as `Sandbox: node(123) deny(1) file-write-data /path`. The verb is
-// used to recover a typed ViolationKind when a denial hit the catch-all
-// `(deny default ...)` rule (which only carries `kind=default` in our marker).
-var seatbeltDenyVerbPattern = regexp.MustCompile(`\bdeny\(\d+\)\s+(\S+)`)
+// seatbeltDenyPattern captures the program name and the denial verb from a
+// raw log line such as `Sandbox: node(123) deny(1) file-write-data /path`. The
+// program chooses its own name, and a name can hold spaces, parentheses and
+// "deny(1)". So the match ends at the last `(<pid>) deny(<n>)` of the line,
+// and the verb follows it. The operand can also hold that sequence. The match
+// then ends in the operand, and that denial loses its target. Only a path
+// that the program makes up can hold the sequence. The first match is worse,
+// because then the name of the program can hide any denial. When a denial
+// repeats, the kernel writes
+// "N duplicate reports for Sandbox: ..." in place of the N repeats, and the
+// pattern captures N.
+var seatbeltDenyPattern = regexp.MustCompile(`(?m)^(?:(\d+) duplicate reports? for )?Sandbox: (.+)\(\d+\) deny\(\d+\)(?: (\S+))?`)
 
 type seatbeltLogEntry struct {
 	EventMessage     string `json:"eventMessage"`
@@ -49,6 +57,23 @@ const seatbeltKernelImagePath = "/kernel"
 // writes a denial. Any process can write an entry with the run marker in it.
 func (e seatbeltLogEntry) fromKernel() bool {
 	return e.ProcessImagePath == seatbeltKernelImagePath
+}
+
+// deniedProcess names the program that tried the operation, and the number
+// of denials the entry stands for. The kernel writes a denial, so the
+// process of the entry is the kernel itself.
+func (e seatbeltLogEntry) deniedProcess() (process string, hits int) {
+	if m := seatbeltDenyPattern.FindStringSubmatch(e.EventMessage); m != nil {
+		hits = 1
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			hits = n
+		}
+		return m[2], hits
+	}
+	if e.Process != "" {
+		return e.Process, 1
+	}
+	return e.ProcessImagePath, 1
 }
 
 // kernelEntries drops the entries that the kernel did not write.
@@ -199,13 +224,13 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 			continue
 		}
 
-		process := entry.Process
-		if process == "" {
-			process = entry.ProcessImagePath
-		}
+		process, hits := entry.deniedProcess()
 
+		// The lockdown and unix-socket markers name the rule, not the denied
+		// operand, so a network denial under them recovers the operand from
+		// the log line.
 		target := extractSeatbeltDeniedPath(entry.EventMessage, payload)
-		if target == "" {
+		if target == "" && payload.Target != seatbeltLockdownTargetDirect && payload.Target != seatbeltTargetUnixSocket {
 			target = payload.Target
 		}
 
@@ -226,7 +251,9 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 
 		// Network denial operands are addresses, not paths, so the
 		// path-shaped extraction above rejected them; recover the raw token.
-		if target == "" && (kind == sandbox.ViolationKindNetworkBind || kind == sandbox.ViolationKindNetworkConnect) {
+		// A unix socket operand is a path, so it has no address to recover.
+		if target == "" && payload.Target != seatbeltTargetUnixSocket &&
+			(kind == sandbox.ViolationKindNetworkBind || kind == sandbox.ViolationKindNetworkConnect) {
 			target = extractSeatbeltDeniedToken(entry.EventMessage, payload)
 		}
 
@@ -246,6 +273,7 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 			Process:    process,
 			RawLog:     strings.TrimSpace(entry.EventMessage),
 			RuleLabel:  summarizeSeatbeltViolation(labelKind, labelTarget),
+			Hits:       hits,
 		})
 	}
 
@@ -262,6 +290,8 @@ func normalizeSeatbeltViolationKind(kind string) sandbox.ViolationKind {
 		return sandbox.ViolationKindFSDeleteOrRename
 	case "process-exec":
 		return sandbox.ViolationKindExec
+	case seatbeltKindNetworkOutbound:
+		return sandbox.ViolationKindNetworkConnect
 	default:
 		return sandbox.ViolationKindGenericDeny
 	}
@@ -274,12 +304,7 @@ func normalizeSeatbeltViolationKind(kind string) sandbox.ViolationKind {
 // scoreViolation already understands are recognized; all others fall back to
 // (generic_deny, "", false) so the caller keeps the original classification.
 func inferSeatbeltKindFromRawLog(raw string) (sandbox.ViolationKind, string, bool) {
-	m := seatbeltDenyVerbPattern.FindStringSubmatch(raw)
-	if len(m) != 2 {
-		return sandbox.ViolationKindGenericDeny, "", false
-	}
-
-	verb := m[1]
+	verb := seatbeltDenyVerb(raw)
 	switch {
 	case verb == "file-write-unlink", verb == "file-write-mount", verb == "file-rename":
 		return sandbox.ViolationKindFSDeleteOrRename, "file-write-unlink", true
@@ -296,6 +321,13 @@ func inferSeatbeltKindFromRawLog(raw string) (sandbox.ViolationKind, string, boo
 	}
 
 	return sandbox.ViolationKindGenericDeny, "", false
+}
+
+func seatbeltDenyVerb(raw string) string {
+	if m := seatbeltDenyPattern.FindStringSubmatch(raw); m != nil {
+		return m[3]
+	}
+	return ""
 }
 
 func extractSeatbeltDeniedPath(raw string, payload *seatbeltLogPayload) string {
@@ -332,8 +364,12 @@ func extractSeatbeltDeniedToken(raw string, payload *seatbeltLogPayload) string 
 		return ""
 	}
 
-	last := strings.TrimSpace(fields[len(fields)-1])
-	return strings.Trim(last, "\"',;:()[]{}")
+	last := strings.Trim(strings.TrimSpace(fields[len(fields)-1]), "\"',;:()[]{}")
+	// With no operand, the last field is the verb itself.
+	if seatbeltDenyVerb(prefix) == last {
+		return ""
+	}
+	return last
 }
 
 // seatbeltRunPredicate selects the unified log entries of one run by the

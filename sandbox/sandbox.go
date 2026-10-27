@@ -115,6 +115,11 @@ func (r *ViolationReport) Promotable() bool {
 	return !r.OutputDerived && !r.CleanExit
 }
 
+// DirectNetworkRuleTarget is the rule target of a connection that the
+// network_via_proxy_only lockdown denied because it did not go through the
+// PMG proxy. It names no rule of the profile.
+const DirectNetworkRuleTarget = "direct"
+
 // Violation captures one sandbox denial event.
 type Violation struct {
 	Kind       ViolationKind
@@ -124,6 +129,10 @@ type Violation struct {
 	Process    string
 	RawLog     string
 	RuleLabel  string
+
+	// Hits is the number of denials the entry stands for, when the driver
+	// folded repeats into it. Zero means one.
+	Hits int
 }
 
 type violationReporter interface {

@@ -2,9 +2,14 @@ package audit
 
 import (
 	"fmt"
+	"math"
+	"strings"
+	"unicode/utf8"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/runerror"
+	"github.com/safedep/pmg/sandbox"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -32,6 +37,11 @@ func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.Pmg
 		return []*controltowerv1.PmgEvent{newHostObservationEvent(event)}
 	case EventTypeSandboxOverride:
 		return []*controltowerv1.PmgEvent{newSandboxOverrideEvent(event)}
+	case EventTypeSandboxViolation:
+		if e := newSandboxViolationEvent(event.SandboxViolations); e != nil {
+			return []*controltowerv1.PmgEvent{e}
+		}
+		return nil
 	case EventTypeError:
 		return []*controltowerv1.PmgEvent{newErrorEvent(event)}
 	case EventTypeSessionComplete:
@@ -81,6 +91,191 @@ func newSandboxOverrideEvent(event AuditEvent) *controltowerv1.PmgEvent {
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_OVERRIDE)
 	e.SetSandboxOverride(override)
 	return e
+}
+
+// The bounds of PmgSandboxViolationReport. Control Tower rejects the whole
+// sync batch when one event breaks a bound, and the rejected batch stays at
+// the head of the WAL, so the translation keeps every value inside them.
+const (
+	maxSandboxViolations       = 100
+	maxSandboxViolationPath    = 4096
+	maxSandboxViolationHost    = 253
+	maxSandboxViolationRule    = 4096
+	maxSandboxViolationProcess = 256
+	maxSandboxProfile          = 256
+
+	// sandboxViolationBudget bounds the strings of one event to 32 KiB. A sync
+	// request holds up to 100 events, so a request full of these events stays
+	// under 4 MiB, the default gRPC message limit.
+	sandboxViolationBudget = 32 << 10
+)
+
+// newSandboxViolationEvent keeps the denials in the order of
+// topOfEachRuleFirst until a bound is reached. distinct_count still counts
+// every denial. It returns nil when no entry fits, because a report holds at
+// least one.
+func newSandboxViolationEvent(r SandboxViolationReport) *controltowerv1.PmgEvent {
+	var violations []*controltowerv1.PmgSandboxViolation
+	budget := sandboxViolationBudget
+	for i, v := range topOfEachRuleFirst(r.Violations) {
+		if len(violations) == maxSandboxViolations {
+			log.Debugf("sandbox violation report: limit of %d entries reached, %d entries not sent",
+				maxSandboxViolations, len(r.Violations)-i)
+			break
+		}
+
+		violation, size, ok := newSandboxViolation(v)
+		if !ok {
+			log.Debugf("sandbox violation report: %s entry has no target or a target over its bound, not sent", v.Kind)
+			continue
+		}
+		if size > budget {
+			log.Debugf("sandbox violation report: %s entry over the string budget of %d bytes, not sent",
+				v.Kind, sandboxViolationBudget)
+			continue
+		}
+
+		budget -= size
+		violations = append(violations, violation)
+	}
+	if len(violations) == 0 {
+		return nil
+	}
+
+	exitStatus := controltowerv1.PmgSandboxExitStatus_PMG_SANDBOX_EXIT_STATUS_FAILED
+	if r.CleanExit {
+		exitStatus = controltowerv1.PmgSandboxExitStatus_PMG_SANDBOX_EXIT_STATUS_SUCCESS
+	}
+
+	report := &controltowerv1.PmgSandboxViolationReport{}
+	report.SetDriver(mapSandboxDriver(r.Driver))
+	report.SetSandboxProfile(clipUTF8(r.Profile, maxSandboxProfile))
+	report.SetExitStatus(exitStatus)
+	report.SetViolations(violations)
+	report.SetDistinctCount(uint32(len(r.Violations)))
+
+	e := &controltowerv1.PmgEvent{}
+	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_VIOLATION)
+	e.SetSandboxViolationReport(report)
+	return e
+}
+
+// topOfEachRuleFirst moves the top denial of each kind and rule to the front.
+// The other denials follow, and both groups keep their ranked order. A script
+// can make any number of denials, so with the ranked order alone, a flood
+// under one rule pushes the denials of every other rule over the limits. The
+// profile sets the rules, so a script cannot add more of these top denials.
+func topOfEachRuleFirst(vs []SandboxViolation) []SandboxViolation {
+	type rule struct {
+		kind sandbox.ViolationKind
+		rule string
+	}
+
+	seen := make(map[rule]bool)
+	var top, rest []SandboxViolation
+	for _, v := range vs {
+		r := rule{v.Kind, v.Rule}
+		if seen[r] {
+			rest = append(rest, v)
+			continue
+		}
+		seen[r] = true
+		top = append(top, v)
+	}
+	return append(top, rest...)
+}
+
+// newSandboxViolation sets exactly one of path, executable and host, as the
+// proto requires, and reports the bytes of its strings. It reports false for
+// an entry with no target or a target over its bound. A target is dropped
+// and not cut, because a cut path names another file.
+func newSandboxViolation(v SandboxViolation) (*controltowerv1.PmgSandboxViolation, int, bool) {
+	violation := &controltowerv1.PmgSandboxViolation{}
+	violation.SetKind(mapSandboxViolationKind(v.Kind))
+
+	var target string
+	var bound int
+	switch {
+	case v.Path != "" && v.Executable == "" && v.Host == "":
+		target, bound = validUTF8(v.Path), maxSandboxViolationPath
+		violation.SetPath(target)
+	case v.Executable != "" && v.Path == "" && v.Host == "":
+		target, bound = validUTF8(v.Executable), maxSandboxViolationPath
+		violation.SetExecutable(target)
+	case v.Host != "" && v.Path == "" && v.Executable == "":
+		target, bound = validUTF8(v.Host), maxSandboxViolationHost
+		violation.SetHost(target)
+		if v.Port != nil {
+			violation.SetPort(uint32(*v.Port))
+		}
+	default:
+		return nil, 0, false
+	}
+	if len(target) > bound {
+		return nil, 0, false
+	}
+
+	rule := clipUTF8(v.Rule, maxSandboxViolationRule)
+	if rule != "" {
+		violation.SetRule(rule)
+	}
+	process := clipUTF8(v.Process, maxSandboxViolationProcess)
+	if process != "" {
+		violation.SetProcess(process)
+	}
+	violation.SetCount(uint32(min(max(int64(v.Count), 1), math.MaxUint32)))
+
+	return violation, len(target) + len(rule) + len(process), true
+}
+
+// validUTF8 replaces the invalid bytes of s. A proto string must be valid
+// UTF-8, and a Linux path can hold any byte.
+func validUTF8(s string) string {
+	return strings.ToValidUTF8(s, string(utf8.RuneError))
+}
+
+// clipUTF8 makes s valid UTF-8 and cuts it to at most n bytes. A bound counts
+// characters, so n bytes is always inside it.
+func clipUTF8(s string, n int) string {
+	s = validUTF8(s)
+	if len(s) <= n {
+		return s
+	}
+	return strings.ToValidUTF8(s[:n], "")
+}
+
+func mapSandboxDriver(driver sandbox.DriverName) controltowerv1.PmgSandboxDriver {
+	switch driver {
+	case sandbox.DriverSeatbelt:
+		return controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_SEATBELT
+	case sandbox.DriverLandlock:
+		return controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_LANDLOCK
+	case sandbox.DriverBubblewrap:
+		return controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_BUBBLEWRAP
+	default:
+		return controltowerv1.PmgSandboxDriver_PMG_SANDBOX_DRIVER_UNSPECIFIED
+	}
+}
+
+func mapSandboxViolationKind(kind sandbox.ViolationKind) controltowerv1.PmgSandboxViolationKind {
+	switch kind {
+	case sandbox.ViolationKindFSRead:
+		return controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_FILESYSTEM_READ
+	case sandbox.ViolationKindFSWrite:
+		return controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_FILESYSTEM_WRITE
+	case sandbox.ViolationKindFSDeleteOrRename:
+		return controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_FILESYSTEM_DELETE_OR_RENAME
+	case sandbox.ViolationKindExec:
+		return controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_EXEC
+	case sandbox.ViolationKindNetworkConnect:
+		return controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_NETWORK_CONNECT
+	case sandbox.ViolationKindNetworkBind:
+		return controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_NETWORK_BIND
+	case sandbox.ViolationKindGenericDeny:
+		return controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_GENERIC
+	default:
+		return controltowerv1.PmgSandboxViolationKind_PMG_SANDBOX_VIOLATION_KIND_UNSPECIFIED
+	}
 }
 
 func newErrorEvent(event AuditEvent) *controltowerv1.PmgEvent {
