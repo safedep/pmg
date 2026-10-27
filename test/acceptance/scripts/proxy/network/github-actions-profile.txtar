@@ -1,0 +1,31 @@
+# guarantee: the github-actions built-in profile loads as a network profile
+# for the persistent proxy without the filesystem rules warning, and a
+# profile can inherit it.
+
+[windows] skip 'pmg proxy start --daemon is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg sandbox profile lint github-actions
+
+exec pmg proxy start --daemon --port 0 --state $WORK/state.json --profile github-actions --network-mode enforce
+! stdout 'filesystem, process or environment rules'
+! stderr 'filesystem, process or environment rules'
+exec pmg proxy status --state $WORK/state.json
+stdout 'github-actions'
+exec pmg proxy stop --state $WORK/state.json
+
+exec pmg proxy start --daemon --port 0 --state $WORK/state.json --profile $WORK/ci.yml
+exec pmg proxy status --state $WORK/state.json
+stdout 'github-actions < .*ci.yml'
+exec pmg proxy stop --state $WORK/state.json
+
+-- ci.yml --
+name: ci
+inherits: github-actions
+network:
+  allow_outbound:
+    - registry.npmjs.org:443
+  deny_outbound:
+    - "*:*"

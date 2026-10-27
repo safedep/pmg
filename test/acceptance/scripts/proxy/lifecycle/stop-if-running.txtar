@@ -1,0 +1,22 @@
+# guarantee: pmg proxy stop --if-running exits zero when no proxy runs on the
+# state file, and --report writes the stop result as JSON in both cases.
+
+[windows] skip 'pmg proxy start --daemon is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+! exec pmg proxy stop --state $WORK/none.json
+stderr 'File or directory not found'
+
+exec pmg proxy stop --if-running --state $WORK/none.json --report $WORK/empty.json
+stdout 'Nothing to stop'
+exists $WORK/empty.json
+grep '"stopped": false' $WORK/empty.json
+
+exec pmg proxy start --daemon --port 0 --state $WORK/state.json
+exec pmg proxy stop --if-running --state $WORK/state.json --report $WORK/report.json
+grep '"stopped": true' $WORK/report.json
+grep '"blocked_count": 0' $WORK/report.json
+! grep '"violation"' $WORK/report.json
+! exists $WORK/state.json

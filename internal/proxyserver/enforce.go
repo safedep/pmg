@@ -36,6 +36,19 @@ type EnforceState struct {
 // into the kernel policy. The ports of every proxy.registries endpoint are
 // added, so a private registry on a non-standard port is routed too.
 func enforcePolicy(cfg *config.RuntimeConfig, o EnforceOverrides) (netenforce.Policy, error) {
+	p, err := buildEnforcePolicy(cfg, o)
+	if err != nil {
+		return netenforce.Policy{}, usefulerror.NewUsefulError().
+			WithCode(errcodes.InvalidArgument).
+			WithHumanError(fmt.Sprintf("the enforce policy is not valid: %v", err)).
+			WithMsg(err.Error()).
+			WithHelp("Fix the value in proxy.server.enforce or in the --enforce-* flag").
+			Wrap(err)
+	}
+	return p, nil
+}
+
+func buildEnforcePolicy(cfg *config.RuntimeConfig, o EnforceOverrides) (netenforce.Policy, error) {
 	ec := cfg.Config.Proxy.Server.Enforce
 	p := netenforce.DefaultPolicy()
 	p.DenyUDP = ec.DenyUDP

@@ -288,44 +288,45 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 `pip install`, etc. in the job.
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
-  with:
-    server-mode: true
+- uses: actions/checkout@v4
+- uses: safedep/pmg@v0.34.0
 
-# intercepted via HTTP_PROXY automatically
+# goes through the PMG proxy
 - run: npm ci
-
-- name: Enforce PMG policy
-  if: always()
-  run: pmg proxy stop --fail-on-violation # stops the daemon, fails the job on a block
 ```
 
+Set `timeout-minutes` on the job. A hung proxy blocks the job until the
+timeout, and the GitHub default is 360 minutes.
+
+The action runs the PMG proxy for the job, with kernel enforcement where the
+runner allows it. At the end of the job, the action stops PMG, fails the job
+on a block, and writes a job summary. The summary proposes a network profile from the
+destinations the job reached.
+
 By default you get malware blocking and dependency cooldown. Sandbox isolation
-is opt-in via the `sandbox` input. Tune behavior via inputs (`paranoid`,
+is opt-in via the `sandbox` input. `sandbox: true` uses the shims instead of
+the proxy daemon, so it turns off kernel enforcement. Tune behavior via inputs (`paranoid`,
 `sandbox`, `cooldown-days`, ...) or point
 `config-file` at a YAML in the repo. See
 [docs/github-action.md](docs/github-action.md) for the full reference.
 
 ### Kernel Enforcement (Linux)
 
-A step can ignore `HTTP_PROXY`. With `enforce`, PMG attaches eBPF programs
-that make the Linux kernel route every eligible process through the proxy. A
-step cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own.
-Enforcement needs passwordless `sudo`, which GitHub-hosted Ubuntu runners have.
-npm needs Node 22.19 or later. The `enforce` input needs action version
-`v0.31.0` or later.
+A step can ignore `HTTP_PROXY`. With kernel enforcement, PMG attaches eBPF
+programs that make the Linux kernel route every eligible process through the
+proxy. A step cannot bypass it with `env -i`, `sudo`, or an HTTP client of
+its own. Enforcement needs passwordless `sudo` on the runner host, which
+GitHub-hosted Ubuntu runners have. The `enforce` input is `auto` by default.
+The action enforces on a GitHub-hosted runner, and runs the proxy without
+enforcement on a self-hosted runner, in a job container, or without `sudo`.
+Set `enforce: true` to fail the job where the runner cannot enforce.
 
 ```yaml
-- uses: safedep/pmg@v0.33.0
+- uses: safedep/pmg@v0.34.0
   with:
-    server-mode: true
     enforce: true
 
 - run: npm ci
-
-- name: Enforce PMG policy
-  if: always()
-  run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
 ```
 
 See [Kernel enforcement](docs/github-action.md#kernel-enforcement) for
