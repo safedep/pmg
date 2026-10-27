@@ -376,6 +376,45 @@ func TestTranslateSandboxViolationFitsASyncRequest(t *testing.T) {
 	assert.Less(t, eventsPerSyncRequest*proto.Size(event), 4<<20, "a full sync request must fit the default gRPC message limit")
 }
 
+// The script chooses its denials. A flood under one rule must not push out
+// the top denial of another rule, by the entry limit or by the byte budget.
+func TestTranslateSandboxViolationKeepsTheTopEntryOfEachRule(t *testing.T) {
+	https := uint16(443)
+	credentials := SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: "/Users/dev/.aws/credentials", Rule: "/Users/dev/.aws", Count: 1}
+	direct := SandboxViolation{Kind: sandbox.ViolationKindNetworkConnect, Host: "*", Port: &https, Rule: "direct", Count: 1}
+	flood := func(n, nameLen int) []SandboxViolation {
+		out := make([]SandboxViolation, n)
+		for i := range out {
+			out[i] = SandboxViolation{Kind: sandbox.ViolationKindFSRead, Path: fmt.Sprintf("/Users/dev/.ssh/%0*d", nameLen, i), Rule: "/Users/dev/.ssh", Count: 1}
+		}
+		return out
+	}
+
+	tests := []struct {
+		name       string
+		violations []SandboxViolation
+	}{
+		{"entry limit", append(flood(150, 8), credentials, direct)},
+		{"byte budget", append(flood(20, 4000), credentials, direct)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			report := newSandboxViolationEvent(SandboxViolationReport{Driver: sandbox.DriverSeatbelt, Violations: tc.violations}).
+				GetSandboxViolationReport()
+			kept := report.GetViolations()
+			require.Greater(t, len(kept), 2)
+			assert.Less(t, len(kept), len(tc.violations))
+			assert.Equal(t, uint32(len(tc.violations)), report.GetDistinctCount())
+
+			assert.Equal(t, tc.violations[0].Path, kept[0].GetPath(), "the kept entries stay in ranked order")
+			assert.Equal(t, credentials.Path, kept[len(kept)-2].GetPath())
+			assert.Equal(t, "*", kept[len(kept)-1].GetHost())
+			assert.Equal(t, "direct", kept[len(kept)-1].GetRule())
+		})
+	}
+}
+
 func TestTranslateSandboxViolationLimitsTheCount(t *testing.T) {
 	cases := []struct {
 		name  string

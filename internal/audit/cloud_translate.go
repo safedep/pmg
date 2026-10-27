@@ -3,6 +3,7 @@ package audit
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -110,33 +111,10 @@ const (
 	sandboxViolationBudget = 32 << 10
 )
 
-// newSandboxViolationEvent keeps the denials in their ranked order until a
-// bound is reached. distinct_count still counts every denial. It returns nil
-// when no entry fits, because a report holds at least one.
+// newSandboxViolationEvent returns nil when no entry fits, because a report
+// holds at least one. distinct_count still counts every denial.
 func newSandboxViolationEvent(r SandboxViolationReport) *controltowerv1.PmgEvent {
-	var violations []*controltowerv1.PmgSandboxViolation
-	budget := sandboxViolationBudget
-	for i, v := range r.Violations {
-		if len(violations) == maxSandboxViolations {
-			log.Debugf("sandbox violation report: limit of %d entries reached, %d entries not sent",
-				maxSandboxViolations, len(r.Violations)-i)
-			break
-		}
-
-		violation, size, ok := newSandboxViolation(v)
-		if !ok {
-			log.Debugf("sandbox violation report: %s entry has no target or a target over its bound, not sent", v.Kind)
-			continue
-		}
-
-		budget -= size
-		if budget < 0 {
-			log.Debugf("sandbox violation report: string budget of %d bytes reached, %d entries not sent",
-				sandboxViolationBudget, len(r.Violations)-i)
-			break
-		}
-		violations = append(violations, violation)
-	}
+	violations := selectSandboxViolations(r.Violations)
 	if len(violations) == 0 {
 		return nil
 	}
@@ -157,6 +135,57 @@ func newSandboxViolationEvent(r SandboxViolationReport) *controltowerv1.PmgEvent
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_VIOLATION)
 	e.SetSandboxViolationReport(report)
 	return e
+}
+
+// selectSandboxViolations keeps the top entry of each kind and rule first,
+// then the other entries in ranked order, until a bound is reached. The
+// script chooses its denials and can make any number of them. With a ranked
+// fill alone, a flood under one rule could push out the denials of every
+// other rule, such as a direct connection under network_via_proxy_only. The
+// profile sets the rules, so the script cannot add first entries. The kept
+// entries stay in ranked order.
+func selectSandboxViolations(vs []SandboxViolation) []*controltowerv1.PmgSandboxViolation {
+	type slot struct {
+		kind sandbox.ViolationKind
+		rule string
+	}
+
+	entries := make([]*controltowerv1.PmgSandboxViolation, len(vs))
+	sizes := make([]int, len(vs))
+	slots := make(map[slot]bool)
+	var first, rest []int
+	for i, v := range vs {
+		entry, size, ok := newSandboxViolation(v)
+		if !ok {
+			log.Debugf("sandbox violation report: %s entry has no target or a target over its bound, not sent", v.Kind)
+			continue
+		}
+		entries[i], sizes[i] = entry, size
+
+		if s := (slot{v.Kind, v.Rule}); !slots[s] {
+			slots[s] = true
+			first = append(first, i)
+		} else {
+			rest = append(rest, i)
+		}
+	}
+
+	kept, budget, notSent := 0, sandboxViolationBudget, 0
+	for _, i := range slices.Concat(first, rest) {
+		if kept == maxSandboxViolations || sizes[i] > budget {
+			entries[i] = nil
+			notSent++
+			continue
+		}
+		kept++
+		budget -= sizes[i]
+	}
+	if notSent > 0 {
+		log.Debugf("sandbox violation report: limit of %d entries or %d bytes reached, %d entries not sent",
+			maxSandboxViolations, sandboxViolationBudget, notSent)
+	}
+
+	return slices.DeleteFunc(entries, func(e *controltowerv1.PmgSandboxViolation) bool { return e == nil })
 }
 
 // newSandboxViolation sets exactly one of path, executable and host, as the
