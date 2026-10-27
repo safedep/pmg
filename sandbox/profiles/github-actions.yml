@@ -14,9 +14,11 @@ package_managers:
 # containers. A proposal from a run in GitHub Actions inherits this
 # profile, so it does not list these hosts.
 #
-# *.blob.core.windows.net is every Azure storage account. The runner and
-# actions/upload-artifact and actions/cache need it. Accepted: a script can
-# send data to an Azure storage account it controls.
+# The runner, actions/upload-artifact and actions/cache store job logs,
+# artifacts and caches in the productionresultssa<N> Azure storage accounts.
+# GitHub lists these 20 accounts for self-hosted runners. A wildcard on
+# blob.core.windows.net would allow every Azure storage account, so a
+# script could send data to an account it controls.
 #
 # *.githubapp.com is for the agents of a GitHub-hosted runner, such as
 # hosted-compute-watchdog-prod-<region>.githubapp.com. The region changes
@@ -27,7 +29,26 @@ package_managers:
 network:
   allow_outbound:
     - "*.actions.githubusercontent.com:443"
-    - "*.blob.core.windows.net:443"
+    - productionresultssa0.blob.core.windows.net:443
+    - productionresultssa1.blob.core.windows.net:443
+    - productionresultssa2.blob.core.windows.net:443
+    - productionresultssa3.blob.core.windows.net:443
+    - productionresultssa4.blob.core.windows.net:443
+    - productionresultssa5.blob.core.windows.net:443
+    - productionresultssa6.blob.core.windows.net:443
+    - productionresultssa7.blob.core.windows.net:443
+    - productionresultssa8.blob.core.windows.net:443
+    - productionresultssa9.blob.core.windows.net:443
+    - productionresultssa10.blob.core.windows.net:443
+    - productionresultssa11.blob.core.windows.net:443
+    - productionresultssa12.blob.core.windows.net:443
+    - productionresultssa13.blob.core.windows.net:443
+    - productionresultssa14.blob.core.windows.net:443
+    - productionresultssa15.blob.core.windows.net:443
+    - productionresultssa16.blob.core.windows.net:443
+    - productionresultssa17.blob.core.windows.net:443
+    - productionresultssa18.blob.core.windows.net:443
+    - productionresultssa19.blob.core.windows.net:443
     - "*.githubapp.com:443"
     - github.com:443
     - api.github.com:443
