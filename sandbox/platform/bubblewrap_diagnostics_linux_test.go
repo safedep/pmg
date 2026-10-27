@@ -347,6 +347,19 @@ func TestBubblewrapStderrTapDedupesBeforeCapping(t *testing.T) {
 	assert.Equal(t, 1, denials[1].hits)
 }
 
+func TestBubblewrapStderrTapKeepsEachProcess(t *testing.T) {
+	tap := newBubblewrapStderrTap()
+
+	_, err := tap.Write([]byte("cat: /work/.env: Permission denied\n" +
+		"head: cannot open '/work/.env' for reading: Permission denied\n"))
+	require.NoError(t, err)
+
+	denials := tap.collect()
+	require.Len(t, denials, 2)
+	assert.Equal(t, "cat", denials[0].process)
+	assert.Equal(t, "head", denials[1].process)
+}
+
 func TestBubblewrapStderrTapBoundsDistinctDenials(t *testing.T) {
 	tap := newBubblewrapStderrTap()
 

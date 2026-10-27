@@ -111,6 +111,31 @@ func TestExtractLandlockViolations(t *testing.T) {
 			}},
 		},
 		{
+			name: "one target from two processes stays two denials",
+			events: []capturedAuditEvent{
+				denyEvent("openat", "/home/dev/.netrc", "read", "git"),
+				denyEvent("openat", "/home/dev/.netrc", "read", "node"),
+			},
+			want: []sandbox.Violation{
+				{
+					Kind:      sandbox.ViolationKindFSRead,
+					RawKind:   "openat",
+					Target:    "/home/dev/.netrc",
+					Process:   "git",
+					RawLog:    `{"type":"seccomp_deny"}`,
+					RuleLabel: "read access denied: /home/dev/.netrc",
+				},
+				{
+					Kind:      sandbox.ViolationKindFSRead,
+					RawKind:   "openat",
+					Target:    "/home/dev/.netrc",
+					Process:   "node",
+					RawLog:    `{"type":"seccomp_deny"}`,
+					RuleLabel: "read access denied: /home/dev/.netrc",
+				},
+			},
+		},
+		{
 			name: "rule target populated from rule_path",
 			events: []capturedAuditEvent{{
 				auditEvent: auditEvent{

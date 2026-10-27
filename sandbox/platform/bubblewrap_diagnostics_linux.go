@@ -294,9 +294,11 @@ func newBubblewrapStderrTap() *bubblewrapStderrTap {
 }
 
 // bubblewrapDenialKey identifies a denial for deduplication: the same kind of
-// block on the same target is one denial, however many times a process retries.
+// block on the same target by the same process is one denial, however many
+// times the process retries. The audit report keeps each process apart, so
+// the key does too.
 func bubblewrapDenialKey(d bubblewrapDenial) string {
-	return string(d.kind) + "\x00" + d.target
+	return string(d.kind) + "\x00" + d.target + "\x00" + d.process
 }
 
 func (t *bubblewrapStderrTap) Write(p []byte) (int, error) {

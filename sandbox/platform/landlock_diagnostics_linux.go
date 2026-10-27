@@ -14,7 +14,7 @@ import (
 )
 
 // landlockAuditEventCap bounds the per-run audit event buffer. Deny events
-// are deduplicated by (kind, path) at capture time, so this caps DISTINCT
+// are deduplicated by (kind, path, process) at capture time, so this caps DISTINCT
 // denials — reaching it means hundreds of different denied targets, itself
 // worth the one-time warning below.
 const landlockAuditEventCap = 512
@@ -127,7 +127,7 @@ func (s *landlockSandbox) BestEffortViolation(error) (*sandbox.ViolationReport, 
 }
 
 // extractLandlockViolations maps seccomp deny events to violations,
-// deduplicating identical (kind, target) pairs — a process commonly retries
+// deduplicating identical (kind, target, process) events — a process commonly retries
 // a denied open many times. The repeats add to the hits of the kept one.
 func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation {
 	violations := make([]sandbox.Violation, 0, len(events))
@@ -163,11 +163,12 @@ func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation 
 }
 
 // landlockDenyKey identifies a denial for deduplication: events with the same
-// violation kind and target are the same denial. Capture-time dedupe
+// violation kind, target and process are the same denial. The audit report
+// keeps each process apart, so the key does too. Capture-time dedupe
 // (captureAuditEvents) and extract-time dedupe (extractLandlockViolations)
 // must agree on this identity, so both use this function.
 func landlockDenyKey(e auditEvent) string {
-	return string(landlockViolationKind(e)) + "\x00" + e.Path
+	return string(landlockViolationKind(e)) + "\x00" + e.Path + "\x00" + e.Comm
 }
 
 func landlockViolationKind(e auditEvent) sandbox.ViolationKind {
