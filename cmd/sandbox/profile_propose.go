@@ -33,6 +33,10 @@ const (
 	// inherits. The daemon serves every package manager, so no single
 	// package manager profile fits.
 	proposeDaemonParent = "exec"
+
+	// proposeGitHubActionsParent replaces proposeDaemonParent on a GitHub
+	// Actions runner. It holds the runner hosts and no filesystem rules.
+	proposeGitHubActionsParent = "github-actions"
 )
 
 type profileProposeOptions struct {
@@ -49,10 +53,18 @@ type profileProposeOptions struct {
 // proposeDeps are the seams the tests replace: where the event log is, the
 // repository the command runs in, and the clock.
 type proposeDeps struct {
-	eventLogDir func() (string, error)
-	repoRoot    func() string
-	now         func() time.Time
-	retention   func() int
+	eventLogDir   func() (string, error)
+	repoRoot      func() string
+	now           func() time.Time
+	retention     func() int
+	githubActions func() bool
+}
+
+func (d proposeDeps) daemonParent() string {
+	if d.githubActions != nil && d.githubActions() {
+		return proposeGitHubActionsParent
+	}
+	return proposeDaemonParent
 }
 
 func defaultProposeDeps() proposeDeps {
@@ -66,9 +78,10 @@ func defaultProposeDeps() proposeDeps {
 			}
 			return config.Get().EventLogDir(), nil
 		},
-		repoRoot:  pmgsandbox.RepoRootOfCwd,
-		now:       time.Now,
-		retention: func() int { return config.Get().Config.EventLogRetentionDays },
+		repoRoot:      pmgsandbox.RepoRootOfCwd,
+		now:           time.Now,
+		retention:     func() int { return config.Get().Config.EventLogRetentionDays },
+		githubActions: func() bool { return os.Getenv("GITHUB_ACTIONS") == "true" },
 	}
 }
 
@@ -126,7 +139,7 @@ func runProfilePropose(out io.Writer, opts *profileProposeOptions, factory regis
 		return registryInitError(err)
 	}
 
-	target, err := resolveProposeTarget(opts, records, registry)
+	target, err := resolveProposeTarget(opts, records, registry, deps.daemonParent())
 	if err != nil {
 		return err
 	}
@@ -262,7 +275,7 @@ type proposeTarget struct {
 	now             time.Time
 }
 
-func resolveProposeTarget(opts *profileProposeOptions, records []netobserve.Record, registry pmgsandbox.ProfileRegistry) (*proposeTarget, error) {
+func resolveProposeTarget(opts *profileProposeOptions, records []netobserve.Record, registry pmgsandbox.ProfileRegistry, daemonParent string) (*proposeTarget, error) {
 	target := &proposeTarget{now: time.Now()}
 	for _, record := range records {
 		target.runIDs = append(target.runIDs, record.RunID)
@@ -272,12 +285,12 @@ func resolveProposeTarget(opts *profileProposeOptions, records []netobserve.Reco
 	case opts.into != "":
 		return resolveIntoTarget(target, opts.into, registry)
 	case opts.newRef != "":
-		return resolveNewTarget(target, opts.newRef, records, registry)
+		return resolveNewTarget(target, opts.newRef, records, registry, daemonParent)
 	}
 
 	// No target. The proposal still inherits the run's built-in, so the
 	// printed block does not repeat the registry hosts.
-	parent, err := proposeParent(records, registry)
+	parent, err := proposeParent(records, registry, daemonParent)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +336,7 @@ func resolveIntoTarget(target *proposeTarget, path string, registry pmgsandbox.P
 	return target, nil
 }
 
-func resolveNewTarget(target *proposeTarget, ref string, records []netobserve.Record, registry pmgsandbox.ProfileRegistry) (*proposeTarget, error) {
+func resolveNewTarget(target *proposeTarget, ref string, records []netobserve.Record, registry pmgsandbox.ProfileRegistry, daemonParent string) (*proposeTarget, error) {
 	target.isNew = true
 	target.mode = 0o644
 	var taken []string
@@ -351,7 +364,7 @@ func resolveNewTarget(target *proposeTarget, ref string, records []netobserve.Re
 		}
 	}
 
-	parent, err := proposeParent(records, registry)
+	parent, err := proposeParent(records, registry, daemonParent)
 	if err != nil {
 		return nil, err
 	}
@@ -364,9 +377,9 @@ func resolveNewTarget(target *proposeTarget, ref string, records []netobserve.Re
 }
 
 // proposeParent is the built-in the proposal builds on: the built-in named
-// after the package manager that ran, or exec for a daemon run.
-func proposeParent(records []netobserve.Record, registry pmgsandbox.ProfileRegistry) (*pmgsandbox.SandboxPolicy, error) {
-	name := proposeDaemonParent
+// after the package manager that ran, or daemonParent for a daemon run.
+func proposeParent(records []netobserve.Record, registry pmgsandbox.ProfileRegistry, daemonParent string) (*pmgsandbox.SandboxPolicy, error) {
+	name := daemonParent
 	if pm := runPackageManager(records); pm != "" {
 		if _, ok := registry.BuiltinProfileYAML(pm); ok {
 			name = pm
@@ -528,28 +541,19 @@ func printProposal(out io.Writer, target *proposeTarget, rendered []byte, result
 	}
 }
 
-type proposeJSON struct {
-	RunIDs       []string                 `json:"run_ids"`
-	Destinations []propose.Row            `json:"destinations"`
-	Network      pmgsandbox.NetworkPolicy `json:"network"`
-	Added        []string                 `json:"added"`
-	Target       string                   `json:"target,omitempty"`
-	Content      string                   `json:"content"`
-	Written      bool                     `json:"written"`
-}
-
 func writeProposeJSON(out io.Writer, records []netobserve.Record, result propose.Result, target *proposeTarget, rendered []byte, write bool, registry pmgsandbox.ProfileRegistry) error {
 	if write {
 		if err := target.write(rendered, registry); err != nil {
 			return err
 		}
 	}
-	report := proposeJSON{
+	report := propose.Report{
 		RunIDs:       make([]string, 0, len(records)),
 		Destinations: result.Rows,
 		Network:      result.Network,
 		Added:        result.Added,
 		Target:       target.path,
+		New:          target.isNew,
 		Content:      string(rendered),
 		Written:      write,
 	}

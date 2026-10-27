@@ -5,12 +5,20 @@ on:
     branches: [main]
     paths:
       - action.yml
+      - action/**
+      - cmd/proxy/**
+      - internal/ghasummary/**
+      - sandbox/profiles/github-actions.yml
       - docs/github-action.md
+      - .github/actions/stage-pmg-build/**
+      - .github/actions/check-proxy-env-post/**
+      - .github/scripts/action-post.sh
       - .github/workflows/action-e2e.yml
   push:
     branches: [main]
     paths:
       - action.yml
+      - action/**
   workflow_dispatch:
 
 concurrency:
@@ -22,51 +30,60 @@ permissions:
 
 jobs:
   default-config:
-    name: Default config installs and protects
+    name: Default config enforces and protects (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Under enforcement Node trusts the system store from 22.19 on. The
+        # action sets NODE_EXTRA_CA_CERTS, so an older Node works too.
+        node: [20, 24]
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
+      - id: stage
+        uses: $/.github/actions/stage-pmg-build
       - uses: $/
-      - name: PATH wiring
+        with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+      - name: The defaults start the proxy with kernel enforcement
         run: |
-          set -e
-          which pmg
-          which npm
-          # Either layout is valid here: the action installs a published
-          # release, which may predate the XDG shim directory.
-          npm_path="$(command -v npm)"
-          case "$npm_path" in
-            "${XDG_DATA_HOME:-$HOME/.local/share}/safedep/pmg/bin/npm"|"$HOME/.pmg/bin/npm") ;;
-            *) echo "npm resolved outside the PMG shim dirs: $npm_path"; exit 1 ;;
-          esac
+          set -euo pipefail
+          test -n "$PMG_PROXY_STATE"
+          test "$NODE_EXTRA_CA_CERTS" = "$PMG_CA_BUNDLE"
+          sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE" | tee status.txt
+          grep -q "Kernel enforcement: active" status.txt
       - name: Install a benign package
         run: |
+          set -euo pipefail
           mkdir t && cd t
           npm init -y
           npm install express@5.2.1
           test -d node_modules/express
       - name: Block a known-malicious package
-        shell: bash
         run: |
-          set -eo pipefail
+          set -euo pipefail
           mkdir m && cd m
           npm init -y
-          set +e
-          npm --prefer-online --no-cache i safedep-test-pkg@0.1.3 >out.log 2>&1
-          code=$?
-          set -e
-          cat out.log
-          if [ "$code" -eq 0 ]; then
+          if npm --prefer-online --no-cache i safedep-test-pkg@0.1.3; then
             echo "::error::Expected install to fail (malicious package), but it succeeded." >&2
             exit 1
           fi
-          grep -qi "Malicious package blocked" out.log
+      - name: The post step exits 1 and its summary names the block
+        run: |
+          set -euo pipefail
+          .github/scripts/action-post.sh 1 "STATE_bin=${PMG_BIN}" STATE_enforce=true "STATE_state=${PMG_PROXY_STATE}" | tee post.log
+          grep -Eq '[0-9]+ package\(s\) were blocked by the proxy' post.log
 
   custom-config-file:
     name: config-file input overrides defaults
@@ -165,13 +182,202 @@ jobs:
           INPUT_NETWORK_MODE: enforce
         run: |
           set -euo pipefail
-          got="$(.github/scripts/enforce-flags.sh | tr '\n' ' ')"
+          got="$(action/enforce-flags.sh | tr '\n' ' ')"
           want="--enforce-port 8443 --enforce-port 9443 --enforce-exempt-executable /opt/agent/bin/agent --enforce-exempt-executable /opt/agent/bin/worker-* --enforce-skip-destination 10.20.0.0/16 --profile .pmg/profiles/ci.yml --network-mode enforce "
           test "$got" = "$want" || { echo "got:  $got"; echo "want: $want"; exit 1; }
       - name: No inputs give no flags
         run: |
           set -euo pipefail
-          test -z "$(.github/scripts/enforce-flags.sh)"
+          test -z "$(action/enforce-flags.sh)"
+      - name: The action library reads the runner files
+        run: node --test action/lib.test.js action/main.test.js action/post.test.js
+
+  # The jobs below run the action against a build of this pull request, so
+  # the post step uses the stop report and the job summary. Each job runs the
+  # post step once by hand to check its exit status and its summary. The post
+  # step at the end of the job then finds no proxy and passes.
+  post-step-fails-on-block:
+    name: The post step fails the job on a blocked package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: stage
+        uses: $/.github/actions/stage-pmg-build
+      - id: pmg
+        uses: $/
+        with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+          server-mode: true
+          enforce: false
+      - name: A malicious install is blocked
+        run: |
+          set -euo pipefail
+          mkdir mal && cd mal
+          npm init -y >/dev/null
+          if npm --no-cache --prefer-online install safedep-test-pkg@0.1.3; then
+            echo "::error::The malicious install succeeded." >&2
+            exit 1
+          fi
+      - name: The post step exits 1 and its summary names the block
+        env:
+          BIN_DIR: ${{ steps.pmg.outputs.bin-dir }}
+        run: |
+          set -euo pipefail
+          .github/scripts/action-post.sh 1 "STATE_bin=${BIN_DIR}/pmg" STATE_proxy_vars=HTTP_PROXY,HTTPS_PROXY | tee post.log
+          grep -Eq '\*\*Failed\.\*\* [0-9]+ package\(s\) were blocked by the proxy' post.log
+          grep -Eq '::error title=PMG::PMG blocked [0-9]+ package\(s\)' post.log
+          grep -q '^HTTPS_PROXY=$' "$GITHUB_ENV"
+      - name: A post step that finds the proxy stopped fails the job
+        env:
+          BIN_DIR: ${{ steps.pmg.outputs.bin-dir }}
+        run: |
+          set -euo pipefail
+          .github/scripts/action-post.sh 1 "STATE_bin=${BIN_DIR}/pmg" | tee post.log
+          grep -q 'set `auto-stop: false`' post.log
+
+  post-step-audit-bootstrap:
+    name: The post step proposes a missing network profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: stage
+        uses: $/.github/actions/stage-pmg-build
+      - id: pmg
+        uses: $/
+        with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+          network-profile: .pmg/e2e-network.yml
+          enforce: false
+      - name: The action turned on server mode
+        run: test -n "$HTTPS_PROXY"
+      - name: A benign install succeeds
+        run: |
+          set -euo pipefail
+          mkdir benign && cd benign
+          npm init -y >/dev/null
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+      - name: The post step passes and proposes the profile
+        env:
+          BIN_DIR: ${{ steps.pmg.outputs.bin-dir }}
+        run: |
+          set -euo pipefail
+          .github/scripts/action-post.sh 0 "STATE_bin=${BIN_DIR}/pmg" "INPUT_NETWORK-PROFILE=.pmg/e2e-network.yml" | tee post.log
+          grep -q '\*\*Passed\.\*\*' post.log
+          grep -q 'Save the file as `.pmg/e2e-network.yml` and commit it' post.log
+          grep -q 'inherits: github-actions' post.log
+          grep -q 'registry.npmjs.org:443' post.log
+          test ! -e .pmg/e2e-network.yml
+
+  post-step-clears-proxy-variables:
+    name: The post step stops the proxy and clears the proxy variables
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Its post step runs after the post step of the PMG action.
+      - uses: $/.github/actions/check-proxy-env-post
+      - id: stage
+        uses: $/.github/actions/stage-pmg-build
+      - uses: $/
+        with:
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+          server-mode: true
+          # Without enforcement the job gets the proxy variables that the
+          # post step must empty.
+          enforce: false
+      - name: A benign install succeeds
+        run: |
+          set -euo pipefail
+          mkdir benign && cd benign
+          npm init -y >/dev/null
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+
+  post-step-enforce:
+    name: The post step fails on a connection the profile denies under enforce
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: stage
+        uses: $/.github/actions/stage-pmg-build
+      - name: Write the network profile
+        run: |
+          mkdir -p .pmg
+          cat > .pmg/e2e-enforce.yml <<'YAML'
+          name: e2e-enforce
+          inherits: github-actions
+          network:
+            allow_outbound:
+              - registry.npmjs.org:443
+            deny_outbound:
+              - "*:*"
+          YAML
+      - uses: $/
+        with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+          server-mode: true
+          enforce: true
+          network-profile: .pmg/e2e-enforce.yml
+          network-mode: enforce
+      - name: A benign install succeeds
+        run: |
+          set -euo pipefail
+          mkdir benign && cd benign
+          npm init -y >/dev/null
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+      - name: The profile denies a host it does not name
+        run: |
+          if curl -fsS --max-time 20 -o /dev/null https://pastebin.com/; then
+            echo "::error::The connection to pastebin.com succeeded." >&2
+            exit 1
+          fi
+      - name: The post step exits 1 and denies no host of the runner
+        run: |
+          set -euo pipefail
+          .github/scripts/action-post.sh 1 "STATE_bin=${PMG_BIN}" STATE_enforce=true "STATE_state=${PMG_PROXY_STATE}" \
+            "INPUT_NETWORK-PROFILE=.pmg/e2e-enforce.yml" | tee post.log
+          grep -q '### Denied connections' post.log
+          grep -q '::error title=PMG::PMG denied pastebin.com:443' post.log
+          # The runner reaches GitHub through the proxy. The github-actions
+          # profile must allow each host it reaches. Other system services
+          # of the image, such as snapd and apt, can be denied, so the check
+          # reads only the runner's own denials.
+          if grep '::error title=PMG::PMG denied' post.log | grep 'Runner\.'; then
+            echo "::error::The profile denied a host of the runner." >&2
+            exit 1
+          fi
 
   job-container-loopback:
     name: Server mode in a job container keeps the loopback bind
@@ -191,6 +397,7 @@ jobs:
           persist-credentials: false
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           server-mode: true
       - name: The proxy listens on loopback
         run: |
@@ -243,6 +450,7 @@ jobs:
           persist-credentials: false
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           server-mode: true
           expose-to-job-network: true
       - name: The proxy listens on the job container address
@@ -347,6 +555,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/
+        with:
+          server-mode: false
       - name: npm resolves to the PMG shim
         run: |
           set -eu
@@ -401,6 +611,7 @@ jobs:
           persist-credentials: false
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           server-mode: true
       - name: The proxy listens on loopback
         run: |
@@ -466,6 +677,7 @@ jobs:
           persist-credentials: false
       - uses: $/
         with:
+          auto-stop: false   # a step of this job runs the post step or stops PMG
           version: v0.32.0
           server-mode: ${{ matrix.mode == 'server' }}
       - name: The pinned release runs
@@ -569,6 +781,58 @@ jobs:
           test "${{ steps.run.outcome }}" = "failure"
           pmg proxy status | tee status.txt
           grep -q "not running" status.txt
+
+  enforce-input-typo:
+    name: A typo in the enforce policy fails the action under enforce auto
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: stage
+        uses: $/.github/actions/stage-pmg-build
+      - name: Action must exit non-zero
+        id: run
+        continue-on-error: true
+        uses: $/
+        with:
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+          enforce-skip-destinations: 10.0.0.0/33
+      - name: The action failed and no proxy runs
+        run: |
+          set -euo pipefail
+          test "${{ steps.run.outcome }}" = "failure"
+          if pgrep -x pmg; then
+            echo "::error::A PMG proxy runs after the failed start." >&2
+            exit 1
+          fi
+      - name: Write a config file with a typo in the enforce section
+        run: |
+          cat > pmg-typo.yml <<'YAML'
+          proxy:
+            server:
+              enforce:
+                skip_destinations:
+                  - 10.0.0.0/33
+          YAML
+      - name: Action with the config file must exit non-zero
+        id: config
+        continue-on-error: true
+        uses: $/
+        with:
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+          config-file: pmg-typo.yml
+      - name: The action failed on the config file and no proxy runs
+        run: |
+          set -euo pipefail
+          test "${{ steps.config.outcome }}" = "failure"
+          if pgrep -x pmg; then
+            echo "::error::A PMG proxy runs after the failed start." >&2
+            exit 1
+          fi
 
   non-linux-fail-fast:
     name: Action fails fast on non-Linux runners

@@ -1,5 +1,5 @@
 name: Setup PMG
-description: Install Package Manager Guard (PMG) and wrap npm/pip/etc. in this Linux GitHub Actions runner.
+description: Install Package Manager Guard (PMG) and wrap npm/pip/etc. in this Linux GitHub Actions runner. In server mode the action stops PMG at the end of the job and writes a job summary.
 author: SafeDep
 branding:
   icon: shield
@@ -20,7 +20,7 @@ inputs:
     required: false
     default: ""
   endpoint-id:
-    description: Identifier reported to SafeDep Cloud for this runner. When empty and cloud is enabled, defaults to "github-actions/<owner>/<repo>" so events aggregate per repository instead of per ephemeral runner hostname.
+    description: Identifier reported to SafeDep Cloud for this runner. When empty and cloud is enabled, defaults to "gha/<owner>/<repo>" so events aggregate per repository instead of per ephemeral runner hostname.
     required: false
     default: ""
 
@@ -74,18 +74,30 @@ inputs:
     default: "false"
 
   server-mode:
-    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job, with PMG_PROXY_RUN, the id of the run in the event log. Requires a job-end "pmg proxy stop --fail-on-violation" step.
+    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job, with PMG_PROXY_RUN, the id of the run in the event log. The post step of the action stops the proxy at the end of the job. Empty means server mode, except with sandbox true, which needs the shims. Set false for shims. network-profile turns server mode on.
     required: false
-    default: "false"
+    default: ""
+  fail-on-violation:
+    description: With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state. When PMG cannot stop the proxy, the job fails with every setting. When a step stopped the proxy, the job fails, so set auto-stop to false on such a job.
+    required: false
+    default: "true"
+  auto-stop:
+    description: With server mode, stop the proxy in the post step of the action at the end of the job. Set it to false when a workflow step stops the proxy. With true, a proxy that a step stopped fails the job when fail-on-violation is true.
+    required: false
+    default: "true"
+  baseline:
+    description: With server mode, propose a network profile from the destinations the job reached, and show it in the job summary with each destination host. Without network-profile the proposal is for .pmg/network.yml. skip-event-logging true turns it off. On a public repository anyone can read the summary. A denied connection shows in the summary also when baseline is false.
+    required: false
+    default: "true"
   expose-to-job-network:
     description: With server-mode in a job that has a job container, bind the proxy to the job container's address on the job network instead of 127.0.0.1. Docker container actions and docker:// steps in the same job can then reach the proxy. Every container on the job network can reach the proxy. Fails when the job has no job container.
     required: false
     default: "false"
 
   enforce:
-    description: With server-mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. Needs passwordless sudo on the runner. The action installs the PMG CA into the system trust store and starts the daemon as root. The action exports PMG_BIN and PMG_PROXY_STATE, and the job-end step becomes "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE --fail-on-violation". With config-file it also exports PMG_PROXY_CONFIG_DIR, the daemon's config directory.
+    description: With server mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. auto enforces on a GitHub-hosted runner, on the runner host, with passwordless sudo, and runs the proxy without enforcement elsewhere. An enforce-* input with auto fails where the action cannot enforce, and so does a policy error in config-file. true fails where the runner cannot enforce, and with shim mode. false turns it off. A self-hosted runner needs true, because the PMG CA stays in its trust store. The action installs the PMG CA into the system trust store, starts the daemon as root, and sets NODE_EXTRA_CA_CERTS for Node before 22.19 unless the job sets it. The action exports PMG_BIN and PMG_PROXY_STATE, so a step can run "sudo $PMG_BIN proxy status --state $PMG_PROXY_STATE". With config-file it also exports PMG_PROXY_CONFIG_DIR, the daemon's config directory.
     required: false
-    default: "false"
+    default: "auto"
   enforce-ports:
     description: With enforce, destination ports to route in addition to proxy.server.enforce.ports (comma or newline separated). Passed as --enforce-port.
     required: false
@@ -107,545 +119,27 @@ inputs:
     required: false
     default: ""
   network-profile:
-    description: With server-mode, the sandbox profile whose network rules the proxy applies, as a path in the workspace or a built-in name. Passed as --profile. See docs/persistent-proxy.md.
+    description: The sandbox profile whose network rules the proxy applies, as a path in the workspace or a built-in name. Passed as --profile. Turns server mode on, and fails with server-mode false. When the path does not exist and network-mode is not enforce, the proxy starts with no profile and the job summary proposes one for that path. See docs/github-action.md.
     required: false
     default: ""
   network-mode:
-    description: With network-profile, what the proxy does with a match on a deny rule, audit or enforce. Passed as --network-mode.
+    description: With network-profile, what the proxy does with a match on a deny rule, audit or enforce. Passed as --network-mode. Empty means audit.
     required: false
     default: ""
 
 runs:
-  using: composite
-  # The steps run with sh, not bash. In a job container they run inside the
-  # image, and minimal images such as Alpine have no bash. Ubuntu's sh is dash,
-  # whose echo expands backslash escapes, so the steps print values with
-  # printf '%s\n'. Two steps use bash: the OS check, which runs only on macOS
-  # and Windows, and kernel enforcement, which needs sudo on the runner host.
-  steps:
-    # macOS and Windows runners have bash, and a Linux job container may not,
-    # so the check runs only where it fails.
-    - name: Verify runner OS
-      if: runner.os != 'Linux'
-      shell: bash
-      run: |
-        echo "::error::safedep/pmg action currently supports Linux runners only. See https://github.com/safedep/pmg/issues/248 for cross-platform tracking."
-        exit 1
-
-    - name: Install PMG
-      id: install
-      shell: sh
-      env:
-        INPUT_VERSION: ${{ inputs.version }}
-        INPUT_CACHE: ${{ inputs.cache }}
-      run: | # zizmor: ignore[github-env]
-        set -eu
-
-        repo="safedep/pmg"
-        nl='
-        '
-        cr=$(printf '\r')
-
-        # Minimal images such as Alpine have busybox wget but no curl.
-        if command -v curl >/dev/null 2>&1; then
-          downloader=curl
-        elif command -v wget >/dev/null 2>&1; then
-          downloader=wget
-        else
-          printf '%s\n' "::error::PMG needs curl or wget to download the release." >&2
-          exit 1
-        fi
-        printf '%s\n' "Downloading with ${downloader}"
-
-        tmpdir=$(mktemp -d)
-        trap 'rm -rf "$tmpdir"' EXIT
-
-        # checksums.txt and the tarball come over the same connection, so TLS
-        # is what keeps a host on the path from replacing both. Upstream
-        # busybox wget, as in the busybox image, does not verify the
-        # certificate. It prints this note and goes on. Alpine busybox and
-        # GNU wget verify it and never print the note. wget writes its
-        # stderr, with the -S headers, to wget.err.
-        fetch_wget() {
-          rc=0
-          wget "$@" 2>"${tmpdir}/wget.err" || rc=$?
-          if grep -q 'certificate validation not implemented' "${tmpdir}/wget.err"; then
-            printf '%s\n' "::error::This wget does not verify TLS certificates, so the action cannot trust the download. Add curl or GNU wget to the image, or use an Alpine image." >&2
-            exit 1
-          fi
-          return "$rc"
-        }
-
-        # GNU wget -q prints nothing on a failure, so this line names the URL
-        # and the exit code. wget uses 4 for a network error, 5 for TLS and 8
-        # for an HTTP error.
-        download() {
-          if [ "$downloader" = curl ]; then
-            curl -fsSL -o "$2" "$1" && return 0
-          else
-            fetch_wget -q -O "$2" "$1" && return 0
-          fi
-          rc=$?
-          if [ "$downloader" = wget ]; then
-            cat "${tmpdir}/wget.err" >&2
-          fi
-          printf '%s\n' "::error::Could not download $1 with ${downloader} (exit ${rc})." >&2
-          exit 1
-        }
-
-        # Resolve version tag. GitHub redirects /releases/latest to the page
-        # of the latest tag.
-        if [ "$INPUT_VERSION" = "latest" ] || [ -z "$INPUT_VERSION" ]; then
-          printf '%s\n' "Resolving latest PMG release..."
-          latest_url="https://github.com/${repo}/releases/latest"
-          if [ "$downloader" = curl ]; then
-            location=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "$latest_url")
-          else
-            fetch_wget -q --spider -S "$latest_url" || true
-            location=$(sed -n 's/^ *[Ll]ocation: *\([^ ]*\).*/\1/p' "${tmpdir}/wget.err" | head -n 1)
-          fi
-          tag=$(printf '%s' "$location" | sed 's|.*/||' | tr -d '\r\n')
-          if [ -z "$tag" ]; then
-            printf '%s\n' "::error::Could not resolve latest PMG release tag." >&2
-            exit 1
-          fi
-        else
-          tag="$INPUT_VERSION"
-        fi
-        # The tag ends up in paths written to GITHUB_PATH and GITHUB_OUTPUT.
-        # grep matches each line, so a line break is rejected first.
-        case "$tag" in
-          *"$nl"*|*"$cr"*) tag_ok=false ;;
-          *)
-            if printf '%s\n' "$tag" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?'; then
-              tag_ok=true
-            else
-              tag_ok=false
-            fi
-            ;;
-        esac
-        if [ "$tag_ok" != true ]; then
-          shown=$(printf '%s' "$tag" | tr -d '\r\n')
-          printf '%s\n' "::error::Invalid PMG version '${shown}'. Use a release tag such as v0.42.0 or v0.42.0-edge.1, or latest." >&2
-          exit 1
-        fi
-        printf '%s\n' "PMG version: $tag"
-
-        # Map architecture.
-        case "$(uname -m)" in
-          x86_64|amd64) arch="x86_64" ;;
-          aarch64|arm64) arch="arm64" ;;
-          *)
-            printf '%s\n' "::error::Unsupported architecture: $(uname -m)" >&2
-            exit 1
-            ;;
-        esac
-
-        asset="pmg_Linux_${arch}.tar.gz"
-        cache_dir="${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}/pmg/${tag}/${arch}"
-        install_dir="$cache_dir"
-
-        if [ "$INPUT_CACHE" != "true" ]; then
-          install_dir="${RUNNER_TEMP:-/tmp}/pmg-${tag}-${arch}"
-        fi
-
-        mkdir -p "$install_dir"
-        bin_path="${install_dir}/pmg"
-        tar_path="${install_dir}/${asset}"
-
-        # Always fetch upstream checksums.txt — even on a cache hit — so a
-        # tampered cache entry is caught before we run the binary.
-        download "https://github.com/${repo}/releases/download/${tag}/checksums.txt" "${tmpdir}/checksums.txt"
-        expected=$(grep "  ${asset}\$" "${tmpdir}/checksums.txt" | cut -d' ' -f1 || true)
-        if [ -z "$expected" ]; then
-          printf '%s\n' "::error::No checksum entry for ${asset} in ${tag}/checksums.txt" >&2
-          exit 1
-        fi
-
-        need_download=true
-        if [ "$INPUT_CACHE" = "true" ] && [ -f "$tar_path" ] && [ -x "$bin_path" ]; then
-          cached=$(sha256sum "$tar_path" | cut -d' ' -f1)
-          if [ "$cached" = "$expected" ]; then
-            printf '%s\n' "Cached PMG ${tag} verified against upstream checksum"
-            need_download=false
-          else
-            printf '%s\n' "Cached PMG ${tag} checksum drift (want ${expected}, got ${cached}); refreshing"
-            rm -f "$tar_path" "$bin_path"
-          fi
-        fi
-
-        if [ "$need_download" = "true" ]; then
-          download "https://github.com/${repo}/releases/download/${tag}/${asset}" "$tar_path"
-          actual=$(sha256sum "$tar_path" | cut -d' ' -f1)
-          if [ "$actual" != "$expected" ]; then
-            printf '%s\n' "::error::Checksum mismatch for ${asset}: want ${expected}, got ${actual}" >&2
-            exit 1
-          fi
-          printf '%s\n' "Checksum verified for ${asset}"
-          tar -xzf "$tar_path" -C "$install_dir" pmg
-          chmod +x "$bin_path"
-        fi
-
-        printf '%s\n' "$install_dir" >> "$GITHUB_PATH"
-        printf '%s\n' "pmg-bin-dir=$install_dir" >> "$GITHUB_OUTPUT"
-        printf '%s\n' "pmg-version=$tag" >> "$GITHUB_OUTPUT"
-
-    - name: Prepare sandbox (apt + AppArmor)
-      if: inputs.sandbox == 'true'
-      shell: sh
-      env:
-        INPUT_DRIVER: ${{ inputs.sandbox-driver }}
-        JOB_CONTAINER_ID: ${{ job.container.id }}
-      run: |
-        set -eu
-        # The sandbox uses kernel features of the runner host. In a job
-        # container the AppArmor change below cannot reach the host.
-        if [ -n "$JOB_CONTAINER_ID" ]; then
-          printf '%s\n' "::warning::The sandbox runs in a job container. The action cannot relax AppArmor on the runner host from here, so the sandbox may not start."
-        fi
-        if [ "$INPUT_DRIVER" = "bubblewrap" ]; then
-          if ! command -v apt-get >/dev/null 2>&1; then
-            printf '%s\n' "::error::sandbox-driver bubblewrap installs bubblewrap with apt-get, and this image has no apt-get. Use an Ubuntu runner or image." >&2
-            exit 1
-          fi
-          if command -v sudo >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y bubblewrap
-          else
-            apt-get update
-            apt-get install -y bubblewrap
-          fi
-        fi
-
-        # Relax AppArmor restriction on unprivileged user namespaces so
-        # Landlock helper and Bubblewrap can clone with CLONE_NEWUSER.
-        # Tolerate failure on locked-down runners; the sandbox driver will
-        # report a clear error at runtime if it cannot start.
-        if command -v sudo >/dev/null 2>&1; then
-          sudo systemctl stop apparmor 2>/dev/null || true
-          sudo systemctl disable apparmor 2>/dev/null || true
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
-        else
-          systemctl stop apparmor 2>/dev/null || true
-          systemctl disable apparmor 2>/dev/null || true
-          sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
-        fi
-
-    - name: Stage user config file
-      if: inputs.config-file != ''
-      shell: sh
-      env:
-        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
-      run: |
-        set -eu
-        src="${GITHUB_WORKSPACE}/${INPUT_CONFIG_FILE}"
-        if [ ! -f "$src" ]; then
-          printf '%s\n' "::error::config-file not found: $src" >&2
-          exit 1
-        fi
-        dest_dir="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg"
-        mkdir -p "$dest_dir"
-        cp "$src" "$dest_dir/config.yml"
-        printf '%s\n' "Staged $src -> $dest_dir/config.yml"
-
-    - name: Export PMG configuration
-      shell: sh
-      env:
-        IN_API_KEY: ${{ inputs.api-key }}
-        IN_TENANT_ID: ${{ inputs.tenant-id }}
-        IN_ENDPOINT_ID: ${{ inputs.endpoint-id }}
-        IN_PARANOID: ${{ inputs.paranoid }}
-        IN_COOLDOWN_ENABLED: ${{ inputs.cooldown-enabled }}
-        IN_COOLDOWN_DAYS: ${{ inputs.cooldown-days }}
-        IN_PROXY_MODE: ${{ inputs.proxy-mode }}
-        IN_SANDBOX: ${{ inputs.sandbox }}
-        IN_SANDBOX_DRIVER: ${{ inputs.sandbox-driver }}
-        IN_VERBOSITY: ${{ inputs.verbosity }}
-        IN_DISABLE_TELEMETRY: ${{ inputs.disable-telemetry }}
-        IN_SKIP_EVENT_LOGGING: ${{ inputs.skip-event-logging }}
-        IN_SERVER_MODE: ${{ inputs.server-mode }}
-        GH_REPOSITORY: ${{ github.repository }}
-      run: | # zizmor: ignore[github-env]
-        set -eu
-
-        nl='
-        '
-        cr=$(printf '\r')
-
-        # A line break would let an input inject other variables into
-        # GITHUB_ENV, or workflow commands into the log.
-        no_line_break() {
-          case "$2" in
-            *"$nl"*|*"$cr"*)
-              printf '%s\n' "::error::The value for $1 contains a line break." >&2
-              exit 1
-              ;;
-          esac
-        }
-
-        export_var() {
-          no_line_break "$1" "$2"
-          if [ -n "$2" ]; then
-            printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"
-          fi
-        }
-
-        # Guard mode is removed: fail loudly when a workflow still opts out of
-        # proxy interception instead of silently switching it to proxy mode.
-        case "$(printf '%s' "$IN_PROXY_MODE" | tr '[:upper:]' '[:lower:]')" in
-          false|0|f)
-            printf '%s\n' "::error::PMG guard mode has been removed and proxy interception can no longer be disabled. Remove the 'proxy-mode' input." >&2
-            exit 1
-            ;;
-          "") ;;
-          *)
-            printf '%s\n' "::warning::The 'proxy-mode' input is removed and has no effect. Remove it from your workflow." >&2
-            ;;
-        esac
-
-        # Cloud credentials. PMG sync reads these directly when no keychain
-        # credential is found, so we skip "pmg cloud login" entirely.
-        if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
-          if [ -z "$IN_API_KEY" ] || [ -z "$IN_TENANT_ID" ]; then
-            printf '%s\n' "::error::api-key and tenant-id must be set together." >&2
-            exit 1
-          fi
-          no_line_break api-key "$IN_API_KEY"
-          printf '%s\n' "::add-mask::$IN_API_KEY"
-          export_var SAFEDEP_API_KEY "$IN_API_KEY"
-          export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
-          export_var PMG_CLOUD_ENABLED "true"
-
-          if [ "$IN_SERVER_MODE" = "true" ]; then
-            # In server mode the proxy daemon owns delivery and uses auto_sync
-            # to gate both periodic sync and the shutdown flush.
-            export_var PMG_CLOUD_AUTO_SYNC_ENABLED "true"
-          else
-            # PMG's opportunistic background auto-sync is designed for
-            # long-lived workstations. On an ephemeral runner the detached child
-            # can be torn down before it drains the WAL, and the WAL goes with
-            # it. Turn it off and rely on an explicit `pmg cloud sync` at
-            # job-end if the user wants events delivered.
-            export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
-          fi
-
-          if [ -n "$IN_ENDPOINT_ID" ]; then
-            export_var PMG_CLOUD_ENDPOINT_ID "$IN_ENDPOINT_ID"
-          else
-            # Stable per-repo identifier; the runner hostname is ephemeral
-            # so PMG's hostname fallback would create a new "machine" entry
-            # in SafeDep Cloud for every job.
-            export_var PMG_CLOUD_ENDPOINT_ID "gha/${GH_REPOSITORY}"
-          fi
-        fi
-
-        # Only emit PMG_* vars when the user explicitly set the input. This
-        # preserves the "config-file overrides PMG defaults" guarantee — env
-        # vars take precedence over config.yml in Viper, so empty pass-through
-        # means we don't shadow file-based tuning.
-        export_var PMG_PARANOID                     "$IN_PARANOID"
-        export_var PMG_DEPENDENCY_COOLDOWN_ENABLED  "$IN_COOLDOWN_ENABLED"
-        export_var PMG_DEPENDENCY_COOLDOWN_DAYS     "$IN_COOLDOWN_DAYS"
-        export_var PMG_SANDBOX_ENABLED              "$IN_SANDBOX"
-        if [ "$IN_SANDBOX" = "true" ]; then
-          driver="${IN_SANDBOX_DRIVER:-landlock}"
-          export_var PMG_SANDBOX_DRIVER             "$driver"
-        fi
-        export_var PMG_VERBOSITY                    "$IN_VERBOSITY"
-        export_var PMG_DISABLE_TELEMETRY            "$IN_DISABLE_TELEMETRY"
-        export_var PMG_SKIP_EVENT_LOGGING           "$IN_SKIP_EVENT_LOGGING"
-
-    - name: Run pmg setup install (shim mode)
-      if: inputs.server-mode != 'true'
-      shell: sh
-      run: pmg setup install
-
-    - name: Add PMG shims to PATH (shim mode)
-      if: inputs.server-mode != 'true'
-      shell: sh
-      run: | # zizmor: ignore[github-env]
-        set -eu
-        # The shim directory depends on the installed pmg version: releases
-        # before the XDG layout use ~/.pmg/bin, later ones use the data dir.
-        # This action installs a published release, which may be either, so
-        # add whichever the install actually created. Linux-only, as enforced
-        # above, so the XDG default needs no platform branch.
-        found=""
-        for dir in "${XDG_DATA_HOME:-$HOME/.local/share}/safedep/pmg/bin" "$HOME/.pmg/bin"; do
-          if [ -d "$dir" ]; then
-            printf '%s\n' "$dir" >> "$GITHUB_PATH"
-            found="$dir"
-          fi
-        done
-        if [ -z "$found" ]; then
-          printf '%s\n' "::error::No PMG shim directory found after setup install." >&2
-          exit 1
-        fi
-
-    - name: Warn about enforce inputs without enforce
-      if: inputs.enforce != 'true' && (inputs.enforce-ports != '' || inputs.enforce-exempt-users != '' || inputs.enforce-exempt-executables != '' || inputs.enforce-skip-destinations != '' || inputs.enforce-namespaces != '')
-      shell: sh
-      run: printf '%s\n' "::warning::The enforce-* inputs apply only with enforce true. They are ignored."
-
-    - name: Warn about network inputs without server mode
-      if: inputs.server-mode != 'true' && (inputs.network-profile != '' || inputs.network-mode != '')
-      shell: sh
-      run: printf '%s\n' "::warning::network-profile and network-mode apply only with server-mode true. They are ignored."
-
-    - name: Warn about expose-to-job-network without server mode
-      if: inputs.expose-to-job-network == 'true' && (inputs.server-mode != 'true' || inputs.enforce == 'true')
-      shell: sh
-      run: printf '%s\n' "::warning::expose-to-job-network applies only with server-mode true and enforce false. It is ignored."
-
-    - name: Start PMG proxy server (server mode)
-      if: inputs.server-mode == 'true' && inputs.enforce != 'true'
-      shell: sh
-      env:
-        INPUT_EXPOSE_TO_JOB_NETWORK: ${{ inputs.expose-to-job-network == 'true' }}
-        INPUT_NETWORK_PROFILE: ${{ inputs.network-profile }}
-        INPUT_NETWORK_MODE: ${{ inputs.network-mode }}
-        JOB_CONTAINER_ID: ${{ job.container.id }}
-      run: | # zizmor: ignore[github-env]
-        set -eu
-        # The network inputs travel as flags, which the job log shows. The
-        # script prints one argument per line, and sh has no arrays, so the
-        # lines become the positional parameters.
-        flags="$("$GITHUB_ACTION_PATH/.github/scripts/enforce-flags.sh")"
-        set --
-        while IFS= read -r arg; do
-          if [ -n "$arg" ]; then set -- "$@" "$arg"; fi
-        done <<EOF
-        $flags
-        EOF
-
-        # No cert install needed: `pmg proxy env` exports the CA path via
-        # NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/PIP_CERT, so package managers trust
-        # the proxy without touching the OS trust store.
-        if [ "$INPUT_EXPOSE_TO_JOB_NETWORK" != "true" ]; then
-          pmg proxy start --daemon "$@"
-          pmg proxy env >> "$GITHUB_ENV"
-          exit 0
-        fi
-
-        # The runner sets job.container.id only for a job container, never
-        # for a job on the runner itself. On the runner, the address would be
-        # the host's own, and the proxy would be open to its network.
-        if [ -z "$JOB_CONTAINER_ID" ]; then
-          printf '%s\n' "::error::expose-to-job-network needs a job container (jobs.<job_id>.container)." >&2
-          exit 1
-        fi
-
-        # Docker writes the container's address on the job network next to
-        # its hostname in /etc/hosts. Read both in the shell, because the image
-        # may not have the hostname or getent tools. The kernel holds the
-        # hostname. A workflow env can replace the HOSTNAME variable.
-        read -r hostname < /proc/sys/kernel/hostname
-        host=""
-        while read -r addr names; do
-          case "$addr" in ""|"#"*|127.*|*:*) continue ;; esac
-          for name in $names; do
-            if [ "$name" = "$hostname" ]; then
-              host="$addr"
-              break 2
-            fi
-          done
-        done < /etc/hosts
-        if [ -z "$host" ]; then
-          printf '%s\n' "::error::Cannot find the address of the job container for hostname ${hostname} in /etc/hosts." >&2
-          exit 1
-        fi
-
-        pmg proxy start --daemon --host "$host" "$@"
-        proxy_env="$(pmg proxy env)"
-        printf '%s\n' "$proxy_env" >> "$GITHUB_ENV"
-
-        # The runner mounts /github/home in the job container (as HOME) and
-        # in Docker actions. A CA outside it is missing in Docker actions.
-        ca="$(printf '%s\n' "$proxy_env" | sed -n 's/^NODE_EXTRA_CA_CERTS=//p')"
-        case "$ca" in
-          /github/home/*) ;;
-          *) printf '%s\n' "::warning::The PMG CA is at ${ca}, outside /github/home. Docker actions cannot read it, so their TLS connections through the proxy fail." ;;
-        esac
-
-    # The enforcement step runs with bash. In a job container it would fail
-    # with "bash: not found" on an image without bash, or on the sudo check,
-    # before it can say why. This check names the reason.
-    - name: Refuse kernel enforcement in a job container
-      if: inputs.server-mode == 'true' && inputs.enforce == 'true'
-      shell: sh
-      env:
-        JOB_CONTAINER_ID: ${{ job.container.id }}
-      run: |
-        if [ -n "$JOB_CONTAINER_ID" ]; then
-          printf '%s\n' "::error::enforce attaches kernel programs on the runner host, and this job runs in a job container (jobs.<job_id>.container). Run the job on the runner, or use server-mode without enforce." >&2
-          exit 1
-        fi
-
-    - name: Start PMG proxy server with kernel enforcement (server mode)
-      if: inputs.server-mode == 'true' && inputs.enforce == 'true'
-      shell: bash
-      env:
-        PMG_BIN_DIR: ${{ steps.install.outputs.pmg-bin-dir }}
-        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
-        INPUT_ENFORCE_PORTS: ${{ inputs.enforce-ports }}
-        INPUT_ENFORCE_EXEMPT_USERS: ${{ inputs.enforce-exempt-users }}
-        INPUT_ENFORCE_EXEMPT_EXECUTABLES: ${{ inputs.enforce-exempt-executables }}
-        INPUT_ENFORCE_SKIP_DESTINATIONS: ${{ inputs.enforce-skip-destinations }}
-        INPUT_ENFORCE_NAMESPACES: ${{ inputs.enforce-namespaces }}
-        INPUT_NETWORK_PROFILE: ${{ inputs.network-profile }}
-        INPUT_NETWORK_MODE: ${{ inputs.network-mode }}
-      run: | # zizmor: ignore[github-env]
-        set -euo pipefail
-        if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true 2>/dev/null; then
-          echo "::error::enforce needs passwordless sudo on the runner. Attaching the kernel programs needs root." >&2
-          exit 1
-        fi
-
-        # The daemon runs as root. sudo resets PATH and HOME, so every call
-        # names the binary by absolute path and the state file explicitly.
-        # The cloud variables travel through --preserve-env, and so do the
-        # GitHub variables that name the run in the daemon's cloud events. So
-        # does the config directory: the daemon gets a root-owned copy of a
-        # staged config-file, so it never writes into the user's directory.
-        pmg_bin="${PMG_BIN_DIR}/pmg"
-        state="${RUNNER_TEMP}/pmg-proxy-state.json"
-        echo "PMG_BIN=${pmg_bin}" >> "$GITHUB_ENV"
-        echo "PMG_PROXY_STATE=${state}" >> "$GITHUB_ENV"
-        if [ -n "$INPUT_CONFIG_FILE" ]; then
-          export PMG_CONFIG_DIR="${RUNNER_TEMP}/pmg-daemon-config"
-          sudo install -D -m 0644 "${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml" "${PMG_CONFIG_DIR}/config.yml"
-          # The daemon's event log is under its config directory. A step
-          # that reads the run back, such as `pmg sandbox profile propose`,
-          # needs the same directory.
-          echo "PMG_PROXY_CONFIG_DIR=${PMG_CONFIG_DIR}" >> "$GITHUB_ENV"
-        fi
-
-        # Trust goes through the system store: the keypair lands in
-        # /etc/safedep/pmg and the certificate in the trust store.
-        sudo "$pmg_bin" setup cert install --system
-
-        # The policy inputs travel as flags, which the job log shows, where a
-        # variable preserved through sudo would not. A list flag adds to the
-        # config file's list. sudo keeps the working directory, so a
-        # network-profile path in the workspace resolves in the daemon.
-        mapfile -t enforce_flags < <("$GITHUB_ACTION_PATH/.github/scripts/enforce-flags.sh")
-
-        sudo --preserve-env=PMG_CONFIG_DIR,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_ACTOR,GITHUB_REF,GITHUB_REF_NAME,GITHUB_HEAD_REF,GITHUB_WORKFLOW,GITHUB_JOB,GITHUB_SERVER_URL \
-          "$pmg_bin" proxy start --daemon --enforce --state "$state" "${enforce_flags[@]}"
-
-        # Only the trust variables. The kernel routes the traffic.
-        sudo "$pmg_bin" proxy env --state "$state" >> "$GITHUB_ENV"
-
-    - name: Verify PMG
-      shell: sh
-      run: |
-        pmg version
-        printf '%s\n' "npm resolves to: $(command -v npm || printf '%s' '<not installed>')"
+  # A JavaScript action, so that the post step stops the proxy at the end of
+  # the job. A composite action has no post step. main.js and post.js use
+  # Node built-ins only and run the shell scripts in action/. The scripts
+  # run with sh, because minimal job container images such as Alpine have no
+  # bash. enforce.sh uses bash, and runs only on the runner host.
+  using: node24
+  main: action/main.js
+  post: action/post.js
+  post-if: always()
 
 outputs:
   version:
     description: The resolved PMG version that was installed.
-    value: ${{ steps.install.outputs.pmg-version }}
   bin-dir:
     description: Directory containing the pmg binary on this runner.
-    value: ${{ steps.install.outputs.pmg-bin-dir }}

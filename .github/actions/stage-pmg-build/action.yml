@@ -1,0 +1,30 @@
+name: Stage the PMG build
+description: >
+  Builds pmg from the checkout and puts it in the tool cache next to the
+  tarball of the latest release. The action under test then runs this build
+  with cache true and version set to the output. The cache check reads only
+  the tarball, so the E2E jobs test the action against the code of the pull
+  request.
+
+outputs:
+  version:
+    description: The release tag the build stands in for.
+    value: ${{ steps.stage.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: false
+    - id: stage
+      shell: bash
+      run: |
+        set -euo pipefail
+        tag="$(curl -fsSI -o /dev/null -w '%{redirect_url}' https://github.com/safedep/pmg/releases/latest | sed 's|.*/||')"
+        dir="${RUNNER_TOOL_CACHE}/pmg/${tag}/x86_64"
+        mkdir -p "$dir"
+        curl -fsSL -o "${dir}/pmg_Linux_x86_64.tar.gz" "https://github.com/safedep/pmg/releases/download/${tag}/pmg_Linux_x86_64.tar.gz"
+        go build -o "${dir}/pmg" .
+        printf '%s\n' "version=${tag}" >> "$GITHUB_OUTPUT"

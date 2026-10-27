@@ -1,7 +1,10 @@
 package proxy
 
 import (
+	"encoding/json"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/safedep/pmg/internal/netenforce"
@@ -135,4 +138,49 @@ func TestObservationLine(t *testing.T) {
 	assert.Equal(t, "", observationLine(proxyserver.StopResult{Observed: 3}), "a daemon that predates the run id prints nothing")
 	assert.Equal(t, "Destinations: 3 observed. Propose a profile with: pmg sandbox profile propose --run abc\n",
 		observationLine(proxyserver.StopResult{RunID: "abc", Observed: 3}))
+}
+
+func TestStopReport(t *testing.T) {
+	cases := []struct {
+		name      string
+		res       proxyserver.StopResult
+		violation string
+	}{
+		{
+			name: "clean run",
+			res:  proxyserver.StopResult{PID: 7, StateVerified: true, RunID: "run-1", Observed: 3},
+		},
+		{
+			name:      "block is a violation without the flag",
+			res:       proxyserver.StopResult{PID: 7, StateVerified: true, BlockedCount: 2},
+			violation: "2 package(s) were blocked by the proxy",
+		},
+		{
+			name:      "unverified state is a violation",
+			res:       proxyserver.StopResult{PID: 7},
+			violation: "Proxy shut down but the blocked-package count could not be verified",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "report.json")
+			require.NoError(t, writeStopReport(path, tc.res.Report(stopViolation(tc.res))))
+
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			var got proxyserver.StopReport
+			require.NoError(t, json.Unmarshal(data, &got))
+
+			assert.True(t, got.Stopped)
+			assert.Equal(t, tc.res.PID, got.PID)
+			assert.Equal(t, tc.res.BlockedCount, got.BlockedCount)
+			assert.Equal(t, tc.res.RunID, got.RunID)
+			assert.Equal(t, tc.res.Observed, got.Observed)
+			if tc.violation == "" {
+				assert.Empty(t, got.Violation)
+			} else {
+				assert.Equal(t, tc.violation, got.Violation)
+			}
+		})
+	}
 }
