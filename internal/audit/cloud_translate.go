@@ -3,7 +3,6 @@ package audit
 import (
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -111,10 +110,34 @@ const (
 	sandboxViolationBudget = 32 << 10
 )
 
-// newSandboxViolationEvent returns nil when no entry fits, because a report
-// holds at least one. distinct_count still counts every denial.
+// newSandboxViolationEvent keeps the denials in the order of
+// topOfEachRuleFirst until a bound is reached. distinct_count still counts
+// every denial. It returns nil when no entry fits, because a report holds at
+// least one.
 func newSandboxViolationEvent(r SandboxViolationReport) *controltowerv1.PmgEvent {
-	violations := selectSandboxViolations(r.Violations)
+	var violations []*controltowerv1.PmgSandboxViolation
+	budget := sandboxViolationBudget
+	for i, v := range topOfEachRuleFirst(r.Violations) {
+		if len(violations) == maxSandboxViolations {
+			log.Debugf("sandbox violation report: limit of %d entries reached, %d entries not sent",
+				maxSandboxViolations, len(r.Violations)-i)
+			break
+		}
+
+		violation, size, ok := newSandboxViolation(v)
+		if !ok {
+			log.Debugf("sandbox violation report: %s entry has no target or a target over its bound, not sent", v.Kind)
+			continue
+		}
+		if size > budget {
+			log.Debugf("sandbox violation report: %s entry over the string budget of %d bytes, not sent",
+				v.Kind, sandboxViolationBudget)
+			continue
+		}
+
+		budget -= size
+		violations = append(violations, violation)
+	}
 	if len(violations) == 0 {
 		return nil
 	}
@@ -137,55 +160,29 @@ func newSandboxViolationEvent(r SandboxViolationReport) *controltowerv1.PmgEvent
 	return e
 }
 
-// selectSandboxViolations keeps the top entry of each kind and rule first,
-// then the other entries in ranked order, until a bound is reached. The
-// script chooses its denials and can make any number of them. With a ranked
-// fill alone, a flood under one rule could push out the denials of every
-// other rule, such as a direct connection under network_via_proxy_only. The
-// profile sets the rules, so the script cannot add first entries. The kept
-// entries stay in ranked order.
-func selectSandboxViolations(vs []SandboxViolation) []*controltowerv1.PmgSandboxViolation {
-	type slot struct {
+// topOfEachRuleFirst moves the top denial of each kind and rule to the front.
+// The other denials follow, and both groups keep their ranked order. A script
+// can make any number of denials, so with the ranked order alone, a flood
+// under one rule pushes the denials of every other rule over the limits. The
+// profile sets the rules, so a script cannot add more of these top denials.
+func topOfEachRuleFirst(vs []SandboxViolation) []SandboxViolation {
+	type rule struct {
 		kind sandbox.ViolationKind
 		rule string
 	}
 
-	entries := make([]*controltowerv1.PmgSandboxViolation, len(vs))
-	sizes := make([]int, len(vs))
-	slots := make(map[slot]bool)
-	var first, rest []int
-	for i, v := range vs {
-		entry, size, ok := newSandboxViolation(v)
-		if !ok {
-			log.Debugf("sandbox violation report: %s entry has no target or a target over its bound, not sent", v.Kind)
+	seen := make(map[rule]bool)
+	var top, rest []SandboxViolation
+	for _, v := range vs {
+		r := rule{v.Kind, v.Rule}
+		if seen[r] {
+			rest = append(rest, v)
 			continue
 		}
-		entries[i], sizes[i] = entry, size
-
-		if s := (slot{v.Kind, v.Rule}); !slots[s] {
-			slots[s] = true
-			first = append(first, i)
-		} else {
-			rest = append(rest, i)
-		}
+		seen[r] = true
+		top = append(top, v)
 	}
-
-	kept, budget, notSent := 0, sandboxViolationBudget, 0
-	for _, i := range slices.Concat(first, rest) {
-		if kept == maxSandboxViolations || sizes[i] > budget {
-			entries[i] = nil
-			notSent++
-			continue
-		}
-		kept++
-		budget -= sizes[i]
-	}
-	if notSent > 0 {
-		log.Debugf("sandbox violation report: limit of %d entries or %d bytes reached, %d entries not sent",
-			maxSandboxViolations, sandboxViolationBudget, notSent)
-	}
-
-	return slices.DeleteFunc(entries, func(e *controltowerv1.PmgSandboxViolation) bool { return e == nil })
+	return append(top, rest...)
 }
 
 // newSandboxViolation sets exactly one of path, executable and host, as the

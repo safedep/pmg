@@ -407,10 +407,10 @@ func TestTranslateSandboxViolationKeepsTheTopEntryOfEachRule(t *testing.T) {
 			assert.Less(t, len(kept), len(tc.violations))
 			assert.Equal(t, uint32(len(tc.violations)), report.GetDistinctCount())
 
-			assert.Equal(t, tc.violations[0].Path, kept[0].GetPath(), "the kept entries stay in ranked order")
-			assert.Equal(t, credentials.Path, kept[len(kept)-2].GetPath())
-			assert.Equal(t, "*", kept[len(kept)-1].GetHost())
-			assert.Equal(t, "direct", kept[len(kept)-1].GetRule())
+			assert.Equal(t, tc.violations[0].Path, kept[0].GetPath(), "the top denial stays first")
+			assert.Equal(t, credentials.Path, kept[1].GetPath())
+			assert.Equal(t, "*", kept[2].GetHost())
+			assert.Equal(t, tc.violations[1].Path, kept[3].GetPath(), "the other denials keep their ranked order")
 		})
 	}
 }
