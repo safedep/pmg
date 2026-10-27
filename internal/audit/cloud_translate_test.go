@@ -353,6 +353,29 @@ func TestTranslateSandboxViolationCleansStrings(t *testing.T) {
 	assert.Equal(t, uint32(1), v.GetCount(), "the proto requires a count of at least 1")
 }
 
+func TestTranslateSandboxViolationFitsASyncRequest(t *testing.T) {
+	// The largest event fills every entry and the whole string budget.
+	pathLen := sandboxViolationBudget / maxSandboxViolations
+	violations := make([]SandboxViolation, maxSandboxViolations)
+	for i := range violations {
+		violations[i] = SandboxViolation{
+			Kind:  sandbox.ViolationKindFSRead,
+			Path:  fmt.Sprintf("/%0*d", pathLen-1, i),
+			Count: math.MaxUint32,
+		}
+	}
+	event := newSandboxViolationEvent(SandboxViolationReport{
+		Driver:     sandbox.DriverLandlock,
+		Profile:    strings.Repeat("p", maxSandboxProfile),
+		Violations: violations,
+	})
+	require.NotNil(t, event)
+	require.Len(t, event.GetSandboxViolationReport().GetViolations(), maxSandboxViolations)
+
+	const eventsPerSyncRequest = 100
+	assert.Less(t, eventsPerSyncRequest*proto.Size(event), 4<<20, "a full sync request must fit the default gRPC message limit")
+}
+
 func TestTranslateSandboxViolationLimitsTheCount(t *testing.T) {
 	cases := []struct {
 		name  string

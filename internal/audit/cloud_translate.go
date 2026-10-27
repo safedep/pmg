@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/sandbox"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -103,9 +104,10 @@ const (
 	maxSandboxViolationProcess = 256
 	maxSandboxProfile          = 256
 
-	// sandboxViolationBudget bounds the strings of one event, so a full batch
-	// of these events stays near 6 MiB.
-	sandboxViolationBudget = 64 << 10
+	// sandboxViolationBudget bounds the strings of one event to 32 KiB. A sync
+	// request holds up to 100 events, so a request full of these events stays
+	// under 4 MiB, the default gRPC message limit.
+	sandboxViolationBudget = 32 << 10
 )
 
 // newSandboxViolationEvent keeps the denials in their ranked order until a
@@ -114,18 +116,23 @@ const (
 func newSandboxViolationEvent(r SandboxViolationReport) *controltowerv1.PmgEvent {
 	var violations []*controltowerv1.PmgSandboxViolation
 	budget := sandboxViolationBudget
-	for _, v := range r.Violations {
+	for i, v := range r.Violations {
 		if len(violations) == maxSandboxViolations {
+			log.Debugf("sandbox violation report: limit of %d entries reached, %d entries not sent",
+				maxSandboxViolations, len(r.Violations)-i)
 			break
 		}
 
 		violation, size, ok := newSandboxViolation(v)
 		if !ok {
+			log.Debugf("sandbox violation report: %s entry has no target or a target over its bound, not sent", v.Kind)
 			continue
 		}
 
 		budget -= size
 		if budget < 0 {
+			log.Debugf("sandbox violation report: string budget of %d bytes reached, %d entries not sent",
+				sandboxViolationBudget, len(r.Violations)-i)
 			break
 		}
 		violations = append(violations, violation)
