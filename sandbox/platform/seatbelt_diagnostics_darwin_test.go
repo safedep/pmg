@@ -375,6 +375,37 @@ func TestExtractSeatbeltViolationsLockdownDenialWithPathOperand(t *testing.T) {
 	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
 }
 
+// The unix-socket marker names the rule. A denial under it keeps a socket
+// path, and with no path it has no target, so the cloud gets no false host.
+func TestExtractSeatbeltViolationsUnixSocketDenial(t *testing.T) {
+	marker := seatbeltLogMessage("run-1", "network-outbound", "unix-socket")
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage:     "Sandbox: ssh(301) deny(1) network-outbound /private/tmp/agent.sock\n" + marker,
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+		{
+			EventMessage:     "Sandbox: ssh(302) deny(1) network-outbound\n" + marker,
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+		{
+			EventMessage:     "Sandbox: ssh(303) deny(1) network-outbound agent\n" + marker,
+			ProcessImagePath: seatbeltKernelImagePath,
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 3)
+
+	assert.Equal(t, "/private/tmp/agent.sock", violations[0].Target)
+	for _, v := range violations[1:] {
+		assert.Equal(t, sandbox.ViolationKindNetworkConnect, v.Kind)
+		assert.Empty(t, v.Target, v.RawLog)
+		assert.Equal(t, "unix-socket", v.RuleTarget)
+		assert.False(t, sandbox.IsNoise(sandbox.DriverSeatbelt, v), v.RawLog)
+	}
+}
+
 // A program chooses its own name. A name that holds "deny(1)" must not move
 // the verb, or the denial loses its kind or its target and becomes noise.
 func TestExtractSeatbeltViolationsIgnoresDenyInTheProcessName(t *testing.T) {

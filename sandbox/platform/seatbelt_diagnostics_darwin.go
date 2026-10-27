@@ -226,10 +226,11 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 
 		process, hits := entry.deniedProcess()
 
-		// The lockdown marker names the rule, not the denied operand, so a
-		// network denial under it recovers the operand from the log line.
+		// The lockdown and unix-socket markers name the rule, not the denied
+		// operand, so a network denial under them recovers the operand from
+		// the log line.
 		target := extractSeatbeltDeniedPath(entry.EventMessage, payload)
-		if target == "" && payload.Target != seatbeltLockdownTargetDirect {
+		if target == "" && payload.Target != seatbeltLockdownTargetDirect && payload.Target != seatbeltTargetUnixSocket {
 			target = payload.Target
 		}
 
@@ -250,7 +251,9 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 
 		// Network denial operands are addresses, not paths, so the
 		// path-shaped extraction above rejected them; recover the raw token.
-		if target == "" && (kind == sandbox.ViolationKindNetworkBind || kind == sandbox.ViolationKindNetworkConnect) {
+		// A unix socket operand is a path, so it has no address to recover.
+		if target == "" && payload.Target != seatbeltTargetUnixSocket &&
+			(kind == sandbox.ViolationKindNetworkBind || kind == sandbox.ViolationKindNetworkConnect) {
 			target = extractSeatbeltDeniedToken(entry.EventMessage, payload)
 		}
 
