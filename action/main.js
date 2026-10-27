@@ -35,6 +35,11 @@ function main() {
   const { outputs } = lib.group('Install PMG', () =>
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
   const binDir = outputs['bin-dir'];
+  // Before any script changes the job, so a refused second step leaves the
+  // configuration of the first step in place.
+  if (serverMode) {
+    refuseSecondProxy(path.join(binDir, 'pmg'));
+  }
 
   if (lib.boolInput('sandbox') && !serverMode) {
     lib.group('Prepare the sandbox', () =>
@@ -265,20 +270,37 @@ function saveProxyState(binDir, enforce, result) {
   lib.saveState('config_dir', process.env.PMG_PROXY_CONFIG_DIR || '');
   lib.saveState('run', process.env.PMG_PROXY_RUN || '');
   lib.saveState('proxy_vars', [...new Set(proxyVars)].join(','));
-  lib.saveState('pid', daemonPID(path.join(binDir, 'pmg'), enforce));
+  lib.saveState('pid', daemonPID(path.join(binDir, 'pmg'), enforce, process.env.PMG_PROXY_STATE || ''));
 }
 
 // daemonPID lets post.js tell a daemon that a step stopped from one whose
 // state file a step removed while it still runs. cmd/proxy/stop_test.go
 // pins the status line it reads.
-function daemonPID(bin, enforce) {
+function daemonPID(bin, enforce, statePath) {
   const args = ['proxy', 'status'];
-  if (enforce) {
-    args.push('--state', process.env.PMG_PROXY_STATE || '');
+  if (statePath !== '') {
+    args.push('--state', statePath);
   }
   const res = lib.runPMG(bin, args, { sudo: enforce, configDir: process.env.PMG_PROXY_CONFIG_DIR || '', capture: 'all' });
   const match = /running \(pid (\d+)/.exec(res.stdout || '');
   return match ? match[1] : '';
+}
+
+// refuseSecondProxy fails when an earlier safedep/pmg step of the job left
+// a proxy that runs. A second start would fail, and the cleanup after the
+// failed start would stop the proxy of the earlier step, on the same state
+// path. The later steps would then run without PMG.
+function refuseSecondProxy(bin) {
+  const paths = [[false, '']];
+  if (spawnSync('sudo', ['-n', 'true']).status === 0) {
+    paths.push([true, rootStatePath()]);
+  }
+  for (const [sudo, statePath] of paths) {
+    const pid = daemonPID(bin, sudo, statePath);
+    if (pid !== '') {
+      throw new Error(`A PMG proxy (pid ${pid}) already runs in this job. An earlier safedep/pmg step started it. Use one safedep/pmg step per job.`);
+    }
+  }
 }
 
 // networkInputs passes the network inputs to the daemon. A profile path
@@ -307,4 +329,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkInputs, enforceMode, resolveServerMode, runnerCannotEnforce };
+module.exports = { checkInputs, enforceMode, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };
