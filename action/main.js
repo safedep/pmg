@@ -35,6 +35,11 @@ function main() {
   const { outputs } = lib.group('Install PMG', () =>
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
   const binDir = outputs['bin-dir'];
+  // Before any script changes the job, so a refused second step leaves the
+  // configuration of the first step in place.
+  if (serverMode) {
+    refuseSecondProxy(path.join(binDir, 'pmg'));
+  }
 
   if (lib.boolInput('sandbox') && !serverMode) {
     lib.group('Prepare the sandbox', () =>
@@ -60,7 +65,6 @@ function main() {
   }));
 
   if (serverMode) {
-    refuseSecondProxy(path.join(binDir, 'pmg'));
     startProxy(binDir, profile, enforce, jobContainer);
   } else {
     lib.group('Install the PMG shims', () => lib.run('sh', 'shim.sh'));
