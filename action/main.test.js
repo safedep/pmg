@@ -3,7 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const lib = require('./lib');
-const { checkInputs, enforceMode, resolveServerMode, runnerCannotEnforce } = require('./main');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { checkInputs, enforceMode, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
 
 // withEnv sets the variables for one call and restores them after it.
 function withEnv(vars, fn) {
@@ -81,4 +84,23 @@ test('runnerCannotEnforce is true only for a runner error code', async (t) => {
   ]) {
     await t.test(name, () => assert.strictEqual(runnerCannotEnforce(err), want));
   }
+});
+
+// fakePMG writes a pmg that prints status as pmg proxy status does.
+function fakePMG(t, status) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmg-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bin = path.join(dir, 'pmg');
+  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' '${status}'\n`, { mode: 0o755 });
+  return bin;
+}
+
+test('refuseSecondProxy fails when a proxy of an earlier step runs', (t) => {
+  const bin = fakePMG(t, 'PMG proxy: running (pid 42, addr 127.0.0.1:8888, ca /tmp/ca.pem)');
+  assert.throws(() => refuseSecondProxy(bin), /pid 42\) already runs in this job/);
+});
+
+test('refuseSecondProxy passes when no proxy runs', (t) => {
+  const bin = fakePMG(t, 'PMG proxy: not running');
+  assert.doesNotThrow(() => refuseSecondProxy(bin));
 });
