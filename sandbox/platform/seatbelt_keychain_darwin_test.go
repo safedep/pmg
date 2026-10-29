@@ -14,6 +14,12 @@ import (
 )
 
 func TestRenderSeatbeltKeychainSentinel(t *testing.T) {
+	if out, err := exec.Command("/usr/bin/xcrun", "--sdk", "macosx", "--find", "clang").CombinedOutput(); err != nil {
+		t.Skipf("Native compiler is unavailable: %s", out)
+	}
+	if out, err := exec.Command("/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path").CombinedOutput(); err != nil {
+		t.Skipf("macOS SDK is unavailable: %s", out)
+	}
 	if out, err := exec.Command("/usr/bin/sandbox-exec", "-p", "(version 1)(allow default)", "/usr/bin/true").CombinedOutput(); err != nil {
 		t.Skipf("Seatbelt cannot be applied in this environment: %s", out)
 	}
