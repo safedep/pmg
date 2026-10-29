@@ -146,6 +146,11 @@ to lift that restriction for pmg.
 
 ## Requirements
 
+On macOS, the sandbox allows the `security.mac.sandbox.sentinel` read used by
+the Keychain's atomic rewrite helper when persisting an access approval.
+This does not grant filesystem write access to Keychain databases or bypass
+Keychain item access controls.
+
 - Linux kernel 5.13+ with Landlock enabled (default, no external dependencies)
 - Bubblewrap on Linux (fallback for kernels < 5.13, or when `PMG_SANDBOX_DRIVER=bubblewrap` is set)
 - Seatbelt on MacOS
