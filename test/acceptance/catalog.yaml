@@ -206,6 +206,12 @@
   tier: P1
   guarantee: "The github-actions built-in loads for the persistent proxy with no filesystem rules warning, and a profile can inherit it."
   labels: [network, offline]
+- id: proxy/network/github-actions-storage-accounts
+  title: "github-actions profile lists the GitHub storage accounts"
+  category: proxy
+  tier: P1
+  guarantee: "The github-actions built-in allows the same productionresultssa storage accounts that the GitHub Meta API lists."
+  labels: [network]
 - id: proxy/trusted/registry-bypass
   title: "trusted registry traffic bypasses interception"
   category: proxy

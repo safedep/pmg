@@ -422,6 +422,97 @@ jobs:
             exit 1
           fi
 
+  runner-storage:
+    name: The github-actions profile allows the cache and artifact storage under enforce
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: stage
+        uses: $/.github/actions/stage-pmg-build
+      - name: Write the network profile
+        run: |
+          mkdir -p .pmg
+          cat > .pmg/e2e-storage.yml <<'YAML'
+          name: e2e-storage
+          inherits: github-actions
+          YAML
+      - uses: $/
+        with:
+          auto-stop: false   # a step of this job runs the post step
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+          server-mode: true
+          enforce: true
+          network-profile: .pmg/e2e-storage.yml
+          network-mode: enforce
+      - name: Write the test data
+        run: |
+          mkdir -p storage-data
+          echo "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" > storage-data/run.txt
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: storage-data
+          key: pmg-e2e-storage-${{ github.run_id }}-${{ github.run_attempt }}
+      - run: rm -rf storage-data
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: storage-data
+          key: pmg-e2e-storage-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: The cache restored the test data
+        run: grep -qx "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" storage-data/run.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pmg-e2e-storage-${{ github.run_attempt }}
+          path: storage-data
+          retention-days: 1
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pmg-e2e-storage-${{ github.run_attempt }}
+          path: downloaded
+      - name: The artifact holds the test data
+        run: grep -qx "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" downloaded/run.txt
+      - name: The proxy denied no storage host and no host of the runner
+        # It runs after a failed cache or artifact step too, so the log names
+        # the storage host that the profile denied.
+        if: ${{ !cancelled() }}
+        run: |
+          set -uo pipefail
+          # The image runs other system services, such as snapd and apt,
+          # that the profile can deny. The post step must not fail on them,
+          # so the check reads only the storage hosts and the programs of
+          # the runner and the actions.
+          .github/scripts/action-post.sh 0 "STATE_bin=${PMG_BIN}" STATE_enforce=true "STATE_state=${PMG_PROXY_STATE}" \
+            "INPUT_NETWORK-PROFILE=.pmg/e2e-storage.yml" INPUT_FAIL-ON-VIOLATION=false > post.log 2>&1
+          cat post.log
+          # The overview row has a blocked count only when the proxy stopped
+          # with a verified state.
+          if ! grep -Eq '^\| [0-9]+ \| enforce \|' post.log; then
+            echo "::error::The post step has no verified stop result under enforce." >&2
+            exit 1
+          fi
+          if ! grep -Eq '^\| `productionresultssa[0-9]+\.blob\.core\.windows\.net:443` .*\| parent rule' post.log; then
+            echo "::error::The proxy saw no traffic to a GitHub storage account." >&2
+            exit 1
+          fi
+          if grep -E '^\| `[^`]*blob\.core\.windows\.net:443`' post.log | grep -v '| parent rule'; then
+            echo "::error::A storage host is not in the github-actions profile." >&2
+            exit 1
+          fi
+          # Only the Program column names the client. A destination such as
+          # deb.nodesource.com must not match.
+          if sed -n '/^### Denied connections/,/^### /p' post.log | grep -E '^\| `' \
+              | awk -F'|' '$4 ~ /Runner\.|\/node *$/ { print; found = 1 } END { exit !found }'; then
+            echo "::error::The profile denied a host of the runner or of an action." >&2
+            exit 1
+          fi
+
   job-container-loopback:
     name: Server mode in a job container keeps the loopback bind
     runs-on: ubuntu-latest
