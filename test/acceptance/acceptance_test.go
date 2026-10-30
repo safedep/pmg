@@ -91,6 +91,11 @@ func TestAcceptance(t *testing.T) {
 					if category == "cloud" {
 						forwardCloudCredentials(env)
 					}
+					if category == proxyCategory {
+						if err := writeGitHubAuthHeader(env); err != nil {
+							return err
+						}
+					}
 					forwardRustup(env)
 					if err := isolateHome(env); err != nil {
 						return err
@@ -131,6 +136,7 @@ func TestAcceptance(t *testing.T) {
 
 const (
 	enforceCategory    = "enforce"
+	proxyCategory      = "proxy"
 	sandboxCategory    = "sandbox"
 	trustStoreCategory = "truststore"
 
@@ -411,6 +417,31 @@ func forwardRustup(env *testscript.Env) {
 func isDir(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// writeGitHubAuthHeader writes the GitHub API header of GITHUB_TOKEN to a
+// file in the work directory and names the file in GITHUB_AUTH_HEADER_FILE.
+// A proxy script calls the GitHub Meta API, and the token lifts the limit of
+// 60 calls per hour for each IP address. The token stays out of the script
+// env, because testscript logs that env for a skipped or failed script, and
+// the log goes into the uploaded test report.
+func writeGitHubAuthHeader(env *testscript.Env) error {
+	token := os.Getenv("GITHUB_TOKEN")
+	if token == "" {
+		return nil
+	}
+	path := filepath.Join(env.WorkDir, "github-auth-header")
+	if err := os.WriteFile(path, []byte("Authorization: Bearer "+token+"\n"), 0o600); err != nil {
+		return err
+	}
+	// testscript keeps the work directory under -testwork. Remove the token.
+	env.Defer(func() {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			env.T().Log(fmt.Sprintf("remove the GitHub auth header file: %v", err))
+		}
+	})
+	env.Setenv("GITHUB_AUTH_HEADER_FILE", path)
+	return nil
 }
 
 func forwardEnv(env *testscript.Env, keys ...string) {
