@@ -1111,11 +1111,11 @@ func managedConfigFile() (string, bool) {
 		return "", false
 	}
 
-	// ProgramData lets any user create a directory or a file at the managed
-	// path. The file governs every account, so it is obeyed only when
-	// Administrators or SYSTEM own it, both directories above it, and nobody
-	// else may write any of the three. Unix has no such path, and the check
-	// is a no-op.
+	// The file governs every account. PMG obeys it only when a system
+	// account owns the file and both directories above it, and no other
+	// account may write any of the three. The system account is root on
+	// Unix, and Administrators or SYSTEM on Windows. ProgramData lets any
+	// user create a directory or a file at the managed path.
 	dir := filepath.Dir(global)
 	for _, p := range []string{filepath.Dir(dir), dir, global} {
 		if err := platform.RequireSystemControlled(p); err != nil {

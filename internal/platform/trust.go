@@ -29,7 +29,8 @@ func RequireTrustedSystemFile(path string) error { return requireTrustedSystemFi
 // It refuses a link or junction.
 func RequireProtected(path string) error { return requireProtected(path) }
 
-// RequireSystemControlled returns nil on Unix.
+// RequireSystemControlled checks that only a system account controls path.
+// On Unix, root must own the path, and neither its group nor other users may write it.
 // On Windows, Administrators or SYSTEM must own the path.
 // No other principal may have write or delete access.
 // It accepts safe inherited entries from an administrator or MDM.
