@@ -131,19 +131,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	}
 	shimArgs = append(shimArgs, policy.Args...)
 
-	cmd := exec.Command(selfExe, shimArgs[1:]...)
-	cmd.Path = selfExe
-	cmd.Args = shimArgs
-	if len(policy.Env) > 0 {
-		cmd.Env = policy.Env
-	} else {
-		cmd.Env = os.Environ()
-	}
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.ExtraFiles = []*os.File{shimSockFile}
-
 	// One clone creates the user namespace and the PID, IPC and mount
 	// namespaces, so the capability check for those passes. The identity
 	// map keeps the target as the caller with no capabilities. A 0->uid map
@@ -162,7 +149,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 			return fmt.Errorf("map root caller to unprivileged ids: %w", err)
 		}
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{
+	procAttr := &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUSER,
 		UidMappings: []syscall.SysProcIDMap{
 			{ContainerID: containerUID, HostID: uid, Size: 1},
@@ -173,34 +160,39 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		GidMappingsEnableSetgroups: false,
 	}
 
-	extraCloneFlags := landlockBuildCloneflags(policy)
-	if extraCloneFlags != 0 {
-		cmd.SysProcAttr.Cloneflags |= extraCloneFlags
+	newShimCmd := func(cloneflags uintptr) *exec.Cmd {
+		cmd := exec.Command(selfExe, shimArgs[1:]...)
+		cmd.Path = selfExe
+		cmd.Args = shimArgs
+		if len(policy.Env) > 0 {
+			cmd.Env = policy.Env
+		} else {
+			cmd.Env = os.Environ()
+		}
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.ExtraFiles = []*os.File{shimSockFile}
+		attr := *procAttr
+		attr.Cloneflags = cloneflags
+		cmd.SysProcAttr = &attr
+		return cmd
 	}
 
-	// A restricted host can refuse the PID or IPC namespace. Retry without.
-	if err := cmd.Start(); err != nil {
-		var pathErr *os.PathError
-		if errors.As(err, &pathErr) &&
-			(errors.Is(pathErr.Err, unix.EPERM) || errors.Is(pathErr.Err, unix.EINVAL)) &&
-			extraCloneFlags != 0 {
-			if err := landlockWriteAuditEvent(auditWriter, auditEvent{
-				Type:    auditNamespaceUnavailable,
-				Message: fmt.Sprintf("namespace clone failed (%v), retrying without PID/IPC ns", err),
-				Ts:      time.Now().UnixNano(),
-			}); err != nil {
-				log.Warnf("sandbox: failed to record a denial: %v", err)
-			}
-			fmt.Fprintf(os.Stderr, "pmg: warning: PID/IPC namespace unavailable (%v), continuing without\n", err)
-			cmd.SysProcAttr.Cloneflags &^= extraCloneFlags
-			if err := cmd.Start(); err != nil {
-				_ = shimSockFile.Close()
-				return fmt.Errorf("start shim (retry): %w", err)
-			}
-		} else {
-			_ = shimSockFile.Close()
-			return fmt.Errorf("start shim: %w", err)
+	extraCloneFlags := landlockBuildCloneflags(policy)
+	cmd, err := startShimWithFallback(newShimCmd, syscall.CLONE_NEWUSER|extraCloneFlags, extraCloneFlags, func(err error) {
+		if err := landlockWriteAuditEvent(auditWriter, auditEvent{
+			Type:    auditNamespaceUnavailable,
+			Message: fmt.Sprintf("namespace clone failed (%v), retrying without PID/IPC ns", err),
+			Ts:      time.Now().UnixNano(),
+		}); err != nil {
+			log.Warnf("sandbox: failed to record a denial: %v", err)
 		}
+		fmt.Fprintf(os.Stderr, "pmg: warning: PID/IPC namespace unavailable (%v), continuing without\n", err)
+	})
+	if err != nil {
+		_ = shimSockFile.Close()
+		return err
 	}
 	_ = shimSockFile.Close() // child has its own copy
 	childPID := cmd.Process.Pid
@@ -278,6 +270,29 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	}
 	os.Exit(exitCode)
 	return nil // unreachable
+}
+
+// startShimWithFallback starts the shim with cloneflags. A restricted host
+// can refuse the PID or IPC namespace with EPERM or EINVAL. The retry drops
+// extraCloneFlags and builds a new command, because a started Cmd cannot
+// start again. onFallback runs before the retry.
+func startShimWithFallback(newCmd func(cloneflags uintptr) *exec.Cmd, cloneflags, extraCloneFlags uintptr, onFallback func(err error)) (*exec.Cmd, error) {
+	cmd := newCmd(cloneflags)
+	err := cmd.Start()
+	if err == nil {
+		return cmd, nil
+	}
+	var pathErr *os.PathError
+	if extraCloneFlags == 0 || !errors.As(err, &pathErr) ||
+		!errors.Is(pathErr.Err, unix.EPERM) && !errors.Is(pathErr.Err, unix.EINVAL) {
+		return nil, fmt.Errorf("start shim: %w", err)
+	}
+	onFallback(err)
+	cmd = newCmd(cloneflags &^ extraCloneFlags)
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start shim (retry): %w", err)
+	}
+	return cmd, nil
 }
 
 func receiveNotifyFd(sockFd int) (int, error) {

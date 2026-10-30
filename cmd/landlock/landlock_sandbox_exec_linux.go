@@ -16,6 +16,9 @@ func NewLandlockSandboxExecCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "__landlock_sandbox_exec",
 		Hidden: true,
+		// A failed start is a runtime error. The usage of a hidden command
+		// does not help the user.
+		SilenceUsage: true,
 		// Skip parent pmg initialization (config, event log, analytics) —
 		// RunLandlockHelper sets up its own minimal logger.
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
