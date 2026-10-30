@@ -217,3 +217,14 @@ func TestWriteSystemTemplateConfigRefusesToMergeAnUncontrolledFile(t *testing.T)
 	require.NoError(t, readErr)
 	assert.Equal(t, planted, got)
 }
+
+func TestManagedConfigRefusesAStickyWritableDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "safedep", "pmg")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.Chmod(dir, 0o777|os.ModeSticky))
+	useManagedConfigDir(t, dir)
+
+	err := WriteSystemTemplateConfig()
+	require.ErrorContains(t, err, "lets other accounts create files in it")
+	assert.NoFileExists(t, filepath.Join(dir, "config.yml"))
+}

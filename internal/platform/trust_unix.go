@@ -79,6 +79,20 @@ func mkdirAllRootOwned(dir string, mode os.FileMode) error {
 
 func requireTrustedSystemFile(string) error { return nil }
 
+func requireExclusiveSystemDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to inspect %s: %w", path, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("%s lets other accounts create files in it", path)
+	}
+	return nil
+}
+
 func requireProtected(string) error { return nil }
 
 // requireSystemControlled walks every component from / down to path. A

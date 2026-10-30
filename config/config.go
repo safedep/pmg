@@ -1153,11 +1153,11 @@ func managedConfigFile() (string, error) {
 // lets any user create a directory or a file at the managed path. On Unix,
 // the check of each path also covers every directory above it.
 func requireSystemControlledConfig(path string) error {
-	dir := filepath.Dir(path)
-	for _, p := range []string{filepath.Dir(dir), dir, path} {
-		if err := platform.RequireSystemControlled(p); err != nil {
-			return untrustedManagedConfigError(path, err)
-		}
+	if err := requireManagedConfigDirs(path); err != nil {
+		return err
+	}
+	if err := platform.RequireSystemControlled(path); err != nil {
+		return untrustedManagedConfigError(path, err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -1173,11 +1173,8 @@ func requireSystemControlledConfig(path string) error {
 // config, and the file when it exists, before the install writes or merges
 // it.
 func requireSystemControlledBeforeWrite(path string) error {
-	dir := filepath.Dir(path)
-	for _, p := range []string{filepath.Dir(dir), dir} {
-		if err := platform.RequireSystemControlled(p); err != nil {
-			return untrustedManagedConfigError(path, err)
-		}
+	if err := requireManagedConfigDirs(path); err != nil {
+		return err
 	}
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -1185,6 +1182,22 @@ func requireSystemControlledBeforeWrite(path string) error {
 		return untrustedManagedConfigError(path, err)
 	}
 	return requireSystemControlledConfig(path)
+}
+
+// requireManagedConfigDirs checks the two directories above the managed
+// config. Only the system account may create an entry in them, also when they
+// are sticky, so no other account can create the file after a check.
+func requireManagedConfigDirs(path string) error {
+	dir := filepath.Dir(path)
+	for _, p := range []string{filepath.Dir(dir), dir} {
+		if err := platform.RequireSystemControlled(p); err != nil {
+			return untrustedManagedConfigError(path, err)
+		}
+		if err := platform.RequireExclusiveSystemDir(p); err != nil {
+			return untrustedManagedConfigError(path, err)
+		}
+	}
+	return nil
 }
 
 func untrustedManagedConfigError(path string, err error) error {

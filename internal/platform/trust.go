@@ -40,6 +40,13 @@ func RequireProtected(path string) error { return requireProtected(path) }
 // The runtime uses it before it obeys a managed configuration.
 func RequireSystemControlled(path string) error { return requireSystemControlled(path) }
 
+// RequireExclusiveSystemDir refuses a directory in which an account other
+// than the system account can create an entry. RequireSystemControlled
+// accepts a sticky directory that others can write, such as /tmp in a path.
+// A directory that holds a managed file must refuse that too, or another
+// account can create the file between a check and a write.
+func RequireExclusiveSystemDir(path string) error { return requireExclusiveSystemDir(path) }
+
 // RequireNotReparsePoint rejects a symbolic link at path, and a junction on Windows.
 // It accepts a path that does not exist.
 func RequireNotReparsePoint(path string) error { return requireNotReparsePoint(path) }
