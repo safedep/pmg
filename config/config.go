@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -455,7 +456,8 @@ type RuntimeConfig struct {
 	configFilePath           string // active config: globally managed file if present, else per-user
 	userConfigFilePath       string // per-user config file, used for writes and removal
 	configSource             ConfigSource
-	configLocked             bool // global file present and opted into lockdown (global_lockdown: true)
+	configLocked             bool  // global file present and opted into lockdown (global_lockdown: true)
+	managedConfigErr         error // why PMG ignores a managed config file that is present
 	eventLogDir              string
 	sandboxProfileDir        string
 	sandboxOverlayDir        string
@@ -563,6 +565,27 @@ func (r *RuntimeConfig) IsManaged() bool {
 // can override its values at runtime.
 func (r *RuntimeConfig) IsLocked() bool {
 	return r.configLocked
+}
+
+// ManagedConfigError returns why PMG ignores the managed config file that is
+// present, or nil. Package init resolves the config before the CLI sets up
+// any output, so the CLI must report this error itself.
+func (r *RuntimeConfig) ManagedConfigError() error {
+	return r.managedConfigErr
+}
+
+// ManagedConfigWarning returns the text that tells the user why PMG ignores
+// the managed config, or "" when PMG obeys it or no file is present.
+func (r *RuntimeConfig) ManagedConfigWarning() string {
+	err := r.managedConfigErr
+	if err == nil {
+		return ""
+	}
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	if !ok {
+		return err.Error()
+	}
+	return fmt.Sprintf("%s: %v. %s", usefulErr.HumanError(), err, usefulErr.Help())
 }
 
 // EventLogDir returns the path to the event log directory.
@@ -788,12 +811,13 @@ func (r *RuntimeConfig) resolvePaths() error {
 		r.eventLogDir = filepath.Join(logBaseDir, pmgDefaultLogDir)
 	}
 
-	managed, isManaged := managedConfigFile()
+	managed, managedErr := managedConfigFile()
+	r.managedConfigErr = managedErr
 	r.configFilePath = r.userConfigFilePath
-	if isManaged {
+	if managed != "" {
 		r.configFilePath = managed
 	}
-	r.configSource = resolveConfigSource(isManaged)
+	r.configSource = resolveConfigSource(managed != "")
 
 	return cmp.Or(configErr, cacheErr, logErr)
 }
@@ -1102,33 +1126,55 @@ func globalConfigFilePath() string {
 	return filepath.Join(dir, pmgConfigFileName)
 }
 
-// managedConfigFile returns the globally managed config file and true when it
-// is present and trusted. That file is authoritative, and the per-user file
-// is then ignored entirely.
-func managedConfigFile() (string, bool) {
+// managedConfigFile returns the globally managed config file when it is
+// present and trusted. That file is authoritative, and the per-user file is
+// then ignored entirely. It returns "" and nil when no file is present. It
+// returns "" and the reason when PMG ignores a file that is present, so the
+// CLI can tell the user that the managed policy does not apply.
+func managedConfigFile() (string, error) {
 	global := globalConfigFilePath()
-	if global == "" || !isRegularFile(global) {
-		return "", false
+	if global == "" {
+		return "", nil
 	}
-
-	// The file governs every account. PMG obeys it only when a system
-	// account owns the file and both directories above it, and no other
-	// account may write any of the three. The system account is root on
-	// Unix, and Administrators or SYSTEM on Windows. ProgramData lets any
-	// user create a directory or a file at the managed path.
-	dir := filepath.Dir(global)
-	for _, p := range []string{filepath.Dir(dir), dir, global} {
-		if err := platform.RequireSystemControlled(p); err != nil {
-			log.Warnf("Ignoring the managed config at %s: %v", global, err)
-			return "", false
-		}
+	if _, err := os.Lstat(global); errors.Is(err, fs.ErrNotExist) {
+		return "", nil
 	}
-	return global, true
+	if err := requireSystemControlledConfig(global); err != nil {
+		return "", err
+	}
+	return global, nil
 }
 
-func isRegularFile(path string) bool {
+// requireSystemControlledConfig checks that only a system account controls
+// the managed config. The file governs every account, so PMG obeys it only
+// when a system account owns the file and both directories above it, and no
+// other account may write any of the three. The system account is root on
+// Unix, and Administrators or SYSTEM on Windows. On Windows, ProgramData
+// lets any user create a directory or a file at the managed path. On Unix,
+// the check of each path also covers every directory above it.
+func requireSystemControlledConfig(path string) error {
+	dir := filepath.Dir(path)
+	for _, p := range []string{filepath.Dir(dir), dir, path} {
+		if err := platform.RequireSystemControlled(p); err != nil {
+			return untrustedManagedConfigError(path, err)
+		}
+	}
 	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
+	if err != nil {
+		return untrustedManagedConfigError(path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return untrustedManagedConfigError(path, fmt.Errorf("%s is not a regular file", path))
+	}
+	return nil
+}
+
+func untrustedManagedConfigError(path string, err error) error {
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
+		WithHumanError(fmt.Sprintf("The managed config %s does not apply, because an account other than the system account can change it", path)).
+		WithHelp(platform.SystemControlRemedy(path)).
+		Wrap(err)
 }
 
 // Get returns the global configuration.
@@ -1211,7 +1257,14 @@ func WriteSystemTemplateConfig() error {
 		return err
 	}
 
-	return platform.ProtectSystemPath(path, 0o644)
+	if err := platform.ProtectSystemPath(path, 0o644); err != nil {
+		return err
+	}
+
+	// PrepareSystemDir leaves an existing Unix directory unchanged. A
+	// directory that another account owns or may write makes the runtime
+	// ignore the file, so the install fails instead of reporting success.
+	return requireSystemControlledConfig(path)
 }
 
 // RemoveSystemConfigFile deletes the globally managed config file. A missing

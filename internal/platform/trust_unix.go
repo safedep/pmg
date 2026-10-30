@@ -6,12 +6,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
+	"testing"
 )
 
-// SystemOwnerUID is the only account that may own a system-controlled path.
-// It is a test seam, because a test cannot create a path that root owns.
-var SystemOwnerUID uint32 = 0
+// maxSystemLinkDepth limits the links that one walk follows, so a link loop
+// fails instead of recursing.
+const maxSystemLinkDepth = 8
+
+// The file system calls are variables, so a test can describe a path chain
+// that it cannot create without root.
+var (
+	lstatSystem    = os.Lstat
+	readlinkSystem = os.Readlink
+)
+
+// testOwner is an account that the check trusts next to root. Only
+// TrustOwnerForTest sets it.
+var testOwner struct {
+	uid uint32
+	set bool
+}
 
 // File creation honors the process umask.
 // Root repairs system artifacts while other users keep their configured umask.
@@ -65,21 +81,75 @@ func requireTrustedSystemFile(string) error { return nil }
 
 func requireProtected(string) error { return nil }
 
-// The callers walk the path chain, so a check of one path is enough here.
-// Lstat refuses a link, because the owner of a link is not the owner of its target.
+// requireSystemControlled walks every component from / down to path. A
+// check of the last component alone would trust a file in a directory that
+// another account can rename or replace.
 func requireSystemControlled(path string) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("failed to inspect %s: %w", path, err)
+	_, err := resolveSystemControlled(path, 0)
+	return err
+}
+
+// resolveSystemControlled checks each component of path and returns the
+// path with every link resolved. It walks the components without lexical
+// cleaning, because ".." after a link names the parent of the link target,
+// as the kernel resolves it. resolved holds no link, so its parent is exact.
+func resolveSystemControlled(path string, depth int) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("%s is not an absolute path", path)
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s is a link, which PMG does not follow in a system path", path)
+	resolved := "/"
+	if _, err := inspectSystemEntry(resolved); err != nil {
+		return "", err
+	}
+	for _, name := range strings.Split(path, "/") {
+		switch name {
+		case "", ".":
+			continue
+		case "..":
+			resolved = filepath.Dir(resolved)
+			continue
+		}
+		next := filepath.Join(resolved, name)
+		mode, err := inspectSystemEntry(next)
+		if err != nil {
+			return "", err
+		}
+		if mode&os.ModeSymlink != 0 {
+			if next, err = followSystemLink(next, resolved, depth); err != nil {
+				return "", err
+			}
+		}
+		resolved = next
+	}
+	return resolved, nil
+}
+
+// followSystemLink resolves a link that inspectSystemEntry accepted, so
+// root owns it. Its target must pass the same walk from /.
+func followSystemLink(link, parent string, depth int) (string, error) {
+	if depth >= maxSystemLinkDepth {
+		return "", fmt.Errorf("%s: too many links", link)
+	}
+	target, err := readlinkSystem(link)
+	if err != nil {
+		return "", fmt.Errorf("failed to read the link %s: %w", link, err)
+	}
+	if !filepath.IsAbs(target) {
+		target = parent + "/" + target
+	}
+	return resolveSystemControlled(target, depth+1)
+}
+
+func inspectSystemEntry(path string) (os.FileMode, error) {
+	info, err := lstatSystem(path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to inspect %s: %w", path, err)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		return fmt.Errorf("failed to read the owner of %s", path)
+		return 0, fmt.Errorf("failed to read the owner of %s", path)
 	}
-	return validateSystemControl(path, stat.Uid, info.Mode())
+	return info.Mode(), validateSystemControl(path, stat.Uid, info.Mode())
 }
 
 // validateSystemControl refuses all group write, also for gid 0.
@@ -89,17 +159,40 @@ func requireSystemControlled(path string) error {
 // also refuses an ACL entry that lets a named account write.
 // A macOS ACL is not in the mode bits, and this check does not read it.
 // Only root can set an ACL on a path that root owns.
+//
+// A sticky directory may be group or other writable, because then only the
+// owner of an entry can rename or remove it, and the next component must
+// be root owned. The mode of a link has no meaning, so only its owner counts.
 func validateSystemControl(path string, uid uint32, mode os.FileMode) error {
-	if uid != SystemOwnerUID {
+	if uid != 0 && (!testOwner.set || uid != testOwner.uid) {
 		return fmt.Errorf("%s is owned by uid %d, not by root", path, uid)
 	}
-	if mode.Perm()&0o020 != 0 {
+	switch {
+	case mode&os.ModeSymlink != 0:
+		return nil
+	case mode.IsDir() && mode&os.ModeSticky != 0:
+		return nil
+	case !mode.IsDir() && !mode.IsRegular():
+		return fmt.Errorf("%s is not a directory or a regular file", path)
+	case mode.Perm()&0o020 != 0:
 		return fmt.Errorf("%s lets its group write it", path)
-	}
-	if mode.Perm()&0o002 != 0 {
+	case mode.Perm()&0o002 != 0:
 		return fmt.Errorf("%s lets every user write it", path)
 	}
 	return nil
+}
+
+// TrustOwnerForTest makes RequireSystemControlled accept uid as an owner
+// next to root. A test cannot create a path that root owns. It panics
+// outside a test binary, so it cannot weaken the check in production. The
+// returned function restores the previous state.
+func TrustOwnerForTest(uid uint32) (restore func()) {
+	if !testing.Testing() {
+		panic("platform: TrustOwnerForTest called outside a test")
+	}
+	prev := testOwner
+	testOwner.uid, testOwner.set = uid, true
+	return func() { testOwner = prev }
 }
 
 func requireNotReparsePoint(path string) error {

@@ -131,7 +131,14 @@ The system config file is authoritative for every user. A per-user `config.yml` 
 
 On Windows, the install sets the same security descriptor on `%PROGRAMDATA%\safedep`, `%PROGRAMDATA%\safedep\pmg` and the config file. A `config.yml` that already exists there is kept only when it carries that descriptor. Any other file stops the install with a message that names it. Inspect the file, delete it, and run the install again. For an MDM deployment, run `pmg setup install --system` first, then edit the file it writes.
 
-At run time, PMG obeys the managed config only when Administrators or SYSTEM own the file and no other account can write it. Otherwise PMG ignores the file and prints a warning. `pmg setup doctor` reports a managed config whose descriptor differs from the one the install wrote.
+At run time, PMG obeys the managed config only when no account other than the system account can change it.
+
+- **Linux and macOS.** Root must own the file and each directory from `/` down to it. No group or other write is allowed. A sticky directory, such as `/tmp`, is the exception. A link is followed only when root owns it, and its target must pass the same check. A NixOS `environment.etc` link and a Kubernetes ConfigMap mount pass.
+- **Windows.** Administrators or SYSTEM must own the file and the two directories above it, and no other account may write any of the three.
+
+Otherwise PMG ignores the file, and the per-user config applies. `global_lockdown` then has no effect. Each `pmg` command prints a warning that names the path the check refused. `pmg setup info` shows the reason, and `pmg setup info --json` puts it in `managed_config_error`. The "Managed config" row of `pmg setup doctor` fails. On Windows, `pmg setup doctor` also reports a managed config whose descriptor differs from the one the install wrote.
+
+`pmg setup install --system` checks the same rule after it writes the file. The install keeps a directory that already exists, such as an `/etc/safedep` that another account owns or that its group may write. In that case, the install fails and names the path. Fix the owner or the mode with `sudo chown root <path>` and `sudo chmod go-w <path>`, then run the install again.
 
 Optional lockdown (`global_lockdown: true`) is documented in [config.md](./config.md).
 

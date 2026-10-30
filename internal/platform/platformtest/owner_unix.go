@@ -10,11 +10,9 @@ import (
 )
 
 // TrustCurrentUser makes platform.RequireSystemControlled accept the current
-// user as the system owner until the test ends. A test cannot create a path
-// that root owns, and the mode and link checks still apply.
+// user as an owner next to root until the test ends. A test cannot create a
+// path that root owns, and the mode and link checks still apply.
 func TrustCurrentUser(t *testing.T) {
 	t.Helper()
-	orig := platform.SystemOwnerUID
-	platform.SystemOwnerUID = uint32(os.Getuid())
-	t.Cleanup(func() { platform.SystemOwnerUID = orig })
+	t.Cleanup(platform.TrustOwnerForTest(uint32(os.Getuid())))
 }
