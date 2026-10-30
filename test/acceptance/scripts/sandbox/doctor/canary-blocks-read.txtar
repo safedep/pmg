@@ -1,0 +1,14 @@
+# guarantee: `pmg sandbox doctor --json` reports an ok canary probe for the
+# driver PMG uses on this host. A canary that cannot start under the probe
+# policy, as on macOS before v0.34.0, must not pass as a blocked read.
+
+[windows] skip 'the sandbox is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+
+# Another probe can fail on this host, so the exit status is not the check.
+exec sh -c 'pmg sandbox doctor --json || true'
+stdout '"name": *"canary\.(seatbelt|landlock|bubblewrap)",\s*"status": *"ok"'

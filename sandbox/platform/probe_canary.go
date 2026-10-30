@@ -19,8 +19,9 @@ import (
 const canaryTimeout = 15 * time.Second
 
 // canaryTargetPath is the file the canary attempts to read under a deny-all
-// policy. It is well-known on every supported host.
-const canaryTargetPath = "/etc/hostname"
+// policy. It exists on every supported host. macOS has no /etc/hostname, and
+// a missing target makes cat exit 1 without a denial.
+const canaryTargetPath = "/etc/hosts"
 
 // canarySandboxFactory builds the sandbox driver under test. Separated from the
 // probe body so tests can stub it.
@@ -34,17 +35,30 @@ func defaultCanaryCommand(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, "cat", canaryTargetPath)
 }
 
+// canaryDenyPaths is the canary target and its resolved path. Seatbelt
+// matches the resolved path, and on macOS /etc is a link to /private/etc.
+func canaryDenyPaths() []string {
+	resolved, err := filepath.EvalSymlinks(canaryTargetPath)
+	if err != nil || resolved == canaryTargetPath {
+		return []string{canaryTargetPath}
+	}
+	return []string{canaryTargetPath, resolved}
+}
+
 // denyAllCanaryPolicy returns a minimal valid policy that denies read access to
 // the canary target. ValidateResolved requires at least one rule; the deny on
 // canaryTargetPath satisfies that and unambiguously asserts the sandbox is
-// blocking the read.
+// blocking the read. The read allowance lets the canary start on Seatbelt,
+// which denies by default. Deny rules win on every driver, as the exec
+// profile relies on.
 func denyAllCanaryPolicy() *sandbox.SandboxPolicy {
 	return &sandbox.SandboxPolicy{
 		Name:            "pmg-canary",
 		Description:     "deny-all canary probe",
 		PackageManagers: []string{"npm", "pip", "uv", "pypi"},
 		Filesystem: sandbox.FilesystemPolicy{
-			DenyRead: []string{canaryTargetPath},
+			AllowRead: []string{"/"},
+			DenyRead:  canaryDenyPaths(),
 		},
 		AllowGitConfig:   utils.PtrTo(false),
 		AllowPTY:         utils.PtrTo(false),
