@@ -24,8 +24,9 @@ cmp got.txt want.txt
 -- meta.sh --
 # Without a token, GitHub limits each IP address to 60 calls per hour, and
 # hosted runners share addresses. curl does not retry the 403 it then gets.
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-  exec curl -fsSL --retry 3 -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/meta
+# The harness writes the header with the token to a file.
+if [ -n "${GITHUB_AUTH_HEADER_FILE:-}" ]; then
+  exec curl -fsSL --retry 3 -H "@${GITHUB_AUTH_HEADER_FILE}" https://api.github.com/meta
 fi
 exec curl -fsSL --retry 3 https://api.github.com/meta
 -- hosts.sh --

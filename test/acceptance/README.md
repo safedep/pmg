@@ -102,9 +102,13 @@ on PyPI.
 
 ### GitHub API cases
 
-The harness forwards `GITHUB_TOKEN` only into the `proxy` scripts. A script that calls the GitHub
-API sends it when it is set, so the call does not count against the limit of 60 calls per hour for
-each IP address. The workflow sets the job's read-only token. A local run works without it.
+When `GITHUB_TOKEN` is set, the harness writes `Authorization: Bearer <token>` to a file in the work
+directory of each `proxy` script and names the file in `GITHUB_AUTH_HEADER_FILE`. A script that
+calls the GitHub API sends it with `curl -H @"$GITHUB_AUTH_HEADER_FILE"`, so the call does not count
+against the limit of 60 calls per hour for each IP address. The token itself stays out of the
+script env, because testscript logs that env for a skipped or failed script, and the log goes into
+the uploaded test report. The workflow sets the job's read-only token. A local run works without
+it.
 
 ### Cloud-mode cases
 

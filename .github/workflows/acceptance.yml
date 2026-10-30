@@ -118,8 +118,8 @@ jobs:
         env:
           ACCEPTANCE_CATEGORY: ${{ inputs.category }}
           ACCEPTANCE_LABELS: ${{ inputs.labels }}
-          # Read-only. The harness passes it only to proxy scripts, which
-          # call the GitHub Meta API.
+          # Read-only. The harness gives it only to proxy scripts, in a header
+          # file, so it stays out of the script env and the test report.
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           export PMG_BIN="${GITHUB_WORKSPACE}/bin/${PMG_EXE}"
