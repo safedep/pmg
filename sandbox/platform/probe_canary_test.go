@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -125,16 +126,22 @@ func TestDenyAllCanaryPolicy(t *testing.T) {
 	p := denyAllCanaryPolicy()
 	require.NoError(t, p.ValidateResolved())
 	assert.Contains(t, p.Filesystem.DenyRead, canaryTargetPath)
+	// Seatbelt denies by default. Without a read allowance the canary
+	// cannot load its libraries, and the kernel kills it with SIGABRT.
+	assert.Contains(t, p.Filesystem.AllowRead, "/")
+	if runtime.GOOS == "windows" {
+		return
+	}
 	// Seatbelt matches the resolved path. On macOS /etc is a link.
 	resolved, err := filepath.EvalSymlinks(canaryTargetPath)
 	require.NoError(t, err)
 	assert.Contains(t, p.Filesystem.DenyRead, resolved)
-	// Seatbelt denies by default. Without a read allowance the canary
-	// cannot load its libraries, and the kernel kills it with SIGABRT.
-	assert.Contains(t, p.Filesystem.AllowRead, "/")
 }
 
 func TestCanaryTargetExistsOnThisHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the sandbox is not supported on Windows")
+	}
 	// A missing target makes cat exit 1 without a denial, and the probe
 	// would report that as a block. macOS has no /etc/hostname.
 	_, err := os.Stat(canaryTargetPath)

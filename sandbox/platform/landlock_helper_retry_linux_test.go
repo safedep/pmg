@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 	"testing"
@@ -35,7 +36,8 @@ func TestStartShimWithFallback(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, cmd.Wait())
 		assert.Equal(t, []uintptr{unix.CLONE_NEWPID, 0}, flags)
-		assert.ErrorIs(t, fallbackErr, unix.EPERM)
+		// A host refuses the namespace with EPERM or EINVAL. Both retry.
+		assert.True(t, errors.Is(fallbackErr, unix.EPERM) || errors.Is(fallbackErr, unix.EINVAL), "fallback error: %v", fallbackErr)
 	})
 
 	t.Run("does not retry another start error", func(t *testing.T) {
