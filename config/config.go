@@ -1267,10 +1267,10 @@ func WriteSystemTemplateConfig() error {
 	if err := platform.PrepareSystemDir(filepath.Dir(path)); err != nil {
 		return err
 	}
-	if err := requireSystemControlledBeforeWrite(path); err != nil {
+	if err := requireTrustedManagedFile(path); err != nil {
 		return err
 	}
-	if err := requireTrustedManagedFile(path); err != nil {
+	if err := requireSystemControlledBeforeWrite(path); err != nil {
 		return err
 	}
 
