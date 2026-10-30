@@ -434,6 +434,12 @@ func writeGitHubAuthHeader(env *testscript.Env) error {
 	if err := os.WriteFile(path, []byte("Authorization: Bearer "+token+"\n"), 0o600); err != nil {
 		return err
 	}
+	// testscript keeps the work directory under -testwork. Remove the token.
+	env.Defer(func() {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			env.T().Log(fmt.Sprintf("remove the GitHub auth header file: %v", err))
+		}
+	})
 	env.Setenv("GITHUB_AUTH_HEADER_FILE", path)
 	return nil
 }
