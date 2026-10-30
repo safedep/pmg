@@ -320,13 +320,19 @@ The runner is not exempt. Its traffic to GitHub goes through the proxy, see
 allows the hosts of the runner, its agents, GitHub releases, and the cache
 and artifact storage, so a profile that inherits it does not list them. Run
 `pmg sandbox profile show github-actions` to see them. An action that
-downloads from another host needs a rule in your profile. A profile that inherits another built-in, such
-as `npm-restrictive`, must allow these hosts itself, or the proxy refuses
-the runner's connections to GitHub.
+downloads from another host needs a rule in your profile. Make your profile
+inherit `github-actions` and add the registry hosts to it, as
+`pmg sandbox profile propose` does. Do not inherit another built-in, such
+as `npm-restrictive`. It does not allow the hosts of the runner, so the
+proxy refuses the runner's connections to GitHub.
 
-`github-actions` allows `*.blob.core.windows.net:443`, because the runner,
-`actions/upload-artifact` and `actions/cache` use Azure storage. That rule
-allows every Azure storage account, so a script can send data to one.
+The runner, `actions/upload-artifact` and `actions/cache` store logs,
+artifacts and caches in Azure storage. `github-actions` allows only the
+storage accounts that the GitHub Meta API lists, not every Azure storage
+account. When GitHub adds an account, a job under `network-mode: enforce`
+fails, and the job summary names a denied
+`productionresultssa<N>.blob.core.windows.net` host. Add that host to
+`network.allow_outbound` in your profile. You do not need a new PMG release.
 
 `deny_ip_literals` refuses a connection to an IP literal no allow rule
 names. An allow list of names does not stop a workflow that posts to an IP
