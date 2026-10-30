@@ -1,0 +1,25 @@
+# guarantee: the github-actions built-in profile allows the same GitHub
+# result storage accounts that the GitHub Meta API lists. GitHub adds
+# accounts without notice, and a missing account fails a cache or artifact
+# step under network-mode enforce.
+
+[!exec:sh] skip 'needs sh'
+[!exec:curl] skip 'needs curl'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg sandbox profile show github-actions
+cp stdout profile.txt
+exec curl -fsSL --retry 3 https://api.github.com/meta
+cp stdout meta.json
+
+exec sh hosts.sh meta.json
+cp stdout want.txt
+grep 'productionresultssa[0-9]+\.blob\.core\.windows\.net' want.txt
+exec sh hosts.sh profile.txt
+cp stdout got.txt
+cmp got.txt want.txt
+
+-- hosts.sh --
+grep -o 'productionresultssa[0-9]*\.blob\.core\.windows\.net' "$1" | sort -u

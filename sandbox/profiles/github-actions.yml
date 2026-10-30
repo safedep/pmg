@@ -15,10 +15,12 @@ package_managers:
 # profile, so it does not list these hosts.
 #
 # The runner, actions/upload-artifact and actions/cache store job logs,
-# artifacts and caches in the productionresultssa<N> Azure storage accounts.
-# GitHub lists N from 0 to 19, 30 to 49 and 100 to 199. A wildcard would
-# also match an Azure storage account that an attacker registers, so the
-# profile names each account. When GitHub adds an account, add it here.
+# artifacts and caches in Azure storage accounts. The productionresultssa
+# hosts below are the ones in domains.actions_inbound.full_domains of
+# https://api.github.com/meta. A wildcard would also match an Azure storage
+# account that an attacker registers, so the profile names each account.
+# When GitHub adds an account, add it here. The acceptance script
+# proxy/network/github-actions-storage-accounts fails until then.
 #
 # *.githubapp.com is for the agents of a GitHub-hosted runner, such as
 # hosted-compute-watchdog-prod-<region>.githubapp.com. The region changes

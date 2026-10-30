@@ -505,7 +505,10 @@ jobs:
             echo "::error::A storage host is not in the github-actions profile." >&2
             exit 1
           fi
-          if sed -n '/^### Denied connections/,/^### /p' post.log | grep -E '^\| `' | grep -E 'Runner\.|node'; then
+          # Only the Program column names the client. A destination such as
+          # deb.nodesource.com must not match.
+          if sed -n '/^### Denied connections/,/^### /p' post.log | grep -E '^\| `' \
+              | awk -F'|' '$4 ~ /Runner\.|\/node *$/ { print; found = 1 } END { exit !found }'; then
             echo "::error::The profile denied a host of the runner or of an action." >&2
             exit 1
           fi

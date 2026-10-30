@@ -242,6 +242,13 @@ func hostPort(d proxy.NetworkDecision) string {
 func TestProxyFlow_GitHubActionsStorage(t *testing.T) {
 	const inheritsGitHubActions = "name: ci\ninherits: github-actions\n"
 	listed := []int{8, 42, 150}
+	// The gap after 19 and the end after 199 catch a prefix or range rule
+	// that the attacker host alone does not.
+	unlisted := []string{
+		"attacker.blob.core.windows.net",
+		"productionresultssa20.blob.core.windows.net",
+		"productionresultssa200.blob.core.windows.net",
+	}
 	RunCases(t, []TestCase{
 		{
 			Name:    "a GitHub result storage account of each listed range is allowed",
@@ -264,10 +271,23 @@ func TestProxyFlow_GitHubActionsStorage(t *testing.T) {
 			Name:    "another Azure storage account is refused before the dial",
 			Options: []Option{profilePolicy(t, inheritsGitHubActions, nil, nil)},
 			Exec: func(h *Harness) ExecResult {
-				return ExecResult{Requests: []RequestOutcome{h.get("https://attacker.blob.core.windows.net/x", nil)}}
+				var res ExecResult
+				for _, host := range unlisted {
+					res.Requests = append(res.Requests, h.get("https://"+host+"/x", nil))
+				}
+				return res
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assertRefused(t, h, res, "attacker.blob.core.windows.net", "*:*")
+				assert.Empty(t, h.DialedAddrs())
+				decisions := h.NetworkDecisions()
+				require.Len(t, decisions, len(unlisted))
+				for i, host := range unlisted {
+					require.Error(t, res.Requests[i].Err, host)
+					assert.Contains(t, res.Requests[i].Err.Error(), "Forbidden", host)
+					assert.Equal(t, host, decisions[i].Host)
+					assert.Equal(t, "*:*", decisions[i].Rule)
+					assert.True(t, decisions[i].Enforced)
+				}
 			},
 		},
 	})
