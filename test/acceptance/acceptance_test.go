@@ -91,6 +91,11 @@ func TestAcceptance(t *testing.T) {
 					if category == "cloud" {
 						forwardCloudCredentials(env)
 					}
+					// A proxy script calls the GitHub Meta API. The token lifts the
+					// limit of 60 calls per hour for each IP address.
+					if category == proxyCategory {
+						forwardEnv(env, "GITHUB_TOKEN")
+					}
 					forwardRustup(env)
 					if err := isolateHome(env); err != nil {
 						return err
@@ -131,6 +136,7 @@ func TestAcceptance(t *testing.T) {
 
 const (
 	enforceCategory    = "enforce"
+	proxyCategory      = "proxy"
 	sandboxCategory    = "sandbox"
 	trustStoreCategory = "truststore"
 
