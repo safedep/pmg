@@ -48,10 +48,18 @@ func missingCmd(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, "/nonexistent/pmg-canary")
 }
 
+// maskedCanaryCmd exits 0 with no output, as cat does when the sandbox
+// masks the target with /dev/null. The macOS printf binary rejects an
+// empty format, so true stands in for cat.
 func maskedCanaryCmd(ctx context.Context) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "printf", "")
-	cmd.Args = []string{"cat", "", canaryTargetPath}
+	cmd := exec.CommandContext(ctx, "true")
+	cmd.Args = []string{"cat", canaryTargetPath}
 	return cmd
+}
+
+// deniedCanaryCmd fails as cat does when the sandbox denies the read.
+func deniedCanaryCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", "echo 'cat: "+canaryTargetPath+": Permission denied' >&2; exit 1")
 }
 
 func TestRunCanary(t *testing.T) {
@@ -64,8 +72,14 @@ func TestRunCanary(t *testing.T) {
 		{
 			name:    "ok blocks read",
 			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
-			cmd:     falseCmd,
+			cmd:     deniedCanaryCmd,
 			want:    sandbox.ProbeStatusOK,
+		},
+		{
+			name:    "fail exit without a denial",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     falseCmd,
+			want:    sandbox.ProbeStatusFail,
 		},
 		{
 			name:    "ok masks read",
@@ -122,8 +136,21 @@ func TestRunCanary(t *testing.T) {
 	}
 }
 
-func TestDenyAllCanaryPolicy(t *testing.T) {
-	p := denyAllCanaryPolicy()
+// Without the guard, cat exits 1 and names the missing target, and the
+// probe would report OK.
+func TestRunCanaryTargetMissing(t *testing.T) {
+	orig := canaryTargetPath
+	canaryTargetPath = filepath.Join(t.TempDir(), "missing")
+	t.Cleanup(func() { canaryTargetPath = orig })
+
+	factory := func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil }
+	res := runCanary(context.Background(), "canary.fake", "fake", factory, defaultCanaryCommand)
+	assert.Equal(t, sandbox.ProbeStatusFail, res.Status)
+	assert.Contains(t, res.Summary, "not found")
+}
+
+func TestCanaryPolicy(t *testing.T) {
+	p := canaryPolicy()
 	require.NoError(t, p.ValidateResolved())
 	assert.Contains(t, p.Filesystem.DenyRead, canaryTargetPath)
 	// Seatbelt denies by default. Without a read allowance the canary

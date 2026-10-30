@@ -180,7 +180,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	}
 
 	extraCloneFlags := landlockBuildCloneflags(policy)
-	cmd, err := startShimWithFallback(newShimCmd, syscall.CLONE_NEWUSER|extraCloneFlags, extraCloneFlags, func(err error) {
+	cmd, err := startShimWithFallback(newShimCmd, procAttr.Cloneflags|extraCloneFlags, extraCloneFlags, func(err error) {
 		if err := landlockWriteAuditEvent(auditWriter, auditEvent{
 			Type:    auditNamespaceUnavailable,
 			Message: fmt.Sprintf("namespace clone failed (%v), retrying without PID/IPC ns", err),
@@ -188,7 +188,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}); err != nil {
 			log.Warnf("sandbox: failed to record a denial: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "pmg: warning: PID/IPC namespace unavailable (%v), continuing without\n", err)
+		fmt.Fprintf(os.Stderr, "pmg: warning: PID/IPC namespace unavailable (%v), retrying without\n", err)
 	})
 	if err != nil {
 		_ = shimSockFile.Close()
