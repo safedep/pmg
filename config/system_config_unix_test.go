@@ -198,4 +198,22 @@ func TestWriteSystemTemplateConfigRefusesAnUncontrolledDirectory(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, errcodes.PermissionDenied, usefulErr.Code())
 	assert.Contains(t, usefulErr.Help(), "sudo chown root")
+	assert.NoFileExists(t, filepath.Join(dir, "config.yml"))
+}
+
+func TestWriteSystemTemplateConfigRefusesToMergeAnUncontrolledFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "safedep", "pmg")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	useManagedConfigDir(t, dir)
+	path := filepath.Join(dir, "config.yml")
+	planted := []byte("global_lockdown: false\n")
+	require.NoError(t, os.WriteFile(path, planted, 0o644))
+	require.NoError(t, os.Chmod(path, 0o666))
+
+	err := WriteSystemTemplateConfig()
+	require.ErrorContains(t, err, "config.yml lets its group write it")
+
+	got, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, planted, got)
 }

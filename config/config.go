@@ -1169,6 +1169,24 @@ func requireSystemControlledConfig(path string) error {
 	return nil
 }
 
+// requireSystemControlledBeforeWrite checks the directories of the managed
+// config, and the file when it exists, before the install writes or merges
+// it.
+func requireSystemControlledBeforeWrite(path string) error {
+	dir := filepath.Dir(path)
+	for _, p := range []string{filepath.Dir(dir), dir} {
+		if err := platform.RequireSystemControlled(p); err != nil {
+			return untrustedManagedConfigError(path, err)
+		}
+	}
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return untrustedManagedConfigError(path, err)
+	}
+	return requireSystemControlledConfig(path)
+}
+
 func untrustedManagedConfigError(path string, err error) error {
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.PermissionDenied).
@@ -1241,12 +1259,15 @@ func WriteSystemTemplateConfig() error {
 	// MkdirAll and WriteFile honor the process umask, so a hardened root
 	// umask (e.g. 077) would otherwise leave the managed config unreadable
 	// by non-root users, which would silently disable the system-wide policy
-	// for them. The directories are secured before the file is checked: the
-	// owner of an unprotected parent could otherwise rename a checked file
-	// away between the check and the read. An existing config file is merged
-	// only when PMG wrote it. A descriptor set afterwards would not make
-	// contents a standard user wrote trustworthy.
+	// for them. The directories are checked before any write: an account
+	// that can write them could plant a file that the merge below would take
+	// in and that ProtectSystemPath would then make root owned. An existing
+	// config file is merged only when PMG wrote it and only the system
+	// account controls it.
 	if err := platform.PrepareSystemDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	if err := requireSystemControlledBeforeWrite(path); err != nil {
 		return err
 	}
 	if err := requireTrustedManagedFile(path); err != nil {
