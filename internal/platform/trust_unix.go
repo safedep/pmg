@@ -61,8 +61,22 @@ func mkdirAllRootOwned(dir string, mode os.FileMode) error {
 		return fmt.Errorf("%s exists and is not a directory", dir)
 	}
 
-	if parent := filepath.Dir(dir); parent != dir {
+	parent := filepath.Dir(dir)
+	if parent != dir {
 		if err := mkdirAllRootOwned(parent, mode); err != nil {
+			return err
+		}
+	}
+
+	// A privileged run changes the owner and mode of the new directory by
+	// path. If another account can write the parent, it can swap the new
+	// directory for a link between Mkdir and Chown, and root would then
+	// change the link target. The parent must refuse that account first.
+	if IsPrivileged() {
+		if err := requireSystemControlled(parent); err != nil {
+			return err
+		}
+		if err := requireExclusiveSystemDir(parent); err != nil {
 			return err
 		}
 	}

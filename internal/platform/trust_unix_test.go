@@ -389,3 +389,16 @@ func TestTrustOwnerForTestRestores(t *testing.T) {
 	restore()
 	assert.ErrorContains(t, validateSystemControl("/x", 4242, 0o644), "owned by uid 4242")
 }
+
+func TestMkdirAllRootOwnedRefusesAWritableParentWhenPrivileged(t *testing.T) {
+	withPrivilege(t, true)
+	t.Cleanup(TrustOwnerForTest(uint32(os.Getuid())))
+	parent := filepath.Join(t.TempDir(), "safedep")
+	require.NoError(t, os.Mkdir(parent, 0o755))
+	require.NoError(t, os.Chmod(parent, 0o775))
+	target := filepath.Join(parent, "pmg")
+
+	err := mkdirAllRootOwned(target, 0o755)
+	require.ErrorContains(t, err, "lets its group write it")
+	assert.NoDirExists(t, target)
+}
