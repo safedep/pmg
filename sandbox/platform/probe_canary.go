@@ -173,9 +173,7 @@ func runCanary(ctx context.Context, name string, driver sandbox.DriverName, fact
 		}
 	}
 
-	// cat names the file it cannot read, in every locale. A failure that
-	// does not name the target is not a denial.
-	if !bytes.Contains(stderr.Bytes(), []byte(canaryTargetPath)) {
+	if !canaryDeniedRead(stderr.String()) {
 		return sandbox.ProbeResult{
 			Name:    name,
 			Status:  sandbox.ProbeStatusFail,
@@ -189,6 +187,21 @@ func runCanary(ctx context.Context, name string, driver sandbox.DriverName, fact
 		Status:  sandbox.ProbeStatusOK,
 		Summary: d + " correctly blocked canary read",
 	}
+}
+
+// canaryDeniedRead reports whether stderr holds a cat read failure that
+// names the target. cat prefixes its errors with argv[0] in every locale,
+// as a name or as a path when a shim runs it by its resolved path. A
+// wrapper such as bwrap prefixes its own name, and its setup errors can
+// name the target too.
+func canaryDeniedRead(stderr string) bool {
+	for _, line := range strings.Split(stderr, "\n") {
+		prog, rest, ok := strings.Cut(line, ": ")
+		if ok && filepath.Base(prog) == "cat" && strings.Contains(rest, canaryTargetPath) {
+			return true
+		}
+	}
+	return false
 }
 
 func isCanaryReadCommand(cmd *exec.Cmd) bool {

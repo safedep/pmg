@@ -62,6 +62,18 @@ func deniedCanaryCmd(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, "sh", "-c", "echo 'cat: "+canaryTargetPath+": Permission denied' >&2; exit 1")
 }
 
+// deniedByPathCanaryCmd fails as cat does when a shim runs it by its
+// resolved path. glibc prefixes the error with argv[0] as given.
+func deniedByPathCanaryCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", "echo '/usr/bin/cat: "+canaryTargetPath+": Permission denied' >&2; exit 1")
+}
+
+// wrapperErrorCmd fails as bwrap does when it cannot mount the deny mask.
+// The error names the target, and cat never runs.
+func wrapperErrorCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", "echo \"bwrap: Can't mkdir parents for "+canaryTargetPath+": Read-only file system\" >&2; exit 1")
+}
+
 func TestRunCanary(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -76,9 +88,21 @@ func TestRunCanary(t *testing.T) {
 			want:    sandbox.ProbeStatusOK,
 		},
 		{
+			name:    "ok blocks read of cat run by path",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     deniedByPathCanaryCmd,
+			want:    sandbox.ProbeStatusOK,
+		},
+		{
 			name:    "fail exit without a denial",
 			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
 			cmd:     falseCmd,
+			want:    sandbox.ProbeStatusFail,
+		},
+		{
+			name:    "fail wrapper error names the target",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     wrapperErrorCmd,
 			want:    sandbox.ProbeStatusFail,
 		},
 		{
