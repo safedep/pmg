@@ -66,7 +66,8 @@ func canaryPolicy() *sandbox.SandboxPolicy {
 }
 
 // runCanary executes the canary smoke test. The probe is OK when cat exits
-// with a status and names the target, or when the output is not the file.
+// with a status, prints nothing, and names the target in its error, or
+// when the output is not the file.
 func runCanary(ctx context.Context, name string, driver sandbox.DriverName, factory canarySandboxFactory, cmdFactory canaryCommandFactory) sandbox.ProbeResult {
 	ctx, cancel := context.WithTimeout(ctx, canaryTimeout)
 	defer cancel()
@@ -173,7 +174,9 @@ func runCanary(ctx context.Context, name string, driver sandbox.DriverName, fact
 		}
 	}
 
-	if !canaryDeniedRead(stderr.String()) {
+	// A denied open prints nothing. Data before the error means cat read
+	// part of the file.
+	if stdout.Len() > 0 || !canaryDeniedRead(stderr.String()) {
 		return sandbox.ProbeResult{
 			Name:    name,
 			Status:  sandbox.ProbeStatusFail,

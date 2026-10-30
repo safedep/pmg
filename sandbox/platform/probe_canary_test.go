@@ -68,6 +68,12 @@ func deniedByPathCanaryCmd(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, "sh", "-c", "echo '/usr/bin/cat: "+canaryTargetPath+": Permission denied' >&2; exit 1")
 }
 
+// partialOutputCmd prints part of the file and then fails, as cat does on
+// a read error after the open succeeded.
+func partialOutputCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", "echo '127.0.0.1 localhost'; echo 'cat: "+canaryTargetPath+": Input/output error' >&2; exit 1")
+}
+
 // wrapperErrorCmd fails as bwrap does when it cannot mount the deny mask.
 // The error names the target, and cat never runs.
 func wrapperErrorCmd(ctx context.Context) *exec.Cmd {
@@ -97,6 +103,12 @@ func TestRunCanary(t *testing.T) {
 			name:    "fail exit without a denial",
 			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
 			cmd:     falseCmd,
+			want:    sandbox.ProbeStatusFail,
+		},
+		{
+			name:    "fail partial output before the error",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     partialOutputCmd,
 			want:    sandbox.ProbeStatusFail,
 		},
 		{
