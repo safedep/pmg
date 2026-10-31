@@ -153,7 +153,7 @@ pmg setup info
 
 ### Behaviour
 
-Whenever a global config file is present:
+Whenever a global config file is present and only the system account can change it:
 
 - **It is authoritative.** PMG ignores the per-user `config.yml`. The file may be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to a user's values.
 - **A relative path is next to the global config file.** A relative `policy_templates` path or `sandbox.policies.<pm>.profile` path resolves under the global config directory, not under a user's.
@@ -161,6 +161,8 @@ Whenever a global config file is present:
 - **`pmg setup install` skips the per-user config.** It still creates shell aliases and shims per user.
 
 By default a user can still override the global config's values at runtime through `PMG_*` environment variables and CLI flags. Enable lockdown to forbid that.
+
+PMG ignores a global config file that another account can change, and lockdown then has no effect. On Linux and macOS, root must own the file and each directory from `/` down to it, and no group or other write is allowed, except on a sticky directory. A link is followed only when root owns it, and its target must pass the same check. On Windows, Administrators or SYSTEM must own the file and the two directories above it. Each `pmg` command prints a warning when PMG ignores the file, and `pmg setup doctor` fails. See [system-install.md](./system-install.md#configuration).
 
 ## System Install (Linux)
 

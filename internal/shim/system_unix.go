@@ -26,8 +26,8 @@ func newSystemLayout() (systemLayout, error) {
 	}, nil
 }
 
-// validateConfig is a Windows check. A standard user cannot put a file
-// under /etc.
+// validateConfig is a Windows check of the PMG security descriptor. The
+// managed config row of doctor reports the Unix rule.
 func (systemLayout) validateConfig() error { return nil }
 
 func systemInstallPresent() bool { return SystemShimsInstalled() }
