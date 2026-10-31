@@ -21,7 +21,9 @@ foreach ($file in Get-ChildItem -Path $ManifestDir -Filter '*.yaml') {
 }
 if ($pinned.Count -eq 0) { throw "no manifest templates under $ManifestDir" }
 
-$versions = $pinned.Values | Sort-Object -Unique
+# @() keeps one unique value an array. Indexing a bare string returns its
+# first character instead.
+$versions = @($pinned.Values | Sort-Object -Unique)
 if ($versions.Count -ne 1) {
   $detail = ($pinned.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
   throw "the manifest templates pin different versions: $detail"
