@@ -359,6 +359,12 @@
   tier: P2
   guarantee: "`pmg sandbox doctor --json` has a network.exec-path probe that says whether this host's driver confines `pmg sandbox exec` to the proxy."
   labels: [sandbox, exec, doctor, offline]
+- id: sandbox/doctor/canary-blocks-read
+  title: "sandbox doctor canary blocks a read on the active driver"
+  category: sandbox
+  tier: P1
+  guarantee: "`pmg sandbox doctor --json` reports an ok canary probe for the driver PMG uses on this host, so a canary that cannot start does not pass as a blocked read."
+  labels: [sandbox, doctor, offline]
 
 - id: sandbox/observe/caught-denial-recorded
   title: "sandbox records a denial that the program catches"
