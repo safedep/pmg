@@ -100,6 +100,16 @@ Keep the known-malicious fixture malicious, or the test means nothing. SafeDep f
 `safedep-test-pkg` on both registries: use `safedep-test-pkg@0.1.3` on npm and `safedep-test-pkg==0.0.4`
 on PyPI.
 
+### GitHub API cases
+
+When `GITHUB_TOKEN` is set, the harness writes `Authorization: Bearer <token>` to a file in the work
+directory of each `proxy` script and names the file in `GITHUB_AUTH_HEADER_FILE`. A script that
+calls the GitHub API sends it with `curl -H @"$GITHUB_AUTH_HEADER_FILE"`, so the call does not count
+against the limit of 60 calls per hour for each IP address. The token itself stays out of the
+script env, because testscript logs that env for a skipped or failed script, and the log goes into
+the uploaded test report. The workflow sets the job's read-only token. A local run works without
+it.
+
 ### Cloud-mode cases
 
 A case that needs SafeDep Cloud credentials guards on the `cloud` condition and skips when no
