@@ -3,7 +3,10 @@ package platform
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,10 +48,36 @@ func missingCmd(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, "/nonexistent/pmg-canary")
 }
 
+// maskedCanaryCmd exits 0 with no output, as cat does when the sandbox
+// masks the target with /dev/null. The macOS printf binary rejects an
+// empty format, so true stands in for cat.
 func maskedCanaryCmd(ctx context.Context) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "printf", "")
-	cmd.Args = []string{"cat", "", canaryTargetPath}
+	cmd := exec.CommandContext(ctx, "true")
+	cmd.Args = []string{"cat", canaryTargetPath}
 	return cmd
+}
+
+// deniedCanaryCmd fails as cat does when the sandbox denies the read.
+func deniedCanaryCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", "echo 'cat: "+canaryTargetPath+": Permission denied' >&2; exit 1")
+}
+
+// deniedByPathCanaryCmd fails as cat does when a shim runs it by its
+// resolved path. glibc prefixes the error with argv[0] as given.
+func deniedByPathCanaryCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", "echo '/usr/bin/cat: "+canaryTargetPath+": Permission denied' >&2; exit 1")
+}
+
+// partialOutputCmd prints part of the file and then fails, as cat does on
+// a read error after the open succeeded.
+func partialOutputCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", "echo '127.0.0.1 localhost'; echo 'cat: "+canaryTargetPath+": Input/output error' >&2; exit 1")
+}
+
+// wrapperErrorCmd fails as bwrap does when it cannot mount the deny mask.
+// The error names the target, and cat never runs.
+func wrapperErrorCmd(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", "echo \"bwrap: Can't mkdir parents for "+canaryTargetPath+": Read-only file system\" >&2; exit 1")
 }
 
 func TestRunCanary(t *testing.T) {
@@ -61,8 +90,32 @@ func TestRunCanary(t *testing.T) {
 		{
 			name:    "ok blocks read",
 			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
-			cmd:     falseCmd,
+			cmd:     deniedCanaryCmd,
 			want:    sandbox.ProbeStatusOK,
+		},
+		{
+			name:    "ok blocks read of cat run by path",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     deniedByPathCanaryCmd,
+			want:    sandbox.ProbeStatusOK,
+		},
+		{
+			name:    "fail exit without a denial",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     falseCmd,
+			want:    sandbox.ProbeStatusFail,
+		},
+		{
+			name:    "fail partial output before the error",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     partialOutputCmd,
+			want:    sandbox.ProbeStatusFail,
+		},
+		{
+			name:    "fail wrapper error names the target",
+			factory: func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil },
+			cmd:     wrapperErrorCmd,
+			want:    sandbox.ProbeStatusFail,
 		},
 		{
 			name:    "ok masks read",
@@ -119,10 +172,43 @@ func TestRunCanary(t *testing.T) {
 	}
 }
 
-func TestDenyAllCanaryPolicy(t *testing.T) {
-	p := denyAllCanaryPolicy()
+// Without the guard, cat exits 1 and names the missing target, and the
+// probe would report OK.
+func TestRunCanaryTargetMissing(t *testing.T) {
+	orig := canaryTargetPath
+	canaryTargetPath = filepath.Join(t.TempDir(), "missing")
+	t.Cleanup(func() { canaryTargetPath = orig })
+
+	factory := func() (sandbox.Sandbox, error) { return &fakeSandbox{name: "fake", available: true}, nil }
+	res := runCanary(context.Background(), "canary.fake", "fake", factory, defaultCanaryCommand)
+	assert.Equal(t, sandbox.ProbeStatusFail, res.Status)
+	assert.Contains(t, res.Summary, "not found")
+}
+
+func TestCanaryPolicy(t *testing.T) {
+	p := canaryPolicy()
 	require.NoError(t, p.ValidateResolved())
 	assert.Contains(t, p.Filesystem.DenyRead, canaryTargetPath)
+	// Seatbelt denies by default. Without a read allowance the canary
+	// cannot load its libraries, and the kernel kills it with SIGABRT.
+	assert.Contains(t, p.Filesystem.AllowRead, "/")
+	if runtime.GOOS == "windows" {
+		return
+	}
+	// Seatbelt matches the resolved path. On macOS /etc is a link.
+	resolved, err := filepath.EvalSymlinks(canaryTargetPath)
+	require.NoError(t, err)
+	assert.Contains(t, p.Filesystem.DenyRead, resolved)
+}
+
+func TestCanaryTargetExistsOnThisHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the sandbox is not supported on Windows")
+	}
+	// A missing target makes cat exit 1 without a denial, and the probe
+	// would report that as a block. macOS has no /etc/hostname.
+	_, err := os.Stat(canaryTargetPath)
+	require.NoError(t, err)
 }
 
 func TestDriverInstallFix_BubblewrapIsDistroNeutral(t *testing.T) {
