@@ -178,7 +178,7 @@ func inspectSystemEntry(path string) (os.FileMode, error) {
 	if !ok {
 		return 0, fmt.Errorf("failed to read the owner of %s", path)
 	}
-	readOnly := info.Mode()&os.ModeSymlink == 0 && readOnlySystem(path)
+	readOnly := info.Mode().IsDir() && readOnlySystem(path)
 	return info.Mode(), validateSystemControl(path, stat.Uid, info.Mode(), readOnly)
 }
 
@@ -194,9 +194,11 @@ func inspectSystemEntry(path string) (os.FileMode, error) {
 // owner of an entry can rename or remove it, and the next component must
 // be root owned. The mode of a link has no meaning, so only its owner counts.
 //
-// An entry on a read-only mount may have write bits, because no account can
-// write it until root mounts it again. A Kubernetes ConfigMap volume is such
-// a mount, and its directory has the mode 0777.
+// A directory on a read-only mount may have write bits, because no account
+// can create or rename an entry through that mount. A Kubernetes ConfigMap
+// volume is such a mount, and its directory has the mode 0777. A file gets no
+// such exception: the source of a read-only bind mount can stay writable, so
+// a file with write bits can change under the mount.
 func validateSystemControl(path string, uid uint32, mode os.FileMode, readOnly bool) error {
 	if uid != 0 && (!testOwner.set || uid != testOwner.uid) {
 		return fmt.Errorf("%s is owned by uid %d, not by root", path, uid)
@@ -206,7 +208,7 @@ func validateSystemControl(path string, uid uint32, mode os.FileMode, readOnly b
 		return nil
 	case !mode.IsDir() && !mode.IsRegular():
 		return fmt.Errorf("%s is not a directory or a regular file", path)
-	case readOnly:
+	case readOnly && mode.IsDir():
 		return nil
 	case mode.IsDir() && mode&os.ModeSticky != 0:
 		return nil

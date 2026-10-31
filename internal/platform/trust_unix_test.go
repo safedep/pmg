@@ -208,6 +208,13 @@ func TestResolveSystemControlled(t *testing.T) {
 			wantErr: "/etc/safedep/pmg lets its group write it",
 		},
 		{
+			name: "file every user may write on a read-only mount",
+			change: func(tree map[string]fakeEntry) {
+				tree[managed] = fakeEntry{mode: 0o666, readOnly: true}
+			},
+			wantErr: managed + " lets its group write it",
+		},
+		{
 			name: "user file on a read-only mount",
 			change: func(tree map[string]fakeEntry) {
 				tree[managed] = fakeEntry{mode: 0o666, uid: 1000, readOnly: true}
