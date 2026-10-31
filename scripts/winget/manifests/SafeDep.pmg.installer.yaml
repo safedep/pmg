@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
 PackageIdentifier: SafeDep.pmg
 PackageVersion: {{VERSION}}
 InstallerType: msi
@@ -22,4 +22,4 @@ Installers:
   InstallerSha256: {{MSI_SHA256}}
   ProductCode: '{{PRODUCT_CODE}}'
 ManifestType: installer
-ManifestVersion: 1.6.0
+ManifestVersion: 1.28.0

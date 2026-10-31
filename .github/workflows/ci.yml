@@ -300,6 +300,11 @@ jobs:
           PMG_MSI_UPGRADE_VERSION: ${{ needs.goreleaser-test.outputs.version }}-upgrade
         run: pwsh -NoProfile -File scripts/choco/tests/choco_e2e_test.ps1
 
+      # `winget validate` accepts a deprecated schema, so this check reads the
+      # schema list that winget-pkgs publishes instead.
+      - name: Check the winget manifest version is current
+        run: pwsh -NoProfile -File scripts/winget/check_manifest_version.ps1
+
       - name: Install winget
         run: scripts/winget/install_winget.ps1
 
