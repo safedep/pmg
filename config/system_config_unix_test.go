@@ -3,6 +3,8 @@
 package config
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -160,6 +162,32 @@ func TestManagedConfigFileAbsent(t *testing.T) {
 	got, err := managedConfigFile()
 	assert.NoError(t, err)
 	assert.Empty(t, got)
+}
+
+func TestManagedConfigUnderAFileIsAbsent(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "safedep")
+	require.NoError(t, os.WriteFile(file, nil, 0o644))
+	useManagedConfigDir(t, filepath.Join(file, "pmg"))
+
+	got, err := managedConfigFile()
+	assert.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestUnreadableManagedConfigNamesReadAccess(t *testing.T) {
+	path := "/etc/safedep/pmg/config.yml"
+	cause := fmt.Errorf("failed to inspect %s: %w", path, &os.PathError{Op: "lstat", Path: path, Err: syscall.EACCES})
+
+	err := untrustedManagedConfigError(path, cause)
+
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, errcodes.PermissionDenied, usefulErr.Code())
+	assert.Contains(t, usefulErr.HumanError(), "PMG cannot read the managed config "+path)
+	assert.NotContains(t, usefulErr.HumanError(), "another account")
+	assert.Contains(t, usefulErr.Help(), "read")
+	assert.NotContains(t, usefulErr.Help(), "chown")
+	assert.ErrorIs(t, err, fs.ErrPermission)
 }
 
 // A managed config that PMG ignores drops global_lockdown. The runtime keeps

@@ -133,7 +133,7 @@ On Windows, the install sets the same security descriptor on `%PROGRAMDATA%\safe
 
 At run time, PMG obeys the managed config only when no account other than the system account can change it.
 
-- **Linux and macOS.** Root must own the file and each directory from `/` down to it. No group or other write is allowed. A sticky directory, such as `/tmp`, is the exception. A link is followed only when root owns it, and its target must pass the same check. A NixOS `environment.etc` link and a Kubernetes ConfigMap mount pass.
+- **Linux and macOS.** Root must own the file and each directory from `/` down to it. No group or other write is allowed. A sticky directory, such as `/tmp`, is the exception. A directory or file on a read-only mount is also an exception, because no account can change it until root mounts it again. A link is followed only when root owns it, and its target must pass the same check. A NixOS `environment.etc` link passes. A Kubernetes ConfigMap volume passes: its directory has the mode `0777`, but the kubelet mounts it read-only. A `subPath` mount also passes, but Kubernetes does not update it when the ConfigMap changes.
 - **Windows.** Administrators or SYSTEM must own the file and the two directories above it, and no other account may write any of the three.
 
 Otherwise PMG ignores the file, and the per-user config applies. `global_lockdown` then has no effect. Each `pmg` command prints a warning that names the path the check refused. `pmg setup info` shows the reason, and `pmg setup info --json` puts it in `managed_config_error`. The "Managed config" row of `pmg setup doctor` fails. On Windows, `pmg setup doctor` also reports a managed config whose descriptor differs from the one the install wrote.

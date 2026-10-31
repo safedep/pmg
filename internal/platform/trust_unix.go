@@ -20,6 +20,7 @@ const maxSystemLinkDepth = 8
 var (
 	lstatSystem    = os.Lstat
 	readlinkSystem = os.Readlink
+	readOnlySystem = isReadOnlyMount
 )
 
 // testOwner is an account that the check trusts next to root. Only
@@ -101,7 +102,7 @@ func requireExclusiveSystemDir(path string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("%s is not a directory", path)
 	}
-	if info.Mode().Perm()&0o022 != 0 {
+	if info.Mode().Perm()&0o022 != 0 && !readOnlySystem(path) {
 		return fmt.Errorf("%s lets other accounts create files in it", path)
 	}
 	return nil
@@ -177,7 +178,8 @@ func inspectSystemEntry(path string) (os.FileMode, error) {
 	if !ok {
 		return 0, fmt.Errorf("failed to read the owner of %s", path)
 	}
-	return info.Mode(), validateSystemControl(path, stat.Uid, info.Mode())
+	readOnly := info.Mode()&os.ModeSymlink == 0 && readOnlySystem(path)
+	return info.Mode(), validateSystemControl(path, stat.Uid, info.Mode(), readOnly)
 }
 
 // validateSystemControl refuses all group write, also for gid 0.
@@ -191,17 +193,23 @@ func inspectSystemEntry(path string) (os.FileMode, error) {
 // A sticky directory may be group or other writable, because then only the
 // owner of an entry can rename or remove it, and the next component must
 // be root owned. The mode of a link has no meaning, so only its owner counts.
-func validateSystemControl(path string, uid uint32, mode os.FileMode) error {
+//
+// An entry on a read-only mount may have write bits, because no account can
+// write it until root mounts it again. A Kubernetes ConfigMap volume is such
+// a mount, and its directory has the mode 0777.
+func validateSystemControl(path string, uid uint32, mode os.FileMode, readOnly bool) error {
 	if uid != 0 && (!testOwner.set || uid != testOwner.uid) {
 		return fmt.Errorf("%s is owned by uid %d, not by root", path, uid)
 	}
 	switch {
 	case mode&os.ModeSymlink != 0:
 		return nil
-	case mode.IsDir() && mode&os.ModeSticky != 0:
-		return nil
 	case !mode.IsDir() && !mode.IsRegular():
 		return fmt.Errorf("%s is not a directory or a regular file", path)
+	case readOnly:
+		return nil
+	case mode.IsDir() && mode&os.ModeSticky != 0:
+		return nil
 	case mode.Perm()&0o020 != 0:
 		return fmt.Errorf("%s lets its group write it", path)
 	case mode.Perm()&0o002 != 0:

@@ -96,7 +96,7 @@ func TestValidateSystemControl(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateSystemControl("/etc/safedep/pmg", tc.uid, tc.mode)
+			err := validateSystemControl("/etc/safedep/pmg", tc.uid, tc.mode, false)
 			if tc.wantErr == "" {
 				assert.NoError(t, err)
 				return
@@ -108,9 +108,10 @@ func TestValidateSystemControl(t *testing.T) {
 }
 
 type fakeEntry struct {
-	mode   os.FileMode
-	uid    uint32
-	target string
+	mode     os.FileMode
+	uid      uint32
+	target   string
+	readOnly bool
 }
 
 type fakeInfo struct {
@@ -129,7 +130,8 @@ func (f fakeInfo) Sys() any           { return &syscall.Stat_t{Uid: f.entry.uid}
 // path to entry, so a test can describe a tree that only root can create.
 func withFakeTree(t *testing.T, tree map[string]fakeEntry) {
 	t.Helper()
-	lstat, readlink := lstatSystem, readlinkSystem
+	lstat, readlink, readOnly := lstatSystem, readlinkSystem, readOnlySystem
+	readOnlySystem = func(path string) bool { return tree[path].readOnly }
 	lstatSystem = func(path string) (os.FileInfo, error) {
 		entry, ok := tree[path]
 		if !ok {
@@ -144,7 +146,7 @@ func withFakeTree(t *testing.T, tree map[string]fakeEntry) {
 		}
 		return entry.target, nil
 	}
-	t.Cleanup(func() { lstatSystem, readlinkSystem = lstat, readlink })
+	t.Cleanup(func() { lstatSystem, readlinkSystem, readOnlySystem = lstat, readlink, readOnly })
 }
 
 const (
@@ -199,6 +201,20 @@ func TestResolveSystemControlled(t *testing.T) {
 			wantResolved: managed,
 		},
 		{
+			name: "directory every user may write on a mount that is not read-only",
+			change: func(tree map[string]fakeEntry) {
+				tree["/etc/safedep/pmg"] = fakeEntry{mode: os.ModeDir | 0o777}
+			},
+			wantErr: "/etc/safedep/pmg lets its group write it",
+		},
+		{
+			name: "user file on a read-only mount",
+			change: func(tree map[string]fakeEntry) {
+				tree[managed] = fakeEntry{mode: 0o666, uid: 1000, readOnly: true}
+			},
+			wantErr: managed + " is owned by uid 1000, not by root",
+		},
+		{
 			name: "directory in the chain is a link of a user",
 			change: func(tree map[string]fakeEntry) {
 				tree["/etc/safedep"] = fakeEntry{mode: rootLink, uid: 1000, target: "/opt/safedep"}
@@ -246,13 +262,13 @@ func TestResolveSystemControlled(t *testing.T) {
 			wantResolved: "/nix/store/def-pmg/config.yml",
 		},
 		{
-			name: "root links of a Kubernetes ConfigMap volume",
+			name: "root links of a Kubernetes ConfigMap volume on a read-only mount",
 			change: func(tree map[string]fakeEntry) {
-				tree["/etc/safedep/pmg"] = fakeEntry{mode: os.ModeDir | os.ModeSticky | 0o777}
+				tree["/etc/safedep/pmg"] = fakeEntry{mode: os.ModeDir | 0o777, readOnly: true}
 				tree[managed] = fakeEntry{mode: rootLink, target: "..data/config.yml"}
 				tree["/etc/safedep/pmg/..data"] = fakeEntry{mode: rootLink, target: "..2026_10_30_01_02_03.123"}
-				tree["/etc/safedep/pmg/..2026_10_30_01_02_03.123"] = fakeEntry{mode: rootDir}
-				tree["/etc/safedep/pmg/..2026_10_30_01_02_03.123/config.yml"] = fakeEntry{mode: 0o644}
+				tree["/etc/safedep/pmg/..2026_10_30_01_02_03.123"] = fakeEntry{mode: rootDir, readOnly: true}
+				tree["/etc/safedep/pmg/..2026_10_30_01_02_03.123/config.yml"] = fakeEntry{mode: 0o644, readOnly: true}
 			},
 			wantResolved: "/etc/safedep/pmg/..2026_10_30_01_02_03.123/config.yml",
 		},
@@ -385,9 +401,9 @@ func TestRequireSystemControlledRejectsEntriesOfAnotherAccount(t *testing.T) {
 
 func TestTrustOwnerForTestRestores(t *testing.T) {
 	restore := TrustOwnerForTest(4242)
-	assert.NoError(t, validateSystemControl("/x", 4242, 0o644))
+	assert.NoError(t, validateSystemControl("/x", 4242, 0o644, false))
 	restore()
-	assert.ErrorContains(t, validateSystemControl("/x", 4242, 0o644), "owned by uid 4242")
+	assert.ErrorContains(t, validateSystemControl("/x", 4242, 0o644, false), "owned by uid 4242")
 }
 
 func TestMkdirAllRootOwnedRefusesAWritableParentWhenPrivileged(t *testing.T) {

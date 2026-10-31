@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1136,7 +1137,7 @@ func managedConfigFile() (string, error) {
 	if global == "" {
 		return "", nil
 	}
-	if _, err := os.Lstat(global); errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Lstat(global); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return "", nil
 	}
 	if err := requireSystemControlledConfig(global); err != nil {
@@ -1201,10 +1202,24 @@ func requireManagedConfigDirs(path string) error {
 }
 
 func untrustedManagedConfigError(path string, err error) error {
+	if errors.Is(err, fs.ErrPermission) {
+		return unreadableManagedConfigError(path, err)
+	}
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.PermissionDenied).
 		WithHumanError(fmt.Sprintf("The managed config %s does not apply, because an account other than the system account can change it", path)).
 		WithHelp(platform.SystemControlRemedy(path)).
+		Wrap(err)
+}
+
+// unreadableManagedConfigError tells the user that this account cannot read
+// the managed config. Another account may still control it, so the fix is
+// read access, not a change of owner.
+func unreadableManagedConfigError(path string, err error) error {
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
+		WithHumanError(fmt.Sprintf("PMG cannot read the managed config %s, so it does not apply for this account", path)).
+		WithHelp(fmt.Sprintf("Let every account read '%s' and search each directory above it, for example: chmod o+r on the file and chmod o+x on each directory", path)).
 		Wrap(err)
 }
 
