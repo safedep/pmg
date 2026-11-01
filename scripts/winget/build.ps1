@@ -3,11 +3,13 @@
 # Version is the release version without the v, for example 1.4.2. winget
 # gets stable releases only, so a prerelease version is an error. MsiUrl is
 # the installer URL the manifest points at. MsiPath is the local copy, for
-# its SHA-256, its product code and its upgrade code.
+# its SHA-256, its product code and its upgrade code. ReleaseDate is the day
+# the release was published, as yyyy-MM-dd.
 param(
   [Parameter(Mandatory)][string]$Version,
   [Parameter(Mandatory)][string]$MsiPath,
   [Parameter(Mandatory)][string]$MsiUrl,
+  [Parameter(Mandatory)][ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$ReleaseDate,
   [Parameter(Mandatory)][string]$OutDir
 )
 $ErrorActionPreference = 'Stop'
@@ -24,6 +26,6 @@ Expand-PackageTemplate -TemplateDir (Join-Path $PSScriptRoot 'manifests') -OutDi
   MSI_SHA256   = (Get-FileSha256 $MsiPath).ToUpperInvariant()
   PRODUCT_CODE = Get-MsiProperty -Path $MsiPath -Name ProductCode
   UPGRADE_CODE = (Get-MsiProperty -Path $MsiPath -Name UpgradeCode).ToUpperInvariant()
-  RELEASE_DATE = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
+  RELEASE_DATE = $ReleaseDate
 }
 Write-Host "wrote the winget manifests for SafeDep.pmg $Version to $OutDir"
