@@ -95,6 +95,9 @@ type configInfo struct {
 	Path             string `json:"path"`
 	Source           string `json:"source"` // user | global | global_locked
 	ProxyInstallOnly bool   `json:"proxy_install_only"`
+	// ManagedConfigError says why PMG ignores a managed config file that is
+	// present. It is empty when PMG obeys the file or no file is present.
+	ManagedConfigError string `json:"managed_config_error,omitempty"`
 }
 
 type securityInfo struct {
@@ -282,9 +285,10 @@ func collectConfigInfo(cfg *config.RuntimeConfig) configInfo {
 	}
 
 	return configInfo{
-		Path:             cfg.ConfigFilePath(),
-		Source:           source,
-		ProxyInstallOnly: cfg.Config.Proxy.InstallOnly,
+		Path:               cfg.ConfigFilePath(),
+		Source:             source,
+		ProxyInstallOnly:   cfg.Config.Proxy.InstallOnly,
+		ManagedConfigError: cfg.ManagedConfigWarning(),
 	}
 }
 

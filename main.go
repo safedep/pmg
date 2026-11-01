@@ -90,6 +90,12 @@ func main() {
 
 			log.InitZapLogger("pmg", "cli")
 
+			// A fleet must see that the managed policy, and global_lockdown with
+			// it, does not apply. Package init cannot print this.
+			if warning := config.Get().ManagedConfigWarning(); warning != "" {
+				ui.ShowWarning(warning)
+			}
+
 			// Refuse flags that would override a globally managed config before any
 			// config-dependent initialization (event logging, audit) runs, so a
 			// managed flag like --skip-event-log cannot take effect first.

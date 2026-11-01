@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/platform/platformtest"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox/executor"
@@ -148,6 +149,7 @@ func lockedProfilePolicy(t *testing.T) Option {
 	}
 
 	t.Setenv("PMG_CONFIG_DIR", userDir)
+	platformtest.TrustCurrentUser(t)
 	restore := config.SetManagedConfigDirForTest(managedDir)
 	defer restore()
 	cfg := config.Get()

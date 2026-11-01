@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/doctor"
@@ -41,6 +42,7 @@ const (
 	checkCA                 = "ca-cert"
 	checkSystemBinary       = "system-binary"
 	checkProxyEnforce       = "proxy-enforce"
+	checkManagedConfig      = "managed-config"
 
 	aliasesInstalledMessage = "Shell aliases installed"
 
@@ -257,6 +259,14 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 		checks = slices.DeleteFunc(checks, func(c doctor.Check) bool { return c.Name == checkShellAliases })
 	}
 
+	if cfg.IsManaged() || cfg.ManagedConfigError() != nil {
+		checks = append(checks, doctor.Check{
+			Name:     checkManagedConfig,
+			Category: "Configuration",
+			Run:      func() doctor.CheckResult { return checkManagedConfigResult(cfg) },
+		})
+	}
+
 	// System-only: the binary every user's shim execs must stay root-owned and
 	// non-writable. Validation runs at install; re-check it here to catch later
 	// permission/ownership drift (redeploy, chmod, image rebuild). The gate is
@@ -292,6 +302,27 @@ func checkSystemBinaryResult() doctor.CheckResult {
 		Status:  doctor.StatusPass,
 		Message: fmt.Sprintf("System binary and shims are protected from other users (%s)", path),
 	}
+}
+
+// checkManagedConfigResult fails when PMG ignores the managed config,
+// because the policy of that file, global_lockdown included, then does not
+// apply on this machine.
+func checkManagedConfigResult(cfg *config.RuntimeConfig) doctor.CheckResult {
+	err := cfg.ManagedConfigError()
+	if err == nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusPass,
+			Message: fmt.Sprintf("Only the system account can change the managed config (%s)", cfg.ConfigFilePath()),
+		}
+	}
+	result := doctor.CheckResult{
+		Status:  doctor.StatusFail,
+		Message: fmt.Sprintf("Managed config ignored: %v", err),
+	}
+	if usefulErr, ok := usefulerror.AsUsefulError(err); ok {
+		result.Fix = usefulErr.Help()
+	}
+	return result
 }
 
 // checkEventLogDirResult is the testable core of the event-log dir check.
@@ -545,6 +576,7 @@ var checkDisplayNames = map[string]string{
 	checkProtectionPip:      "pip protection",
 	checkCA:                 "MITM CA",
 	checkSystemBinary:       "System binary",
+	checkManagedConfig:      "Managed config",
 	checkProxyEnforce:       "Proxy enforcement",
 }
 

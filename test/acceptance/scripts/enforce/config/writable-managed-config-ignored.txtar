@@ -1,0 +1,31 @@
+# guarantee: pmg ignores a managed config that an account other than root
+# can change. It says so on every command, setup info names the reason, and
+# the doctor row fails. When root alone controls the file again, it applies.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg config set --system paranoid false
+exec pmg config path
+stdout '/etc/safedep/pmg/config\.yml \(managed, authoritative\)'
+
+chmod 0666 /etc/safedep/pmg/config.yml
+
+exec pmg config path
+stderr 'The managed config /etc/safedep/pmg/config\.yml does not apply, because an account other than the system account can change it'
+! stdout 'managed, authoritative'
+
+exec pmg setup info
+stdout 'Config Source +: user'
+stdout 'Managed Config +: The managed config /etc/safedep/pmg/config\.yml does not apply'
+
+! exec pmg setup doctor
+stdout 'FAIL +Managed config +Managed config ignored'
+
+chmod 0644 /etc/safedep/pmg/config.yml
+
+exec pmg config path
+stdout '/etc/safedep/pmg/config\.yml \(managed, authoritative\)'
+! stderr 'does not apply'

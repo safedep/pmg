@@ -45,3 +45,7 @@ func removeSystemFile(path string) error {
 	}
 	return nil
 }
+
+// The ACL check of requireSystemControlled already refuses a directory in
+// which a standard user can create an entry.
+func requireExclusiveSystemDir(string) error { return nil }
