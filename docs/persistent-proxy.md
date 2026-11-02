@@ -441,6 +441,10 @@ starts it again after a crash. The unit writes its state to
 sudo pmg proxy status --state /run/pmg/proxy-state.json
 ```
 
+On a GitHub Actions runner host, the service replaces the `safedep/pmg`
+action. PMG does not support both on one host. See
+[Self-hosted runners](./github-action.md#self-hosted-runners).
+
 ### How it works
 
 The daemon attaches BPF programs to the cgroup v2 root. The `connect` hooks
