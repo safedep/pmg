@@ -24,6 +24,7 @@ stdout 'would deny +pastebin\.com:443 +rule pastebin\.com:443 +container pmg-lab
 -- deny.yml --
 name: deny-pastebin
 description: Denies pastebin.com, so the stop report names the client
+package_managers: [npm, pip]
 network:
   deny_outbound:
     - pastebin.com:443
