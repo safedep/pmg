@@ -417,6 +417,11 @@ A redirected container must trust the PMG CA, which the action exports as
 See [Trust inside a container](./persistent-proxy.md#trust-inside-a-container)
 for the `RUN` block that mounts the secret.
 
+The job summary names a redirected container in its Program column, as in
+`container web (node:22)`. A `RUN` step of `docker build` shows the buildx
+builder container. See
+[Names of containers](./persistent-proxy.md#names-of-containers).
+
 A Docker container action gets the workspace at `/github/workspace` and the
 step's `env:`. Copy the bundle into the workspace in a step before it:
 

@@ -32,7 +32,7 @@ func TestHostObservationDedupRule(t *testing.T) {
 					Method:   "CONNECT",
 				},
 			}),
-			wantParts: []string{"registry.example.com", "CONNECT", "0", "PMG_PROXY_ENTRY_POINT_UNSPECIFIED", "", ""},
+			wantParts: []string{"registry.example.com", "CONNECT", "0", "PMG_PROXY_ENTRY_POINT_UNSPECIFIED", "", "", ""},
 			wantMatch: true,
 		},
 		{
@@ -42,7 +42,7 @@ func TestHostObservationDedupRule(t *testing.T) {
 				HostObservation: hostObservationOf("registry.example.com", 443, controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST,
 					&controltowerv1.PmgProxyClient{Pid: proto.Uint32(42), Comm: proto.String("curl"), Executable: proto.String("/usr/bin/curl")}),
 			}),
-			wantParts: []string{"registry.example.com", "CONNECT", "443", "PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST", "/usr/bin/curl", ""},
+			wantParts: []string{"registry.example.com", "CONNECT", "443", "PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST", "/usr/bin/curl", "", ""},
 			wantMatch: true,
 		},
 		{
@@ -52,7 +52,7 @@ func TestHostObservationDedupRule(t *testing.T) {
 				HostObservation: hostObservationOf("registry.example.com", 443, controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_REDIRECTED_NAMESPACE,
 					&controltowerv1.PmgProxyClient{Address: proto.String("172.17.0.2")}),
 			}),
-			wantParts: []string{"registry.example.com", "CONNECT", "443", "PMG_PROXY_ENTRY_POINT_REDIRECTED_NAMESPACE", "", "172.17.0.2"},
+			wantParts: []string{"registry.example.com", "CONNECT", "443", "PMG_PROXY_ENTRY_POINT_REDIRECTED_NAMESPACE", "", "172.17.0.2", ""},
 			wantMatch: true,
 		},
 		{
@@ -111,6 +111,12 @@ func TestHostObservationDedupKeySeparatesClients(t *testing.T) {
 	assert.False(t, same(curl, &controltowerv1.PmgProxyClient{}), "a program and an unknown client differ")
 	assert.False(t, same(namedCurl, namedWget), "without an executable the comm keeps two programs apart")
 	assert.False(t, same(curl, namedCurl), "a verified name and a self-reported one differ")
+
+	web := &controltowerv1.PmgProxyClient{Address: proto.String("172.17.0.2")}
+	web.SetContainer(&controltowerv1.PmgContainer{Id: proto.String("aaaa")})
+	db := &controltowerv1.PmgProxyClient{Address: proto.String("172.17.0.2")}
+	db.SetContainer(&controltowerv1.PmgContainer{Id: proto.String("bbbb")})
+	assert.False(t, same(web, db), "a later container on the same address is another client")
 }
 
 func toolEventWithPmgEvent(event *controltowerv1.PmgEvent) *servicev1.ToolEvent {
@@ -280,7 +286,7 @@ func TestNetworkPolicyDedupRule(t *testing.T) {
 				EventType:             controltowerv1.PmgEventType_PMG_EVENT_TYPE_NETWORK_POLICY_DECISION,
 				NetworkPolicyDecision: denied,
 			}),
-			wantParts: []string{"evil.example", "443", "*:*", "PMG_NETWORK_POLICY_ACTION_DENIED", "PMG_NETWORK_POLICY_MODE_ENFORCE", "PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST", "/usr/bin/curl", ""},
+			wantParts: []string{"evil.example", "443", "*:*", "PMG_NETWORK_POLICY_ACTION_DENIED", "PMG_NETWORK_POLICY_MODE_ENFORCE", "PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST", "/usr/bin/curl", "", ""},
 			wantMatch: true,
 		},
 		{
@@ -289,7 +295,7 @@ func TestNetworkPolicyDedupRule(t *testing.T) {
 				EventType:             controltowerv1.PmgEventType_PMG_EVENT_TYPE_NETWORK_POLICY_DECISION,
 				NetworkPolicyDecision: observed,
 			}),
-			wantParts: []string{"evil.example", "443", "*:*", "PMG_NETWORK_POLICY_ACTION_OBSERVED", "PMG_NETWORK_POLICY_MODE_AUDIT", "PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST", "/usr/bin/curl", ""},
+			wantParts: []string{"evil.example", "443", "*:*", "PMG_NETWORK_POLICY_ACTION_OBSERVED", "PMG_NETWORK_POLICY_MODE_AUDIT", "PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST", "/usr/bin/curl", "", ""},
 			wantMatch: true,
 		},
 		{

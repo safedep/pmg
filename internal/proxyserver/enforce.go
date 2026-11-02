@@ -1,6 +1,7 @@
 package proxyserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -10,11 +11,13 @@ import (
 	"slices"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/platform"
 	pmgproxy "github.com/safedep/pmg/proxy"
@@ -294,20 +297,62 @@ func ipv6LoopbackAddr() string {
 // miss in the kernel map is asked of conntrack, which holds the record for
 // a client the bridge rule translated.
 type destinationResolver struct {
-	handle    atomic.Pointer[netenforce.Handle]
-	conntrack atomic.Bool
+	handle     atomic.Pointer[netenforce.Handle]
+	conntrack  atomic.Bool
+	containers atomic.Pointer[container.Introspector]
 }
 
 func (r *destinationResolver) set(h netenforce.Handle) { r.handle.Store(&h) }
 
 func (r *destinationResolver) useConntrack(on bool) { r.conntrack.Store(on) }
 
+// useContainers names the container behind a connection that the bridge
+// redirect brought. nil leaves such a connection with its address only.
+func (r *destinationResolver) useContainers(ins container.Introspector) {
+	if ins == nil {
+		r.containers.Store(nil)
+		return
+	}
+	r.containers.Store(&ins)
+}
+
+// containerLookupTimeout bounds the wait for the container runtime. The
+// lookup runs before the proxy serves the connection.
+const containerLookupTimeout = time.Second
+
 func (r *destinationResolver) OriginalDestinationOf(c net.Conn) (pmgproxy.Origin, bool) {
 	if !r.conntrack.Load() {
 		return pmgproxy.Origin{}, false
 	}
 	dst, ok := netenforce.ConntrackOriginalDestination(c)
-	return pmgproxy.Origin{Dst: dst}, ok
+	if !ok {
+		return pmgproxy.Origin{}, false
+	}
+	return pmgproxy.Origin{Dst: dst, Container: r.containerOf(c)}, true
+}
+
+// containerOf names the container that owns the peer address of c. A miss
+// or a runtime that does not answer leaves the origin with the address.
+func (r *destinationResolver) containerOf(c net.Conn) container.Container {
+	ins := r.containers.Load()
+	if ins == nil {
+		return container.Container{}
+	}
+	peer, err := netip.ParseAddrPort(c.RemoteAddr().String())
+	if err != nil {
+		return container.Container{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), containerLookupTimeout)
+	defer cancel()
+	found, ok, err := (*ins).ContainerByAddress(ctx, peer.Addr())
+	if err != nil {
+		log.Debugf("enforce: name the container of %s: %v", peer.Addr(), err)
+		return container.Container{}
+	}
+	if !ok {
+		return container.Container{}
+	}
+	return found
 }
 
 func (r *destinationResolver) OriginalDestination(client, local netip.AddrPort) (pmgproxy.Origin, bool) {

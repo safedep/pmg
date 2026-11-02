@@ -7,11 +7,13 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/internal/netenforce"
 )
 
@@ -276,4 +278,26 @@ func (n *namespaceRedirect) firewallWarning() string {
 // detachAll is the error-path cleanup: table and address together.
 func (n *namespaceRedirect) detachAll() error {
 	return errors.Join(n.detach(), n.releaseAddress())
+}
+
+// detectContainers is the seam tests use to stand in a container runtime.
+var detectContainers = container.Detect
+
+// containerDetectTimeout bounds the start of the daemon when a runtime
+// socket exists but the runtime does not answer.
+const containerDetectTimeout = 2 * time.Second
+
+// detectContainerRuntime finds the runtime that names the containers the
+// redirect brings. Without one, a report shows a redirected connection by
+// its address.
+func detectContainerRuntime(ctx context.Context) container.Introspector {
+	ctx, cancel := context.WithTimeout(ctx, containerDetectTimeout)
+	defer cancel()
+	ins := detectContainers(ctx)
+	if ins == nil {
+		log.Infof("Namespace redirect: no container runtime answers, so reports show a container by its address")
+		return nil
+	}
+	log.Infof("Namespace redirect: %s names the containers in reports", ins.Runtime())
+	return ins
 }

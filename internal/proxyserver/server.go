@@ -293,6 +293,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		// Under auto the attach can turn the mode into ignore, so the
 		// namespace warnings and the resolver follow the mode in effect.
 		resolver.useConntrack(namespaces.active())
+		if namespaces.active() {
+			resolver.useContainers(detectContainerRuntime(ctx))
+		}
 		state.Enforce.Namespaces = namespaces.state()
 		state.Enforce.Warnings = append(state.Enforce.Warnings, namespaces.warnings()...)
 	}

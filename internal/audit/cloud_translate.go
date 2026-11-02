@@ -8,6 +8,7 @@ import (
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/sandbox"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -559,5 +560,37 @@ func newProxyClient(c ProxyClient) *controltowerv1.PmgProxyClient {
 	if c.Address != "" {
 		client.SetAddress(c.Address)
 	}
+	if !c.Container.IsZero() {
+		client.SetContainer(newContainer(c.Container))
+	}
 	return client
+}
+
+// newContainer sets the container fields the runtime reported.
+func newContainer(c container.Container) *controltowerv1.PmgContainer {
+	pc := &controltowerv1.PmgContainer{}
+	pc.SetRuntime(containerRuntime(c.Runtime))
+	if c.ID != "" {
+		pc.SetId(c.ID)
+	}
+	if c.Name != "" {
+		pc.SetName(c.Name)
+	}
+	if c.Image != "" {
+		pc.SetImage(c.Image)
+	}
+	if c.ImageID != "" {
+		pc.SetImageId(c.ImageID)
+	}
+	return pc
+}
+
+func containerRuntime(r container.Runtime) controltowerv1.PmgContainerRuntime {
+	switch r {
+	case container.RuntimeDocker:
+		return controltowerv1.PmgContainerRuntime_PMG_CONTAINER_RUNTIME_DOCKER
+	case container.RuntimePodman:
+		return controltowerv1.PmgContainerRuntime_PMG_CONTAINER_RUNTIME_PODMAN
+	}
+	return controltowerv1.PmgContainerRuntime_PMG_CONTAINER_RUNTIME_UNSPECIFIED
 }

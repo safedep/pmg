@@ -282,13 +282,14 @@ advisory`. The profile is the inheritance chain, base first.
 ```text
 Network policy: enforce, 2 denied, 0 would deny
   denied  193.32.204.199:80  rule *:*  /usr/bin/curl pid 4132
-  denied  pastebin.com:443   rule *:*  172.17.0.2 (3)
+  denied  pastebin.com:443   rule *:*  container web (node:22) (3)
 Profile: pypi-restrictive < /etc/pmg/profiles/runner.yml  ports 80,443
 ```
 
 The columns are the action, the destination, the rule, and the program with
-its pid, or the container address. Under `audit` the action reads `would
-deny`. With kernel enforcement the kernel names the program. Without it a
+its pid, or the container. Under `audit` the action reads `would deny`.
+[Names of containers](#names-of-containers) says how the daemon names a
+container. With kernel enforcement the kernel names the program. Without it a
 proxy-aware client has no name. `ports` are the enforced ports.
 
 Under `global_lockdown` a profile and a flag may narrow the policy and may
@@ -642,6 +643,24 @@ listener address. Both have the defaults above.
 
 The host needs Linux 5.13 or later with nf_tables and conntrack. Every
 Docker host has them.
+
+#### Names of containers
+
+The redirect gives the proxy only the address of a container. The daemon
+asks the container runtime which container owns that address. The stop
+report, the job summary and the audit events then name the container, as
+in `container web (node:22)`. The audit events also carry the container ID
+and the image ID.
+
+The daemon looks for Docker at `/var/run/docker.sock` and for Podman at
+`/run/podman/podman.sock`, and a `unix://` address in `DOCKER_HOST` comes
+first. A `RUN` step of `docker build` names the builder, such as
+`container buildx_buildkit_builder0 (moby/buildkit:buildx-stable-1)`,
+because the step connects with the address of the builder. When no runtime
+answers, a row names the address, as in `container 172.17.0.2`.
+
+The name comes from the runtime and is a label only. The network policy
+does not decide on it.
 
 #### Host firewalls
 

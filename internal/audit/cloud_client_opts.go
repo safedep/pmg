@@ -145,6 +145,7 @@ func networkPolicyDedupKey(decision *controltowerv1.PmgNetworkPolicyDecision) []
 		decision.GetEntryPoint().String(),
 		programOf(client),
 		client.GetAddress(),
+		client.GetContainer().GetId(),
 	}
 }
 
@@ -160,6 +161,7 @@ func hostObservationDedupKey(observation *controltowerv1.PmgHostObservation) []s
 		observation.GetEntryPoint().String(),
 		programOf(client),
 		client.GetAddress(),
+		client.GetContainer().GetId(),
 	}
 }
 
