@@ -24,7 +24,7 @@ Before manual removal of `localdb/`, stop all PMG processes that use it.
 Remove the database and its `-wal` and `-shm` siblings together.
 
 A process with write access to the database can plant a benign verdict.
-PMG does not authenticate stored rows or separate their keys by tenant.
+PMG does not authenticate stored rows.
 Do not share the cache between users or restore it from an untrusted CI cache.
 The built-in exec profile permits writes to the default cache directories.
 
@@ -46,7 +46,8 @@ Go and Cargo also check cooldown on downloaded artifacts before the cache lookup
 See [Dependency Cooldown](dependency-cooldown.md).
 
 The persistent proxy keeps every successful analysis result in memory until it stops.
-This includes block, suspicious, tenant-excluded, and unknown-package allows.
+This includes block, suspicious, and tenant-excluded results.
+It also includes the allow for a package that SafeDep has not analyzed yet.
 That cache has no TTL. The `analysis_cache` settings do not control it.
 A short disk TTL or a disabled disk cache does not refresh these memory entries.
 Restart the daemon to apply a new malware verdict or tenant exclusion.
@@ -103,8 +104,7 @@ Status reports an open failure when the database exists, but does not test futur
 
 Clear deletes disk verdicts. It does not clear a running proxy's memory.
 After a malware advisory, stop the daemon, clear its disk cache, then start it again.
-Preserve its config, cache, and state paths and its start options.
-A root daemon uses root's cache. Run `sudo pmg setup cache clear` for that cache.
+A root daemon uses root's cache.
+Use `sudo pmg setup cache status` and `sudo pmg setup cache clear` for that cache.
 For a service, stop it before the clear and start it afterward.
-On Windows, stop a foreground proxy with Ctrl+C.
 See [Persistent Proxy](persistent-proxy.md#commands).

@@ -25,10 +25,9 @@ pmg config get paranoid
 pmg config get cloud.enabled
 ```
 
-Ordinary `config get` reads template/file values and applicable environment overrides.
-It can return an environment value as a string.
-It does not reflect every later CLI mutation of the runtime config.
-`config get --system` reads the managed file over the template without environment overrides.
+`config get` shows the value from the config file, the template, or a `PMG_*` override.
+It can print a `PMG_*` value as a string. It does not show CLI flags.
+`config get --system` reads the managed file and ignores `PMG_*` overrides.
 
 To set a scalar config value:
 
@@ -41,10 +40,11 @@ pmg config set cloud.enabled true
 See [config template](../config/config.template.yml) for the configuration schema.
 PMG ignores unknown keys without a warning. Check spelling and nesting after every edit.
 A YAML syntax error or a value that PMG cannot decode can discard the whole file.
-PMG then uses built-in defaults. The initialization warning can be invisible in normal output.
+PMG then uses built-in defaults. PMG shows no warning.
 This can disable configured sandbox or paranoid protection.
 Run `pmg config get <changed-key>` after an edit and check the value.
-For durations, include a valid unit such as `h`. `7d` is not a valid Go duration.
+If it prints `config not initialized`, PMG could not load the file and uses built-in defaults.
+Write durations such as `168h`. `7d` is not valid.
 
 Set custom npm, PyPI, Go, and Cargo endpoints in `proxy.registries`.
 Edit this list as YAML with `pmg config edit`.
@@ -52,11 +52,11 @@ Registry entries that decode but fail validation cause a fail-closed error.
 A wrong YAML shape can fail decoding first and trigger the whole-file fallback above.
 An endpoint must be an object such as `- url: https://packages.example.com`, not a plain string.
 
-Invalid registry entries and invalid loaded `sandbox.network_mode` or
-`proxy.server.network_mode` values block intercepted commands and profile resolution.
+Invalid registry entries and invalid `sandbox.network_mode` or
+`proxy.server.network_mode` values block package-manager, proxy, and sandbox profile commands.
 Network modes accept only `audit` or `enforce`.
 Package-manager commands, including `pmg npm run`, and `pmg proxy start` refuse to run.
-`pmg sandbox exec` and profile commands can also refuse during policy resolution.
+`pmg sandbox exec` and `pmg sandbox profile` commands refuse too.
 Repair commands such as `pmg config` and `pmg setup` remain usable.
 See [Custom Registries](proxy-mode.md#custom-registries).
 
@@ -129,7 +129,7 @@ Under a [globally managed config](#globally-managed-configuration) with `global_
 **Limitation**
 
 - `config set` can only update keys that are present and uncommented in the config file.
-  If a key is commented out (e.g. `# endpoint_id: "my-machine"`) or missing entirely, `set` will
+  If a key is commented out (e.g. `# some_key: value`) or missing entirely, `set` will
   return a "key not found" error. To fix this, uncomment or add the key manually via `pmg config edit`,
   or run `pmg setup install` to merge missing template keys into your config.
 - Lists and maps need `config edit`. `config set` updates existing scalar nodes only.
@@ -146,11 +146,10 @@ Under a [globally managed config](#globally-managed-configuration) with `global_
 ```
 
 The source is one of `user`, `root per-user`, `PMG_CONFIG_DIR` or `managed`. A command under
-`sudo` normally reads root's own per-user file when no managed file applies.
-A preserved `PMG_CONFIG_DIR` can select another file instead.
-Without that override, a root daemon such as `sudo pmg proxy start --enforce` does not see edits a user makes with
-`pmg config edit`. `pmg proxy status` names the file the daemon loaded.
-A daemon reads all settings at startup. Restart it after config changes.
+`sudo` reads root's own per-user file, not the file of the user who ran `sudo`, when no managed
+file applies and `PMG_CONFIG_DIR` is not set in its environment. A root daemon such as `sudo pmg proxy start --enforce`
+therefore does not see edits a user makes with `pmg config edit`. `pmg proxy status` names the
+file the daemon loaded.
 
 | Platform | User configuration | Default event logs |
 |---|---|---|
@@ -162,14 +161,14 @@ A daemon reads all settings at startup. Restart it after config changes.
 An explicit override also relocates event logs beneath it.
 Default Windows event logs use local data rather than roaming configuration.
 
-Sudo can remove cloud credentials and CI/Kubernetes context from the environment.
-The managed file can hold policy, but does not replace those credentials or context variables.
+Sudo can remove cloud credentials and CI or Kubernetes context from the environment.
+The managed file can hold settings. It does not replace those credentials or context variables.
 Preserve only the variables a root process needs under the host's sudo policy.
 For example, `sudo --preserve-env=SAFEDEP_API_KEY,SAFEDEP_TENANT_ID pmg cloud sync`
 passes cloud credentials but does not preserve the rest of the invoking user's environment.
 
-To configure a machine-wide baseline for a root daemon, use the managed config.
-The `--system` flag selects that file for `pmg config edit`, `config set`, and `config get`.
+To configure a machine-wide baseline for a root daemon, use the managed config. `--system` on `pmg config edit`, `config set`
+and `config get` works on it:
 
 ```bash
 sudo pmg config edit --system
@@ -240,15 +239,15 @@ global_lockdown: true
 ```
 
 Write `global_lockdown` as the YAML boolean `true`.
-Quoted `"true"`, `yes`, and `1` do not enable it. Their warning can be invisible at initialization.
+Quoted `"true"`, `yes`, and `1` do not enable it. PMG shows no warning.
 Check the lockdown state with `pmg config path` or `pmg setup info`.
 
 When lockdown is on:
 
 - **CLI flags that would change a managed value fail fast.** For example, `pmg --sandbox=false ...` or `pmg --paranoid ...` errors out instead of overriding policy. Governed flags: `--paranoid`, `--skip-event-log`, `--sandbox`, `--sandbox-enforce`, `--sandbox-profile`, `--sandbox-allow`, `--skip-dependency-cooldown`. Operational flags such as `--dry-run` keep working.
 - **Configuration environment overrides do not apply.** This includes `PMG_INSECURE_INSTALLATION`,
-  which otherwise bypasses malware blocking. Operational variables such as `PMG_SANDBOX_DRIVER`
-  and the telemetry opt-out can still apply outside configuration decoding.
+  which otherwise bypasses malware blocking. `PMG_SANDBOX_DRIVER` and `PMG_DISABLE_TELEMETRY`
+  still apply.
 - **Project overlays do not apply.** PMG ignores saved overlays and refuses `pmg sandbox allow`.
 - **A sandbox profile resolves from managed locations only.** `sandbox.policies.<pm>.profile` and a parent a profile inherits resolve to a built-in profile, a template of the global config, an absolute path, or a path next to the global config file. PMG does not read the user profile directory, the user preset directory or the working directory, because the user writes them.
 
@@ -256,7 +255,7 @@ Subcommand flags have separate rules. `pmg proxy start` and `pmg sandbox exec` r
 flags that widen a locked policy. Narrowing rules can still be added.
 Operational listen flags such as `--host` and `--port` remain usable.
 See [Proxy policy overrides](persistent-proxy.md#network-policy) and
-[Exec network rules](sandbox.md#network-rules).
+[Exec network rules](sandbox-exec.md#network).
 
 PMG reads `global_lockdown` directly from the global file.
 Environment variables and CLI flags cannot change this switch.
@@ -288,8 +287,8 @@ See [System Install](system-install.md) for system shims, PATH, permissions, and
 PMG groups its cloud events under an endpoint identity. By default PMG uses the machine identity. Set an explicit identity with `cloud.endpoint_id` (or `PMG_CLOUD_ENDPOINT_ID`). PMG also derives a stable identity in CI and Kubernetes.
 
 A shared fleet baseline should normally leave `cloud.endpoint_id` empty.
-The same explicit ID groups all of its hosts into one endpoint.
-Set distinct values only when that grouping is intended.
+Set the same value on many hosts only when you want them to be one endpoint.
+To keep hosts separate, leave it empty or set a distinct value on each host.
 
 Precedence (highest to lowest):
 
@@ -300,14 +299,14 @@ Precedence (highest to lowest):
 
 ### GitHub Actions
 
-Raw PMG derives `gh:<owner>/<repo>` on hosted GitHub Actions runners.
+PMG without the action derives `gh:<owner>/<repo>` on hosted GitHub Actions runners.
 This is the automatic hosted-CI provider currently supported.
 A self-hosted runner keeps machine identity, or gets Kubernetes workload identity in a Pod.
 Set an explicit ID for an ephemeral fleet that needs another stable grouping.
 
 The `safedep/pmg` action uses `gha/<owner>/<repo>` when its cloud credential inputs are set.
 Its `endpoint-id` input overrides that default, including on self-hosted runners.
-That exported value overrides `cloud.endpoint_id` in `config-file` unless lockdown rejects overrides.
+That exported value overrides `cloud.endpoint_id` in `config-file` unless lockdown ignores overrides.
 Use the action input when configuring this identity. See [GitHub Action](github-action.md).
 
 ### Kubernetes

@@ -44,7 +44,7 @@ Enable it with `--sandbox` or `sandbox.enabled: true`.
 For one run, use a runtime preset reference instead.
 
 ```sh
-pmg --sandbox --sandbox-allow preset=pip-user pip install --user example
+pmg --sandbox --sandbox-allow preset=pip-user pip install --user <package>
 pmg --sandbox-allow preset=claude sandbox exec -- claude
 ```
 
@@ -135,9 +135,7 @@ network:
 An invalid edit stays on disk and PMG skips it at load time.
 Use an editor that waits until editing finishes, such as `code --wait`.
 
-Validate the file that `init` created.
-Replace `<config-dir>` with the config directory in the path that `init` printed.
-Keep the quotes if the path contains spaces.
+Validate it:
 
 ```bash
 pmg sandbox preset lint "<config-dir>/sandbox/presets/myapp.yml"
@@ -157,7 +155,6 @@ Rules the schema enforces:
   A preset needs at least one allowance.
   The current maximum `schema_version` is 1.
   Strict decoding rejects unknown fields.
-
 - Allow-only sections: `filesystem.allow_read/allow_write`,
   `process.allow_exec`, `network.allow_bind`, `network.allow_outbound`,
   `environment.allow`. Deny rules and profile booleans are rejected.
@@ -171,6 +168,7 @@ Rules the schema enforces:
   refused, because a preset must not open the whole network. The rules add
   to the profile's allow list without removing a deny entry.
   PMG drops a preset allow only when one authored deny covers its entire host and port range.
+  For a preset in a profile's `presets:` list, PMG checks only the profile's denies, not `--network-deny` flags.
   The catch-all deny `*:*` drops none,
   because a preset rule is meant to rise above it. A preset adds allowances
   and restricts nothing.
@@ -202,7 +200,7 @@ Precedence and residual risks:
 - In a linked worktree, PMG mirrors grants covering the checkout's git directory into validated worktree and common directories.
   It repeats hooks and config restrictions there and denies writes to pointer files.
   This prevents worktree move and repair operations.
-  See [worktrees](sandbox-exec.md) for details.
+  See [worktrees](sandbox-exec.md#git-worktrees) for details.
 
 A preset name that collides with an official preset is shadowed — the
 official one always wins. To propose an official preset, open a pull request

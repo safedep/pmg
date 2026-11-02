@@ -9,8 +9,8 @@ interception to work.
 
 By default PMG generates a CA for each run and injects it into the package manager process
 through environment variables such as `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
-`REQUESTS_CA_BUNDLE`, and `PIP_CERT`. PMG keeps the ephemeral private key only in memory.
-It writes a public CA bundle for the package manager.
+`REQUESTS_CA_BUNDLE`, and `PIP_CERT`. The CA lives only for the duration of that run and is
+discarded afterwards.
 
 This requires no setup and covers the common cases: npm, pip, and Go on Linux.
 
@@ -20,7 +20,7 @@ It merges the PMG CA with the first readable bundle selected from `SSL_CERT_FILE
 It does not export roots held only in a native keychain or Windows Root store.
 If no readable bundle exists, the generated file contains only the PMG CA.
 A client that replaces its roots with that file can reject other HTTPS connections.
-For corporate roots, supply a PEM bundle that contains those roots through `SSL_CERT_FILE`
+For corporate roots, supply a full PEM bundle with the public roots and your corporate roots through `SSL_CERT_FILE`
 before starting PMG. A separate `PIP_CERT` or `NODE_EXTRA_CA_CERTS` value is not merged automatically.
 
 For proxied Cargo runs, PMG also sets `CARGO_HTTP_CHECK_REVOKE=false`.
@@ -83,8 +83,7 @@ pmg setup cert install --force
 pmg setup cert uninstall [--system] [--purge]
 ```
 
-On Windows, `--system` requires an elevated terminal.
-Elevation through a different administrator account creates that account's keypair.
+On Windows, elevation through a different administrator account uses or creates that account's keypair.
 It does not create a keypair for the standard user who requested elevation.
 For per-user Go protection, use user scope from the account that runs Go.
 
@@ -92,15 +91,14 @@ On macOS, trust changes can open a GUI authentication dialog, including under su
 Use an interactive GUI session. SSH, MDM, and CI sessions can wait for authorization
 or fail because no dialog is available. User-scope installation can also request confirmation.
 
-Select the same trust scope and key owner used at installation.
+When you uninstall, use the scope and account that you used to install.
 For a Linux enforcing daemon, use `sudo pmg setup cert uninstall --system --purge`.
 `pmg setup remove` and the MDM uninstaller do not remove OS certificate trust.
 Removing PMG or its configuration first can leave a trusted root behind.
 
 ## Trust scopes
 
-`pmg setup cert install` installs at user scope by default, which needs no elevation.
-macOS can still request GUI confirmation. Pass
+`pmg setup cert install` installs at user scope by default, which needs no elevation. Pass
 `--system` to install for all users. Run the command as your normal user, not under sudo.
 PMG generates a keypair owned by you and elevates only the trust store write, prompting
 for sudo on macOS and Linux. On Windows, run it from an elevated prompt. A user-scope
@@ -126,12 +124,11 @@ nothing read. Its certificate can still be trusted machine-wide, so `pmg setup d
 finds one. To remove it, run `pmg setup cert uninstall --system --purge` from an elevated prompt on
 Windows, or with sudo on macOS. Use a GUI session for the macOS cleanup. Then install again.
 
-A normal user's `--system` install widens trust but keeps the keypair in that user's config directory.
-Every account that uses the system store then trusts a CA whose key that user holds.
 Prefer user scope on shared hosts where the OS supports it.
 
-A new CA installation removes PMG certificates from the target store before adding its CA.
+An install removes PMG certificates from the target store before adding its CA.
 An install that finds its exact CA already trusted returns without this cleanup.
+To clean the store in that case, run `pmg setup cert install --force`. This also rotates the CA.
 On Linux, removal deletes only PMG's `pmg-proxy-ca.crt` anchor in the detected directory.
 A same-name certificate installed elsewhere can remain trusted.
 On macOS, user-scope removal deletes keychain certificates but can leave their user trust settings.
@@ -143,7 +140,7 @@ and compare certificate hashes. `security dump-trust-settings` can omit orphaned
 The Linux anchor is shared. A user's new `--system` install can replace a root daemon's CA.
 Enforced clients can then fail TLS, and the next daemon start can fail preflight.
 On an enforcing host, let the administrator manage system trust.
-To restore the root daemon's CA, run `sudo pmg setup cert install --system`, then restart it.
+To restore the root daemon's CA, run `sudo pmg setup cert install --system`.
 
 | Platform | User scope (default) | System scope (`--system`) |
 | --- | --- | --- |
@@ -172,7 +169,8 @@ The proxy reads the private key from disk and uses it in memory.
 The keypair belongs to the account that runs the proxy. The unprivileged proxy must read the
 private key it signs with, so the command runs as your normal user and writes to your config
 directory. `--system` as a normal user only widens where the public certificate is trusted,
-not where the key lives. `--system` as root is the exception above: the key belongs to root,
+not where the key lives. Every account that uses the system store then trusts a CA whose key
+that user holds. `--system` as root is the exception above: the key belongs to root,
 for the root daemon.
 
 Any process that runs as the key owner can read `ca-key.pem`, including an install script.
@@ -188,7 +186,6 @@ If untrusted code might have read it, rotate the CA and check residual macOS use
 | Windows | `%APPDATA%\safedep\pmg` |
 
 `PMG_CONFIG_DIR` replaces this user directory. `pmg setup info` shows the installed CA directory.
-Root's Linux enforcing keypair remains under `/etc/safedep/pmg`.
 
 ## Rotation and expiry
 
@@ -200,7 +197,6 @@ frequent rotation.
 Rotation is manual. Run `pmg setup cert install --force` to regenerate and trust the CA again.
 Restart every proxy that uses it afterward.
 Use `--system` and the correct account for a system CA.
-Refresh exported trust variables if their paths changed.
 Stop a Windows foreground proxy with Ctrl+C, then start it again.
 
 If an ordinary proxy cannot load a usable persisted CA, it generates an ephemeral CA.

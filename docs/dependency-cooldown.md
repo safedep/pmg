@@ -1,7 +1,6 @@
 # Dependency Cooldown
 
 Dependency cooldown restricts package versions published within a configured time window.
-PMG enables cooldown by default with a 2-day window.
 
 ## How It Works
 
@@ -65,15 +64,15 @@ Use verbose output to diagnose these cases.
 These output settings do not disable cooldown enforcement.
 
 The [persistent proxy](persistent-proxy.md) does not print a per-command install summary.
-It has no command-line pin map.
-A withheld npm or PyPI version does not always increase its blocked count when older eligible versions remain.
+The daemon cannot see versions pinned on a command line.
+It never reports a block because a requested version is withheld.
+A withheld npm or PyPI version does not increase its blocked count when older eligible versions remain.
 The daemon records aggregate audit counts and reports counts at stop.
 Restart the daemon after a cooldown configuration change.
 
 ## Configuration
 
 Dependency cooldown is configured in `config.yml`. See [config template](../config/config.template.yml) for the full schema. If you don't have a `config.yml` file, create one by running `pmg setup install`.
-Use `pmg config edit` to edit it. See [configuration](config.md) for overrides and managed files.
 This example uses a 5-day window.
 
 ```yaml
@@ -85,8 +84,10 @@ dependency_cooldown:
 The default is `enabled: true` with `days: 2`.
 You can also set `PMG_DEPENDENCY_COOLDOWN_ENABLED` and `PMG_DEPENDENCY_COOLDOWN_DAYS` when [lockdown](config.md#lockdown) is inactive.
 
-The top-level `advisory_message` adds an organization message to block reports.
-Its display follows the output limits above.
+To show an org-specific message whenever PMG blocks an installation (cooldown
+or otherwise), see the top-level `advisory_message` in the
+[config template](../config/config.template.yml).
+Silent mode does not show it for a cooldown-only block.
 
 ## Exempting Specific Packages
 
@@ -134,7 +135,6 @@ Use the ecosystem's actual version spelling, including the `v` prefix for Go.
 Version entries match versions, not version ranges.
 See [PURL matching](trusted-packages.md) for ecosystem rules.
 An invalid PURL never matches.
-PMG logs a warning, which can be hidden during initialization.
 Cooldown remains active for the intended package.
 
 PMG records `dependency_cooldown` events for cooldown blocks.
@@ -149,7 +149,7 @@ Use `--skip-dependency-cooldown` to disable cooldown enforcement for a single in
 pmg --skip-dependency-cooldown npm install express
 ```
 
-The insecure flag does not waive cooldown.
+Insecure installation mode (`PMG_INSECURE_INSTALLATION`) does not waive cooldown.
 When a trusted global config enables [lockdown](config.md#lockdown), PMG rejects the skip flag.
 
 ## Requirements
@@ -164,8 +164,8 @@ PMG needs a publish timestamp to apply cooldown.
 It leaves versions without timestamps eligible.
 This applies to npm metadata without `time`, PyPI files without `upload-time`, and Cargo index entries without `pubtime`.
 Go and Cargo downloads also proceed when the publish-time lookup fails.
-PMG refuses authenticated lookup redirects to another origin.
-That refusal can leave cooldown unenforced for the download.
+PMG does not follow a redirect of an authenticated publish-time lookup.
+Cooldown is then not enforced for that download.
 Malware analysis can still run when cooldown cannot determine the package age.
 
 ### PyPI: requires pip 22.2+ or a PEP 691-capable client

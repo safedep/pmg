@@ -18,7 +18,8 @@ flowchart TD
     A[Client] -->|HTTP proxy or kernel redirect| B[Proxy server]
     B --> P{Optional network policy}
     P -->|Deny in enforce mode| R[Refuse connection]
-    P -->|Allow or audit| C{Interceptor wants MITM?}
+    P -->|Allow or audit, HTTPS| C{Interceptor wants MITM?}
+    P -->|Allow or audit, plain HTTP| E
     C -->|Yes| D[Decrypt TLS]
     D --> E[Interceptors]
     C -->|No| F[Opaque TCP tunnel]
@@ -156,7 +157,7 @@ Zero retries disables retries.
 Zero server read/write timeout uses 30 minutes.
 
 The upstream transport honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
-CONNECT dialing supports HTTP, HTTPS, and SOCKS upstream proxies.
+CONNECT dialing supports HTTP, HTTPS, and SOCKS5 upstream proxies.
 Loopback destinations bypass the upstream proxy.
 The proxy refuses attempts to dial its own listeners.
 Retries apply only to GET, HEAD, or OPTIONS requests without a body while the request context is live.
@@ -172,7 +173,7 @@ It cannot decrypt an existing opaque tunnel.
 `Stop` delegates to `http.Server.Shutdown`.
 That API does not close hijacked CONNECT sessions.
 Transparent TLS sessions served by the HTTP server follow its shutdown path.
-Do not assume all opaque splices have the HTTP server's 30-minute deadline.
+Opaque tunnels and splices have no proxy-imposed time limit.
 
 The [built-in interceptor package](../proxy/interceptors/factory.go) constructs registry handlers for the ecosystems its caller supplies and appends audit logging.
 `RegistryCatalog` adds configured registry endpoints.

@@ -64,12 +64,19 @@ GitHub Actions with raw commands:
 - run: npm ci
 - run: pmg proxy stop --fail-on-violation
   if: always()
+- run: |
+    for name in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy \
+      PIP_PROXY npm_config_proxy npm_config_https_proxy npm_config_noproxy \
+      NPM_CONFIG_PROXY NPM_CONFIG_HTTPS_PROXY NPM_CONFIG_NOPROXY \
+      YARN_HTTP_PROXY YARN_HTTPS_PROXY; do
+      printf '%s=\n' "$name" >> "$GITHUB_ENV"
+    done
+  if: always()
 ```
 
-Raw commands leave proxy variables in `GITHUB_ENV` after stop.
-Later post actions can then send requests to a stopped proxy.
-Clear the exported proxy variables yourself, or use the action's automatic post cleanup.
-See its [manual stop example](github-action.md#server-mode).
+The proxy variables stay in `GITHUB_ENV` after the stop step. The last step
+clears them, so the post steps of earlier actions do not send requests to
+the stopped proxy.
 
 GitHub Actions with the [safedep/pmg action](../action.yml), described in
 [github-action.md](./github-action.md):
@@ -102,48 +109,48 @@ pmg proxy status   # report whether a proxy runs, and which network policy it ap
 ```
 
 `pmg proxy <command> --help` lists the flags. `--daemon` works on Unix only.
-On Windows use the foreground `pmg proxy start` and stop it with Ctrl+C in that terminal.
-The current Windows liveness probe does not support `proxy stop`, reliable `proxy status`, or the stop/report gate.
-It can treat a live process as stale and remove its state.
-Do not use `--if-running` as a workaround.
+On Windows use the foreground `pmg proxy start`, and stop it with Ctrl+C in
+that terminal. `pmg proxy stop` and `status` do not work on Windows. Stop
+removes the state of a running proxy. Do not use `--if-running` as a
+workaround.
 
-For concurrent non-enforcing proxies, use separate `--state` paths.
-Give each an isolated `PMG_CONFIG_DIR`, or use one persisted CA so they share a signing identity.
-Otherwise one daemon's `proxy-ca.pem` can overwrite another daemon's ephemeral bundle and break TLS.
-Ports are random by default.
-Use separate `--port` values only if your config fixes the listen port.
+To run more than one proxy on a host, give each its own `--state` path.
+Also give each its own `PMG_CONFIG_DIR`, or run `pmg setup cert install` so
+that all proxies sign with one CA. Otherwise each start overwrites the
+shared CA bundle, and a new client of an earlier proxy fails TLS. The
+default port is random, so `--port` is necessary only when the config sets
+`listen_port`.
 
-`pmg proxy stop --if-running` exits 0 when the state file is absent.
-A stale state file left by a crashed daemon still fails.
+`pmg proxy stop --if-running` exits `0` when the state file does not exist,
+so a job-end script does not fail after an earlier step stopped the
+proxy. A state file that a crashed daemon left still fails.
 `--report <file>` writes the stop result as JSON, also on a
-violation.
-With no state and `--if-running`, it writes a zero-valued report before the violation gate.
-Typical fields follow.
-Optional fields can be absent.
+violation. With no state file and `--if-running`, it writes a report with
+`stopped: false`. Optional fields can be absent:
 
 ```json
 {"stopped":true,"pid":1234,"blocked_count":0,"state_verified":true,"run_id":"example","observed":2}
 ```
 
-The report can also contain `network`, `cloud_sync`, and `violation`.
-`proxy status` normally exits 0 for running, stopped, or unreadable state.
-Parse its result deliberately instead of treating its exit code as a liveness test.
+The report can also contain `network`, `cloud_sync` and `violation`.
+`pmg proxy status` exits `0` when a proxy runs, when none runs, and when it
+cannot read the state. Read its output, not its exit code.
 
-Default state and detached output paths are `<cache-dir>/proxy-state.json` and `<cache-dir>/proxy.log`.
-`--state` and start's `--log-file` override these paths.
-Use the same state path and effective user for env, status, and stop.
-Root uses root's cache unless `PMG_CACHE_DIR` changes it.
-For foreground diagnostics, run `pmg --debug proxy start`.
-For a separate daemon diagnostic sink, use `pmg --debug --log /absolute/path/pmg-debug.log proxy start --daemon`.
-`--debug` alone is not forwarded as a flag to the detached child.
-Its default `proxy.log` need not contain per-request diagnostics.
-Audit events provide package-level block evidence in the effective user's [event log](proxy-mode.md#troubleshooting).
+The default state file is `<cache-dir>/proxy-state.json`. A detached proxy
+writes its output to `<cache-dir>/proxy.log`. `--state`, and `--log-file` on
+start, change these paths. Run env, status and stop as the same user and
+with the same state path. Root uses root's cache directory unless
+`PMG_CACHE_DIR` changes it. For diagnostics, run `pmg --debug proxy start`
+in the foreground, or `pmg --debug --log pmg-debug.log proxy start --daemon`.
+The [event log](proxy-mode.md#troubleshooting) of that user records each
+blocked package.
 
-The daemon reads all configuration at process start.
-It applies shared [trust](trusted-packages.md), paranoid, and [cooldown](dependency-cooldown.md) controls.
-It has no per-command withheld-version hint or command-line pin map.
-Some npm and PyPI resolver failures leave older eligible versions and do not increase its blocked count.
-Restart after any configuration change.
+The daemon reads all configuration at start. It applies the shared
+[trust](trusted-packages.md), paranoid and [cooldown](dependency-cooldown.md)
+controls. Cooldown can hide some versions of a package and leave older ones.
+The proxy does not count that as a block, also when the install then fails
+because a dependency needs a hidden version. Restart the daemon after any
+configuration change.
 
 ## Bind address
 
@@ -203,13 +210,15 @@ token of `cargo publish` stays in the tunnel.
 The daemon does not analyze these fetches:
 
 - A git dependency. cargo fetches it from its VCS host.
-- A download endpoint that is not configured. A git index itself is not parsed, but a configured `.crate` download can still be analyzed.
+- The git index of a registry. PMG still analyzes a `.crate` download from
+  a configured endpoint.
 - A crate that is already in the cargo cache in `$CARGO_HOME/registry`, for
   example a cache that the CI job restores.
 
-A Cargo `http.proxy` in `.cargo/config.toml`, `CARGO_HTTP_PROXY`, or git config takes priority over `HTTPS_PROXY`.
-It can bypass this daemon.
-Under kernel enforcement, this remains possible when that upstream proxy uses an unrouted port.
+A Cargo `http.proxy` in `.cargo/config.toml`, `CARGO_HTTP_PROXY` or the git
+configuration has priority over `HTTPS_PROXY`, so cargo can go around the
+daemon. Under kernel enforcement this is possible when that other proxy
+listens on a port that the kernel does not route.
 
 cargo reads `CARGO_HTTP_CAINFO`, which `pmg proxy env` prints. Under
 enforcement cargo trusts the system trust store.
@@ -221,21 +230,21 @@ file the default proxy mode reads. See
 [Custom Registries](./proxy-mode.md#custom-registries).
 
 The daemon does not see a later edit. Restart it after you change a
-registry.
-Before restarting, restore the original upstream proxy settings in the shell that starts the daemon.
-A shell that evaluated `pmg proxy env` still points at the old PMG listener.
-A new daemon inherits those variables and can try to use the stopped proxy as its upstream.
-Preserve and restore a required corporate proxy instead of simply unsetting it.
+registry. The new daemon uses the proxy variables of the shell that starts
+it as its upstream. After `eval "$(pmg proxy env --export)"`, these
+variables point at the stopped proxy. Before that `eval`, save your
+`HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` values and their lowercase forms.
+Restore them before you start the daemon again:
 
 ```bash
 pmg proxy stop
-# Restore the original HTTP_PROXY, HTTPS_PROXY, NO_PROXY, and lowercase equivalents here.
+# Restore the saved HTTP_PROXY, HTTPS_PROXY, NO_PROXY and lowercase forms.
 pmg proxy start --daemon
 eval "$(pmg proxy env --export)"
 ```
 
-PMG supports HTTP, HTTPS, and SOCKS upstream proxies.
-Loopback destinations bypass that upstream.
+The upstream can be an HTTP, HTTPS or SOCKS proxy. Loopback destinations do
+not use it.
 
 `pmg npm install` starts a new proxy for each command, so it always reads
 the current file.
@@ -245,8 +254,8 @@ the current file.
 The proxy terminates TLS, so a client must trust its CA. `pmg proxy env`
 prints the variables that point each tool at the CA bundle:
 `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`,
-`YARN_HTTPS_CA_FILE_PATH` and `CARGO_HTTP_CAINFO`. You do not install the CA into the OS trust
-store, except for Go on macOS and Windows. See
+`YARN_HTTPS_CA_FILE_PATH` and `CARGO_HTTP_CAINFO`. You do not install the
+CA into the OS trust store, except for Go on macOS and Windows. See
 [Go on macOS and Windows](./cert.md#go-on-macos-and-windows).
 `NO_PROXY` always excludes `localhost`, `127.0.0.1` and `::1`.
 
@@ -255,41 +264,39 @@ it by default, modern pip reads it, and `requests` ships its own bundle. The
 variables work for all of them.
 
 Except for Go on macOS and Windows, you do not run `pmg setup cert
-install`. The proxy reuses that CA when it exists and makes one for this run when it does not.
-On macOS, run `pmg setup cert install --system` as your normal user and approve the elevation prompt.
-On Windows, run it from a terminal started as administrator.
-The keypair stays in the running account's config directory.
-If Windows elevation uses a different administrator account, that account owns the keypair.
-A non-enforcing proxy under the keypair's account reuses it.
-On Linux, `sudo pmg setup cert install --system` instead writes a root-owned keypair to `/etc/safedep/pmg` for kernel enforcement.
-An unprivileged proxy does not read that root keypair.
-See [certificate scopes](cert.md#trust-scopes).
+install`. The proxy reuses that CA when it exists and makes one for this
+run when it does not. As a normal user, `pmg setup cert install --system`
+keeps the keypair in your config directory and only widens trust, so the
+proxy reuses it too. On Windows, run that command from an elevated prompt.
+On Linux, `sudo pmg setup cert install --system` writes a root-owned keypair
+to `/etc/safedep/pmg`. Only a daemon with [kernel
+enforcement](#kernel-enforcement-linux) reads it.
+See [Trust scopes](./cert.md#trust-scopes).
 
-Non-enforcing `pmg proxy env` also changes client behavior.
-It sets pip retries to 0, overrides npm and Yarn proxy settings, and restricts proxy bypass to loopback.
-It forces Cargo's sparse crates.io protocol and sets `CARGO_HTTP_CHECK_REVOKE=false`.
-On Windows, the latter disables Cargo revocation checks for all HTTPS hosts, including tunneled hosts.
-It adds `x509sslcertoverrideplatform=0` to `GODEBUG` for Go trust selection unless the user already set that key.
-It preserves unrelated `GODEBUG` settings.
-These side effects do not apply to the enforcing export, which uses the [system-trust variables](#trust).
+Without enforcement, `pmg proxy env` also changes client settings. It sets
+pip retries to 0, overrides the npm and Yarn proxy settings, forces the
+sparse crates.io protocol, sets `CARGO_HTTP_CHECK_REVOKE=false` and adds
+`x509sslcertoverrideplatform=0` to `GODEBUG` unless `GODEBUG` already sets
+that key.
 
 ## Cloud event sync
 
-The daemon delivers events only when both `cloud.enabled` and `cloud.auto_sync.enabled` are true.
-Auto-sync defaults to true.
-With auto-sync off, events remain local and stop prints no sync line.
-Configure credentials through the keychain or `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID`.
-A root daemon uses root's credential context.
-Pass the required variables through sudo or provision credentials for that account.
-No API-key YAML field substitutes for these credentials.
-On an ephemeral runner, arrange delivery before the runner is destroyed. The daemon records each blocked
+The daemon delivers events only when both `cloud.enabled` and
+`cloud.auto_sync.enabled` are true. Auto-sync is on by default. With
+auto-sync off, the events stay local and stop prints no sync line. Store
+the credentials with `pmg cloud login`, or set `SAFEDEP_API_KEY` and
+`SAFEDEP_TENANT_ID`. A root daemon uses the credentials of root, so pass the
+variables through sudo or store the credentials for root.
+
+On a runner that is destroyed when the job ends, run `pmg proxy stop`
+before the job ends. The daemon records each blocked
 package in a local event log at once, syncs pending events while it serves,
 and flushes the rest on shutdown.
 
 `pmg proxy stop` reports the result, `Synced N event(s) to SafeDep Cloud` or
 a `Cloud sync failed` line. A failed flush does not change the
-`--fail-on-violation` exit code.
-Stop can wait about 205 seconds for request drain and cloud shutdown work.
+`--fail-on-violation` exit code. Stop can wait about 205 seconds while the
+daemon finishes its requests and the cloud flush.
 
 ## Network policy
 
@@ -318,18 +325,20 @@ proxy:
 
 A relative `profile` path in the config resolves next to the config file
 first. A relative `--profile` path resolves against the working directory.
-A reference with a directory part or a `.yml` or `.yaml` extension is a path.
-A bare name resolves as a built-in, policy template, or user profile first.
-A working-directory file cannot replace a name already found there.
-An unresolved bare name can still fall back to a file in the working directory. Under `global_lockdown` the managed config names a built-in
+A reference with a directory part or a `.yml` or `.yaml` extension is a
+path. A bare name resolves as a built-in, a policy template or a user
+profile first, so a file in the working directory cannot replace one of
+them. Another bare name falls back to a file in the working directory. Under
+`global_lockdown` the managed config names a built-in
 profile, one of its `policy_templates`, an absolute path, or a path relative
 to the managed config file. A parent in its chain resolves the same way. A
 user profile, a user preset and the working directory are writable by the
 user, so they are not read. The two rule flags add one `host:port` rule each to the resolved
 profile. `--network-allow` also removes an equal deny rule, because deny wins
-at equal specificity. A child inherits its parent's allow and deny lists and cannot remove an entry.
-It can still widen the result with a more specific allow or `deny_ip_literals: false`.
-Under lockdown, the daemon refuses a replacement profile that widens the managed one.
+at equal specificity. A profile inherits its parent's rule lists and cannot
+remove an entry. It can still widen the result with a more specific allow
+rule or `deny_ip_literals: false`. Under `global_lockdown` the daemon
+refuses a profile that widens the managed one.
 
 ```bash
 pmg proxy start --daemon --profile .pmg/profiles/ci.yml --network-mode enforce \
@@ -338,11 +347,11 @@ pmg proxy start --daemon --profile .pmg/profiles/ci.yml --network-mode enforce \
 
 A profile with `deny_ip_literals: true` denies an IP literal, an address
 and not a name, unless an allow rule names that exact address. The report
-names the rule `ip_literal`.
-Loopback addresses follow the ordinary rules.
-The proxy always drops redirected TLS without a usable server name.
-With `deny_ip_literals: true`, it also records that connection against the original destination IP.
-An exact IP allow does not make the TLS handshake possible. See
+names the rule `ip_literal`. A loopback address follows the ordinary rules.
+The proxy always drops a redirected TLS connection with no server name.
+With `deny_ip_literals: true` the report also records it against its
+original destination address. An allow rule for that address does not let
+it through. See
 [Network rules](./sandbox.md#network-rules).
 
 Under `audit`, the default, the proxy records a match on a deny rule and lets
@@ -352,13 +361,13 @@ TLS connection is closed before the handshake. Every match writes a
 `network_policy` event. A redirected container connection is decided by host
 and port, as a host connection is.
 
-Under [kernel enforcement](#kernel-enforcement-linux), the policy applies to routed TCP traffic on the enforced ports from eligible processes.
-Other ports, host skip destinations, exempt processes, and containers without namespace redirection can bypass it.
-See [Eligibility](#eligibility).
-An added port must carry supported client-first HTTP or TLS.
-The transparent listener allows a silent client 10 seconds to send its first bytes.
-Without enforcement, clients can ignore the proxy variables. The
-start line and `pmg proxy status` say which: `Network policy: enforce,
+Under [kernel enforcement](#kernel-enforcement-linux) the policy applies to
+TCP to the enforced ports from eligible processes. Other ports, host skip
+destinations, exempt processes and containers without the namespace
+redirect go around it. See [Eligibility](#eligibility). An added port must
+carry HTTP or TLS. Without kernel enforcement the policy is advisory,
+because a process can ignore the proxy variables. The start line and
+`pmg proxy status` say when the policy is advisory: `Network policy: enforce,
 profile npm-restrictive < /work/app/.pmg/profiles/ci.yml, enforce: off, policy
 advisory`. The profile is the inheritance chain, base first.
 
@@ -381,16 +390,15 @@ not widen it. `--network-deny` and `enforce` over `audit` narrow.
 `--network-allow`, and `--network-mode audit` over a file that says
 `enforce`, fail fast. A `--profile` that adds an allow rule, or drops a deny
 rule, of the managed profile fails the start and names the rule.
-An empty override cannot remove a managed profile.
-A replacement must retain a managed `deny_ip_literals: true`.
+`--profile=""` cannot remove the managed profile. A replacement profile must
+keep a `deny_ip_literals: true` of the managed profile.
 
 A repository profile is as trusted as the workflow file. Add a `CODEOWNERS`
 line for `.pmg/profiles` so a change to it gets a review.
 
 ### Build the allow list
 
-The proxy records every destination it handles.
-It has no observation of traffic that bypasses it. A run under
+The proxy records every destination its clients reach. A run under
 `audit` with no profile gives the baseline for the allow list. Three runs
 take a daemon from no policy to `enforce`.
 
@@ -412,31 +420,32 @@ take a daemon from no policy to `enforce`.
    pmg sandbox profile propose --run 3f2a9c1d7e4b --new .pmg/profiles/ci.yml
    ```
 
-   Use the root user's event-log context after a root daemon run.
-   Run the proposal with sudo and preserve the daemon's config directory when it used one.
-   Start the daemon in the checkout so its recorded repository matches later `--last` or `--since` selection.
-   An explicit run ID avoids that selection ambiguity.
+   After a root daemon run, run the proposal with sudo. When the daemon used
+   a `PMG_CONFIG_DIR`, give the proposal the same one. Start the daemon in
+   the checkout, so that `--last` and `--since` find its run. `--run` with
+   the run id always finds it.
 
    The profile inherits `exec` and holds one allow rule per host and port.
    It sets `deny_ip_literals: true` unless the target already sets that key.
-   It adds a catch-all deny only when its parent has none.
-   The warning about unused filesystem, process, and environment rules is expected for `exec` inheritance. On a GitHub Actions runner it inherits
+   It adds a catch-all deny only when its parent has none. The start warning
+   about filesystem, process and environment rules is expected for a profile
+   that inherits `exec`. On a GitHub Actions runner it inherits
    `github-actions`, which allows the hosts of the runner. A proposal from a one-shot run inherits the
    built-in profile of the package manager and does not repeat the registry
    hosts that profile already allows. Review every rule. Commit the file.
 
 3. **Enforce.** Start the daemon with `--profile .pmg/profiles/ci.yml
-   --network-mode enforce`.
-   The proxy refuses a destination that no allow rule of the profile or parent covers.
-   Response behavior follows [Network policy](#network-policy).
+   --network-mode enforce`. The proxy refuses a destination that no allow
+   rule of the profile or its parent covers, as described under
+   [Network policy](#network-policy).
 
 A later run adds destinations with `--into .pmg/profiles/ci.yml`. A
 proposal adds allow rules and does not remove rules, because one run does
-not reach every destination.
-A specific deny rule keeps a destination denied.
-A catch-all or IP-literal denial alone can receive a proposed allow.
-A destination refused under enforce mode gets no proposed rule.
-Add such a rule by hand when needed. `--last` uses the newest run of the repository.
+not reach every destination. A destination that a specific deny rule
+matches stays denied. A destination that only the catch-all or the
+`ip_literal` rule denies gets an allow rule. A destination that the proxy
+refused under `enforce` gets no rule. Add one by hand when the job needs
+it. `--last` uses the newest run of the repository.
 `--since 30d` merges every run of the repository in the window. The event
 log keeps `event_log_retention_days` of runs. With `skip_event_logging` on,
 the command has no data.
@@ -447,11 +456,10 @@ the command has no data.
 
 - It exits non-zero when any package was blocked, or when the network
   policy refused a connection under `enforce`.
-- It fails when the state is missing or unreadable after shutdown.
-  A daemon that crashed before stop also makes stop fail.
-  The current check only verifies that state is readable.
-  It does not prove that the daemon wrote final counts.
-  A daemon killed during shutdown before its final write can report the start-time count of 0.
+- It fails when the state file is missing or unreadable after shutdown. A
+  daemon that crashed before stop also makes stop fail. The check does not
+  prove that the daemon wrote its final counts. A daemon killed during
+  shutdown, before its final write, can report 0 blocked.
 
 The package manager's own non-zero exit, from the `403` on a blocked
 download, is a separate signal. `--fail-on-violation` is the proxy's own
@@ -476,7 +484,8 @@ GitHub Actions, see [github-action.md](./github-action.md#kernel-enforcement).
 - `CAP_BPF`, `CAP_NET_ADMIN` and `CAP_PERFMON`, so root in practice. Run
   every `pmg proxy` command under `sudo`, so that it finds the state file of
   the root daemon.
-- A root-owned CA keypair in `/etc/safedep/pmg` and its certificate in the system trust store. `sudo pmg setup cert install --system` supplies both.
+- A root-owned CA keypair in `/etc/safedep/pmg` and its certificate in the
+  system trust store. `sudo pmg setup cert install --system` supplies both.
 
 `pmg setup doctor` reports whether the host can enforce. `pmg proxy start
 --enforce` fails before it binds a port when a requirement is missing, and
@@ -501,9 +510,9 @@ the platform.
    sudo pmg config set --system proxy.server.enforce.enabled true
    ```
 
-   This creates a managed config if none exists.
-   It governs every user on the machine and replaces per-user configuration.
-   See [managed configuration](config.md#globally-managed-configuration).
+   This creates the managed config when it does not exist. It then governs
+   every user on the machine, and PMG ignores each per-user config file. See
+   [managed configuration](config.md#globally-managed-configuration).
 
 3. Start the daemon:
 
@@ -536,7 +545,8 @@ every login shell, write them to a profile script:
 sudo pmg proxy env --export | grep -v PMG_PROXY_RUN | sudo tee /etc/profile.d/pmg-trust.sh
 ```
 
-Do not overwrite `/etc/profile.d/pmg.sh`, which system setup owns for shim PATH integration.
+Do not write to `/etc/profile.d/pmg.sh`. `pmg setup install --system` owns
+that file for the shim `PATH`.
 
 ### Run it as a service
 
@@ -571,17 +581,16 @@ rewrite the destination of an eligible connection to the proxy's loopback
 listener and record the original destination. The proxy looks at the first
 bytes of each redirected connection. TLS to a registry host is terminated
 with the PMG CA. Every other host is passed through with its real
-certificate. Plain HTTP is served as a proxy request. With `deny_udp` on, UDP to an enforced port
-gets `EPERM`, so a QUIC client falls back to TCP. The kernel also records
-which process opened each connection, and the
+certificate. Plain HTTP is served as a proxy request. With `deny_udp` on,
+UDP to an enforced port gets `EPERM`, so a QUIC client falls back to TCP.
+The kernel also records which process opened each connection, and the
 [Host Observation event](./proxy-mode.md#how-pmg-matches-a-request) names it.
 
-When the daemon exits, for any reason, the kernel detaches the programs.
-The kernel also removes the owned nftables table after a crash.
-The namespace listener address on `lo` and the state file can remain.
-The next start reuses them. Until the daemon runs again,
-connections go out directly. A supervisor that restarts it, such as
-`Restart=on-failure` in the
+When the daemon exits, for any reason, the kernel detaches the programs
+and deletes the nftables table. After a crash, only the listener address
+on `lo` and the state file stay, and the next start reuses them. Until the
+daemon runs again, connections go out directly. A supervisor that restarts
+it, such as `Restart=on-failure` in the
 [example unit](../examples/systemd/pmg-proxy.service), keeps that time
 short.
 
@@ -597,9 +606,9 @@ Every process is eligible unless the policy says otherwise. Only the daemon's
 own pid is exempt by pid. The `pmg` binary is not exempt, so
 `PMG_INSECURE_INSTALLATION=true pmg npm install` cannot bypass the daemon.
 
-A daemon started with `PMG_INSECURE_INSTALLATION=true` bypasses malware analysis unless lockdown clears it.
-Cooldown and network policy can still block.
-Check the daemon's start environment separately from later child commands.
+A daemon started with `PMG_INSECURE_INSTALLATION=true` skips malware
+analysis, unless lockdown clears the setting. Cooldown and the network
+policy can still block. Check the environment that starts the daemon.
 
 The policy lives in `proxy.server.enforce`:
 
@@ -621,46 +630,49 @@ proxy:
 
 - `ports` are the destination ports to route. The ports of
   `proxy.registries` endpoints are always added.
-- `exempt_executables` are absolute paths or absolute globs of programs that connect
-  directly. The daemon also exempts a matching file that appears later, so
-  a user who can write the folder can add one. Never exempt an interpreter
-  such as `node`, `python3` or `sh`, or an HTTP client such as `curl` or
-  `wget`. An install script can run any of them.
-- `exempt_users` never routes those users. Both user lists accept a name or numeric UID.
+- `exempt_executables` are absolute paths or absolute globs of programs that
+  connect directly. The daemon also exempts a matching file that appears
+  later, so a user who can write the folder can add one. Never exempt an
+  interpreter such as `node`, `python3` or `sh`, or an HTTP client such as
+  `curl` or `wget`. An install script can run any of them.
+- `exempt_users` are never routed. Both user lists take a name or a numeric
+  UID.
 - `eligible_users` limits enforcement to some users. It is safe only when no
   eligible user can become another one. `sudo curl` runs as root, and root is
   then not eligible. Leave it empty when an eligible user has `sudo`. The
   daemon warns when an eligible user is in the `sudo` or `wheel` group.
-- `skip_destinations` takes CIDR prefixes such as `10.20.0.0/16` or `10.0.0.5/32`.
-  It adds to the built-in host skip list for loopback, link-local metadata, and `168.63.129.16`.
+- `skip_destinations` takes CIDR prefixes, such as `10.20.0.0/16` or
+  `10.0.0.5/32`. It adds to the built-in skip list: loopback, link-local
+  (cloud instance metadata) and the Azure host address `168.63.129.16`.
 - `cgroup` limits the scope to one cgroup v2 directory. The default is the
   root, which covers every process on the host.
   Set an absolute path, such as `/sys/fs/cgroup/system.slice`.
 
-The cgroup, user, executable, and skip rules above apply to host sockets.
-Namespace redirect ignores these filters and the built-in skip list.
-It redirects container connections to enforced ports except for host and container destinations handled by Docker's routing exceptions.
-This includes plain HTTP cloud metadata on port 80.
-Forwarding that request from the host namespace can defeat an IMDSv2 hop limit of 1.
-Do not rely on `skip_destinations` to exclude metadata or IP-only TLS in redirected containers.
+The cgroup, user, executable and skip keys apply only to host processes. The
+[container redirect](#containers-and-other-network-namespaces) ignores them
+and the built-in skip list. It redirects every container connection to an
+enforced port, except to a host address or another container. This includes
+plain HTTP to cloud metadata on port 80. The host then sends that request,
+which can defeat an IMDSv2 hop limit of 1. `skip_destinations` cannot keep
+metadata or IP-only TLS of a container away from the proxy.
 
 ### Which config file the daemon reads
 
-A root daemon accepts `/etc/safedep/pmg/config.yml` only when root controls the file and its path.
-Otherwise it reads `$PMG_CONFIG_DIR/config.yml` when set, or root's own user file.
-Preserved environment variables can therefore point root at another directory.
-Without `PMG_CONFIG_DIR`, it does not read the invoking user's file.
-`pmg proxy status` and the daemon log name the loaded config.
-Detached start output does not normally print that path.
-A start using root's per-user file warns on the terminal.
-Change the managed config with `sudo pmg config edit --system` or
-`sudo pmg config set --system <key> <value>`. See
+A root daemon reads the managed config, `/etc/safedep/pmg/config.yml`, when
+it exists and only root can change it and its folders. Otherwise it reads
+`$PMG_CONFIG_DIR/config.yml` when that variable is set, and root's own
+per-user file when it is not. Without `PMG_CONFIG_DIR` it never reads the
+file of the user who ran `sudo`. `pmg proxy status` and the daemon log name
+the file, and a start that used root's per-user file warns. Change the
+managed config with `sudo pmg config edit --system` or `sudo pmg config set
+--system <key> <value>`. See
 [config.md](./config.md#which-file-a-command-reads).
 
 ### Policy from the command line
 
-Every policy key has a `PMG_*` variable.
-All except `namespaces.ingress` and `namespaces.address` also have a start flag.
+Every policy key has a `PMG_*` variable. Every key except
+`namespaces.ingress` and `namespaces.address` also has a flag on
+`pmg proxy start`:
 
 | Config key | Flag | Variable |
 | --- | --- | --- |
@@ -677,8 +689,8 @@ All except `namespaces.ingress` and `namespaces.address` also have a start flag.
 A list flag adds to the list in the file. It never replaces it, so a flag
 cannot drop a skip destination or an exempt user an administrator set. A
 list variable, comma separated, replaces the list, as every `PMG_*` variable
-does when lockdown is inactive.
-Lockdown ignores configuration `PMG_*` variables. `--enforce-cgroup`, `--enforce-deny-udp` and `--enforce-namespaces`
+does. Under `global_lockdown` PMG ignores these variables.
+`--enforce-cgroup`, `--enforce-deny-udp` and `--enforce-namespaces`
 override the file.
 
 ```bash
@@ -691,12 +703,11 @@ sudo pmg proxy start --daemon --enforce \
 unknown user or a bad prefix at once. Under `global_lockdown` it refuses a
 flag that loosens the policy: `--enforce-eligible-user`,
 `--enforce-exempt-user`, `--enforce-exempt-executable`,
-`--enforce-skip-destination`, `--enforce=false`, `--enforce-deny-udp=false`, and
-`--enforce-namespaces` with a value other than `redirect`.
-`--enforce-port` stays allowed and adds routed ports.
-`--enforce-cgroup` also stays allowed in the current implementation.
-It limits enforcement to that cgroup and leaves processes outside it direct.
-Do not treat lockdown as preventing this scope change.
+`--enforce-skip-destination`, `--enforce=false`, `--enforce-deny-udp=false`,
+and `--enforce-namespaces` with a value other than `redirect`.
+`--enforce-port` adds routed ports and stays allowed. `--enforce-cgroup`
+also stays allowed, but every process outside that cgroup then connects
+directly.
 
 ### Trust
 
@@ -716,23 +727,19 @@ variables that point a tool at the system store, and the path of the bundle:
 
 | Variable | Why |
 | --- | --- |
-| `NODE_USE_SYSTEM_CA=1` | Node, npm, pnpm, and Yarn need it. Node 22.19+ in the 22 line and Node 24.6+ read it. Node 23 and Node 24.0–24.5 ignore it. |
+| `NODE_USE_SYSTEM_CA=1` | Node, npm, pnpm, and Yarn need it. Node 22.19+ in the 22 line and Node 24.6+ read it. Node 23 and Node 24.0 to 24.5 ignore it. |
 | `UV_NATIVE_TLS=1` | uv validates against its bundled roots without it. |
 | `REQUESTS_CA_BUNDLE=<system bundle>` | Tools built on Python `requests` validate against `certifi`. Poetry needs it. pip 24.2+ on Python 3.10+ can use system trust without it. |
 | `PMG_CA_BUNDLE=<system bundle>` | The file to pass into a container. See below. |
 | `PMG_PROXY_RUN=<id>` | The run in the event log, for `pmg sandbox profile propose --run`. |
 
-`curl`, Go, Cargo, Bun, and aube trust the store on their own.
-pip uses system roots by default only with pip 24.2+ on Python 3.10+.
-Older pip combinations need the exported bundle.
-PMG currently emits `UV_NATIVE_TLS`.
-Recent uv versions deprecate that name in favor of `UV_SYSTEM_CERTS`.
-For uv 0.11.0 or later, set `UV_SYSTEM_CERTS=1` when configuring trust manually.
-See the [uv environment reference](https://docs.astral.sh/uv/reference/environment/#uv_system_certs).
-The old variable can produce a deprecation warning.
+`curl`, Go, cargo, bun and aube trust the store on their own. pip 24.2 or
+later on Python 3.10 or later trusts it too. Older pip needs the exported
+bundle.
 
-Node before 22.19, Node 23, and Node 24 before 24.6 ignore `NODE_USE_SYSTEM_CA`.
-For these versions, point
+Node before 22.19, Node 23, and Node 24 before 24.6 ignore
+`NODE_USE_SYSTEM_CA` and fail the TLS handshake on a registry host. To use
+one of these versions, point
 `NODE_EXTRA_CA_CERTS` at the bundle:
 
 ```bash
@@ -798,9 +805,9 @@ See [Requirements](#requirements).
 
 A firewall with a default deny on input, such as ufw on iptables-nft, drops a
 redirected connection on its way to the listener, and the container hangs.
-The daemon detects nftables input chains with a drop policy.
-It does not detect legacy iptables firewalls.
-The daemon warns at start when it finds such a chain and names the rule to add. For ufw:
+The daemon warns at start when it finds an nftables input chain with a drop
+policy, and names the rule to add. It does not find a legacy iptables
+firewall. For ufw:
 
 ```sh
 sudo ufw allow in on docker0 to 169.254.200.1
@@ -809,7 +816,8 @@ sudo ufw allow in on docker0 to 169.254.200.1
 For a plain nftables firewall, add an `accept` for `iifname "docker0" ip
 daddr 169.254.200.1` to the input chain. Docker's forward rules do not cover
 this, because the connection now goes to the host.
-Add an input rule for every ingress interface, including each `br-*` bridge used by a custom Docker network.
+Add the rule for every ingress interface, including each `br-*` bridge of a
+user-defined network.
 
 #### Trust inside a container
 
@@ -902,11 +910,13 @@ reaches the registry directly.
 - An exemption covers a file, not the code that runs in it. Any process can
   start an exempt program with `LD_PRELOAD` and run its own code in it.
 - `sudo` bypasses `eligible_users`. See above.
-- The proxy decides by name. It drops redirected TLS without usable SNI, including unsupported ECH and IP-only TLS.
-  Plain HTTP without `Host` receives HTTP 400.
-  Plain HTTP with an IP `Host` passes through and receives registry analysis only if a configured endpoint names that IP.
-  Use a hostname for a registry reached by TLS.
-  A host-process skip can avoid routing, but container redirect ignores skip destinations.
+- The proxy decides by name. It drops a redirected TLS connection without
+  SNI or with Encrypted ClientHello. A client that connects by IP sends no
+  SNI, so the proxy drops its TLS connection. A plain HTTP request without a
+  `Host` header gets a 400. A plain HTTP request with an IP `Host` passes,
+  and the proxy analyzes it only when `proxy.registries` names that IP. A
+  registry that clients reach by IP over TLS needs a name. A `skip_destinations`
+  entry keeps a host process away from the proxy, but not a container.
 - A passed-through TLS connection is dialed by its server name, not by the
   address the client resolved, so a false name cannot steer the daemon.
 - A client that pins certificates fails closed on registry hosts.
@@ -914,12 +924,14 @@ reaches the registry directly.
 
 ## Limitations
 
-- `--daemon` works on Unix only. Windows requires foreground start and Ctrl+C shutdown. Stop, status, and report gates have the liveness limitation described under [Commands](#commands).
-- There is no interactive prompt. The daemon declines suspicious verdicts. Trusted packages, tenant exclusions, insecure mode, and analysis errors have the [shared behavior](proxy-mode.md#how-pmg-identifies-a-package).
-- A second foreground start on the same state path is refused on supported Unix hosts.
-  A second detached start can report the existing daemon as ready and change nothing.
-  This can also leave a requested enforcement change unapplied.
-  Stop the existing daemon before restarting.
+- `--daemon` works on Unix only. The foreground mode works on Windows, but
+  `pmg proxy stop` and `status` do not. See [Commands](#commands).
+- There is no interactive prompt. A flagged package is always blocked. That
+  is intended for CI.
+- One proxy per state file. On Unix, a second foreground start that points
+  at the same state file is refused while one runs. A second `--daemon`
+  start reports the daemon that already runs and changes nothing, also when
+  it adds `--enforce`. Run `pmg proxy stop` first.
 - Without `--enforce`, routing depends on the variables, and a process that
   drops or ignores them bypasses the proxy. Use
   [kernel enforcement](#kernel-enforcement-linux) on Linux. For system-wide

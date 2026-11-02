@@ -1,7 +1,7 @@
 # Development
 
 Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for setup, normal builds, tests, and DCO sign-off.
-Follow [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) for code and writing rules.
+Follow [AGENTS.md](../AGENTS.md) for code and writing rules.
 Use the tool versions in [mise.toml](../mise.toml) and [.tool-versions](../.tool-versions).
 Install Lefthook and run `lefthook install` to enable repository hooks.
 The hooks run the linter and tests.
@@ -11,8 +11,8 @@ A missing `gitleaks` prints a warning instead of blocking every commit.
 - [User Interface](./ui.md)
 - [Steps to introduce a new Package Manager](./package-manager.md)
 - [System install](./system-install.md) (operator guide)
-- [Proxy library](proxy.md) and [proxy examples](../examples/proxy/README.md)
-- [Landlock internals](sandbox-landlock.md) and [profile authoring](../sandbox/profiles/README.md)
+- [Proxy library](./proxy.md) and [proxy examples](../examples/proxy/README.md)
+- [Landlock internals](./sandbox-landlock.md) and [profile authoring](../sandbox/profiles/README.md)
 - [Acceptance suite](../test/acceptance/README.md)
 - [MDM development and tests](../scripts/mdm/README.md#development)
 - [Binary synchronization](../scripts/sync-binaries/README.md)
@@ -35,12 +35,13 @@ make all
 An accepted machine-managed file still takes precedence over this user config directory.
 Lockdown disables configuration environment overrides.
 Check `pmg setup info --json` before an experiment.
-For setup tests, use the existing acceptance scripts or a disposable user environment.
 Setup can modify real shell startup files even when config and cache paths are isolated.
 
 On Windows, keep LF line endings when you clone.
-For example, use `git -c core.autocrlf=false clone <repository-url>`.
-For an existing checkout, use a repository-local setting and restore affected text files deliberately.
+For example, use `git clone -c core.autocrlf=false <repository-url>`.
+For an existing checkout, run `git config core.autocrlf false`.
+The next commands discard uncommitted changes.
+Run `git rm -rq --cached .` and `git reset --hard` to check out the files again with LF.
 The normal `make test` target includes sandbox packages that Windows CI excludes.
 Run the Windows CI commands in PowerShell.
 
@@ -53,8 +54,7 @@ Choose tests for the component you change.
 
 | Change | Check |
 | --- | --- |
-| Normal Go change | `go build ./...` and `go test ./... -count=1` on a supported host |
-| Security-sensitive proxy flow | Add a `TestCase` to [test/proxye2e](../test/proxye2e). Use its existing hermetic harness. |
+| Security-sensitive proxy flow | Add a `TestCase` to [test/proxye2e](../test/proxye2e). |
 | User-facing guarantee | Add an acceptance `.txtar` script and a `catalog.yaml` row. See the [suite contract](../test/acceptance/README.md). |
 | Action JavaScript | `node --test action/lib.test.js action/main.test.js action/post.test.js` |
 | Sandbox containment | `make sandbox-e2e` with Node and a supported driver. This uses seeded environment canaries. |
@@ -64,8 +64,7 @@ Choose tests for the component you change.
 | Job-summary output | `go test ./internal/ghasummary -update`. Review the changed goldens. |
 | MDM scripts or generated installers | Follow [MDM development](../scripts/mdm/README.md#development), including generator `--check` commands. |
 
-macOS integration tests require Seatbelt.
-In CI, a missing required sandbox tool fails instead of silently skipping its security tests.
+In CI, some security integration tests fail instead of skipping when their sandbox or enforcement tool is missing.
 Unix-only tests need an appropriate build constraint.
 The filename suffix `_unix_test.go` alone does not select a Go operating system.
 

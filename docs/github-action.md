@@ -3,11 +3,8 @@
 The PMG GitHub Action installs PMG on a Linux GitHub Actions runner and
 starts the PMG proxy for the job. Package manager commands such as `npm
 install`, `pip install`, or `poetry add` go through the proxy. The proxy
-blocks downloads that its analysis identifies as malicious.
-Analysis errors allow the artifact through this check.
-Paranoid mode does not change that failure behavior.
-Other controls can still block the request.
-See [analysis failure modes](proxy-mode.md#how-pmg-identifies-a-package).
+blocks malicious packages before they run. Analysis errors do not block
+the download. See [analysis failure modes](proxy-mode.md#how-pmg-identifies-a-package).
 
 ```yaml
 - uses: safedep/pmg@v0.34.0
@@ -19,8 +16,7 @@ hung proxy blocks the job until the timeout. See
 
 > **Commit SHA pinning.** The examples use the `v0.34.0` tag for readability. Pin
 > the action to a full commit SHA. Also pin the `version` input to a PMG release.
-> A SHA pins only the action code. The default `version: latest` selects a binary on each run.
-> The checksum comes from the same release over the same TLS connection. See the
+> A SHA pins only the action code. The default `version: latest` selects a binary on each run. See the
 > [GitHub security hardening guide](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions).
 
 > **Action version.** Use the latest release tag, such as
@@ -42,7 +38,6 @@ The action tag and the installed binary version are independent.
 The post summary and profile proposal need PMG v0.34.0 or later through the `version` input.
 An older binary gets a legacy stop without these outputs.
 A profile that inherits `github-actions` also needs PMG v0.34.0 or later.
-The `enforce-*` inputs need PMG v0.31.0 or later.
 
 Out of the box the action gives:
 
@@ -104,7 +99,6 @@ It sets `PMG_CLOUD_AUTO_SYNC_ENABLED=true` in server mode and `false` in shim mo
 It also exports `PMG_CLOUD_ENDPOINT_ID`, with `gha/<owner>/<repo>` as its default.
 These variables override the corresponding `config-file` values.
 Use `endpoint-id` to set another identity.
-A managed config with [lockdown](config.md#lockdown) disables PMG configuration environment overrides.
 
 The JavaScript boolean inputs accept only case-insensitive `true` as true.
 Other nonempty values, including `yes` and `1`, are false.
@@ -112,8 +106,6 @@ This includes `auto-stop`, `fail-on-violation`, `baseline`, `sandbox`, and `expo
 A typo can disable the job-end gate.
 Use lowercase `true` or `false` for these inputs.
 Use exactly lowercase `true` for `cache`, which the install script checks separately.
-`enforce` and `server-mode` validate their listed choices.
-Inputs exported as config variables use PMG's configuration parser.
 
 | Input | Effect when set | PMG default if empty |
 |---|---|---|
@@ -132,7 +124,7 @@ Inputs exported as config variables use PMG's configuration parser.
 | `skip-event-logging` | `PMG_SKIP_EVENT_LOGGING` | `false` |
 | `config-file` | Path to a YAML file in the repository. The action copies it to the PMG config directory before setup. Use it to override any config key. | unset |
 | `cache` | Reuse a previously extracted PMG binary from `$RUNNER_TOOL_CACHE`. On a cache hit the action fetches `checksums.txt` from upstream and verifies the cached tarball again. | `false` (download each run) |
-| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job, with `PMG_PROXY_RUN`, the id of the run in the event log. The post step of the action stops the daemon at the end of the job. Set `false` for [shim mode](#shim-mode). See [Server mode](#server-mode). | server mode, or shims with `sandbox: true` |
+| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job, or only the trust variables under kernel enforcement, with `PMG_PROXY_RUN`, the id of the run in the event log. The post step of the action stops the daemon at the end of the job. Set `false` for [shim mode](#shim-mode). See [Server mode](#server-mode). | server mode, or shims with `sandbox: true` |
 | `fail-on-violation` | With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state. | `true` |
 | `auto-stop` | With server mode, stop the daemon in the post step. Set it to `false` when a step of the job stops the daemon. With `true` and `fail-on-violation`, a daemon that a step stopped fails the job. | `true` |
 | `baseline` | With server mode, propose a network profile from the destinations the job reached, and show it in the job summary. Without `network-profile` the proposal is for `.pmg/network.yml`. It needs the event log, so `skip-event-logging: true` turns it off. | `true` |
@@ -183,8 +175,6 @@ end of a shim mode job:
 
 The action masks the API key in logs and exports it to later steps.
 Log masking does not isolate the credential from those steps.
-Use a key with only the event permissions this job needs.
-A child sandbox can further restrict its environment.
 
 With `api-key`, `endpoint-id` defaults to `gha/${{ github.repository }}`.
 Each workflow on the same repository appears as one endpoint in the
@@ -280,12 +270,12 @@ This example preserves the stop verdict and clears the proxy variables for later
   run: |
     rc=0
     if [ -n "${PMG_PROXY_STATE:-}" ]; then
-      sudo --preserve-env=PMG_CONFIG_DIR env PMG_CONFIG_DIR="${PMG_PROXY_CONFIG_DIR:-}" \
+      sudo env PMG_CONFIG_DIR="${PMG_PROXY_CONFIG_DIR:-}" \
         "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation || rc=$?
     else
       pmg proxy stop --fail-on-violation || rc=$?
     fi
-    for name in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy \
+    for name in NODE_USE_ENV_PROXY HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy \
       PIP_PROXY npm_config_proxy npm_config_https_proxy npm_config_noproxy \
       NPM_CONFIG_PROXY NPM_CONFIG_HTTPS_PROXY NPM_CONFIG_NOPROXY \
       YARN_HTTP_PROXY YARN_HTTPS_PROXY; do
@@ -316,7 +306,7 @@ GitHub-hosted runner, on the runner host, and the runner has passwordless
 the kernel of the runner cannot enforce, the action runs the proxy without
 enforcement and says so in the log. Any other failure of the enforced start
 fails the action.
-Examples include a decoded port outside its range, an invalid CIDR, or an unknown user in `enforce`.
+Examples include a port outside 1 to 65535, an invalid CIDR, or an unknown user in `enforce`.
 PMG ignores unknown keys.
 A value with the wrong YAML type can make PMG discard the whole file and use defaults without a visible warning.
 Check the active policy with `sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE"`.
@@ -352,7 +342,7 @@ Set `timeout-minutes` on every enforced job. See
 Under enforcement the action sets the trust variables that
 [persistent-proxy.md](./persistent-proxy.md#trust) lists. With
 `NODE_USE_SYSTEM_CA=1`, Node 22.19+ in the 22 line and Node 24.6+ read the system trust store.
-Node 23 and Node 24.0–24.5 ignore this variable.
+Node 23 and Node 24.0 to 24.5 ignore this variable.
 See the [Node environment reference](https://nodejs.org/api/cli.html#node_use_system_ca1).
 The action sets `NODE_EXTRA_CA_CERTS` on every job that does not already set it.
 On Node versions that ignore system trust, a job-set bundle must contain the PMG CA.
@@ -371,8 +361,8 @@ a hosted runner has no config file for root, so the inputs add to the
 defaults: ports 80 and 443 plus the ports of the configured registries. The
 daemon log and `pmg proxy status` name the file it loaded.
 The default log is `<cache-dir>/proxy.log`.
-Enforcement uses root's cache directory.
-`PMG_CACHE_DIR` can change that location when passed to the daemon.
+Under enforcement, the daemon uses the cache directory of root.
+On a hosted runner, the log is `/root/.cache/safedep/pmg/proxy.log`.
 
 ```yaml
 - uses: safedep/pmg@v0.34.0
@@ -383,7 +373,7 @@ Enforcement uses root's cache directory.
 ```
 
 `eligible_users`, `cgroup` and `deny_udp` stay in the config file. A job that
-needs them has a reason to ship one with `config-file`. The inputs need a
+needs them has a reason to ship one with `config-file`. The inputs need
 PMG v0.31.0 or later for the `--enforce-*` flags. See
 [persistent-proxy.md](./persistent-proxy.md#policy-from-the-command-line).
 
@@ -571,15 +561,14 @@ On a persistent runner, the action leaves staged configuration and installed shi
 Sandbox preparation also attempts host changes that the post step does not restore.
 Use ephemeral runners or reset configuration and host state for each job.
 Concurrent jobs that share a user can collide on the default proxy state.
-Enforced daemons can also collide on the shared cgroup.
-Other eligible host processes can then route through the first daemon.
-Use isolated enforcement scopes before running concurrent enforced jobs.
-Separately scoped non-enforcing proxies and shim jobs have different isolation needs.
+A second enforced daemon on the same cgroup fails to start.
+Other eligible host processes route through the first daemon.
+Run one enforced job at a time on a host. See
+[Kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux).
 
 The enforcing daemon receives no upstream proxy variables from this action.
-The action leaves existing job proxy variables intact.
-A job using an upstream proxy on an unrouted port can bypass PMG.
-Use non-enforcing server mode unless this topology is tested and configured.
+A job that uses an upstream proxy on an unrouted port can bypass PMG.
+For such a job, set `enforce: false`.
 
 ### Job containers and Docker actions
 
@@ -600,7 +589,7 @@ it. On those versions, run `apk add --no-cache bash curl` in a step before
 the action.
 
 Kernel enforcement does not run in a job container. With `enforce: auto`
-the action runs the proxy without it there unless an `enforce-*` input is set.
+the action runs the proxy without it there.
 An `enforce-*` input makes this case fail. With `enforce: true` the action
 fails. See [Containers](#containers).
 `sandbox` changes kernel settings of the runner host, and may not start in a
@@ -674,10 +663,11 @@ The action attempts to stop and disable the AppArmor service.
 It also sets `kernel.apparmor_restrict_unprivileged_userns=0`.
 It continues if these commands fail.
 A disabled service stays disabled after reboot on a persistent runner.
-The post step does not restore these changes.
+The post step does not restore these changes. Enable `sandbox` only when
+you need install-script containment.
 With `sandbox-driver: bubblewrap`, the action installs Bubblewrap with `apt-get`.
 The runner or image must have `apt-get` for that branch.
-See [sandbox requirements](sandbox.md) and [Landlock](sandbox-landlock.md).
+See [sandbox requirements](sandbox.md#requirements) and [Landlock](sandbox-landlock.md).
 
 ### Set `PMG_*` environment variables directly
 

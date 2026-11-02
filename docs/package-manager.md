@@ -1,7 +1,7 @@
 # Steps to introduce a new Package Manager
 
-Use this checklist to add a new package manager ecosystem (e.g., npm or PyPI). Keep changes consistent with existing patterns.
-A client in an existing ecosystem can reuse its registry handlers.
+Use this checklist to add a new package manager or a new ecosystem. Keep changes consistent with existing patterns.
+A client in an existing ecosystem, such as npm or PyPI, can reuse its registry handlers.
 A new ecosystem needs its own interception path.
 
 1. Create a new CLI command
@@ -15,13 +15,14 @@ A new ecosystem needs its own interception path.
 
 2. Define Package Manager config
    - Introduce config logic in the flat `packagemanager/` package, for example `npm.go` or `pypi.go`.
+     For a new ecosystem, add `packagemanager/<eco>.go`.
    - Use `Default<Name>PackageManagerConfig()` and implement `PackageManager`.
    - Keep interfaces and structs consistent with other managers.
    - Review client routing and CA settings in [proxy_env.go](../packagemanager/proxy_env.go).
      Test registry protocols, nested invocations, and client configuration that overrides proxy variables.
      Use `ProxyRoutingProvider` when extra routing is needed, as Go does.
      Environment routing remains advisory without kernel enforcement.
-     Document command-line, client-configuration, protocol, and cache limits.
+     Document command-line, client-configuration, and protocol limits.
    - Add a leaf profile under `sandbox/profiles/` and a `sandbox.policies.<name>` entry in `config/config.template.yml`.
      An enabled sandbox fails when the policy is missing.
      Inherit the ecosystem base and grant only required filesystem access.
@@ -40,13 +41,17 @@ A new ecosystem needs its own interception path.
      Build, test, and run commands can fetch dependencies.
    - Use `FirstNonFlagArg` with the client's value-taking global flags.
      Extract exact version pins separately from ranges for cooldown reporting.
-   - For a new ecosystem, add registry, URL-parser, and cooldown handlers under `proxy/interceptors/`.
-     Register it in `CreateInterceptor` and `SupportedEcosystems` in `factory.go`.
-     Add registry catalog and config validation support.
-     Resolve metadata and artifacts to the same package identity.
-     Reserve `Analyze: false` for endpoints intentionally excluded from analysis.
 
-4. Add parser tests
+4. Add proxy interception for a new ecosystem
+   - Skip this step for a client in an existing ecosystem.
+   - Add registry and URL-parser handlers under `proxy/interceptors/`.
+     Add a cooldown handler if cooldown applies.
+   - Register the ecosystem in `CreateInterceptor` and `SupportedEcosystems` in `factory.go`.
+   - Add registry catalog and config validation support.
+   - Resolve metadata and artifacts to the same package identity.
+   - Reserve `Analyze: false` for endpoints intentionally excluded from analysis.
+
+5. Add parser tests
    - Create unit tests for the new parser covering:
      - Single dependency
      - Multiple dependencies
@@ -56,13 +61,14 @@ A new ecosystem needs its own interception path.
    - Test custom endpoints, redirects, authentication, trust, and cooldown in both per-command and persistent-proxy paths.
      Authenticated registries can require decryption and credentials for analysis and publish-time lookups.
 
-5. Register alias
+6. Register alias
    - In `internal/alias/alias.go`, add the new package manager’s alias to `PackageManagers` in `DefaultConfig()`.
    - Verify default alias and invocation match conventions.
    - This list also drives user PATH shims, system shims, and doctor checks.
-     Keep experimental clients opt-in and list them under Experimental in the README.
+     Do not add an experimental, opt-in client to this list.
+     List it under Experimental in the README instead.
 
-6. Add analytics
+7. Add analytics
    - Define a new analytics event similar to existing ones.
    - Implement a `Track` function for the event.
    - Invoke tracking in the new package manager cmd.
@@ -71,13 +77,13 @@ A new ecosystem needs its own interception path.
      Related executors can share a client-family value.
      Go and Cargo currently map to unspecified.
 
-7. Update documentation
+8. Update documentation
    - Update the README to list the new supported package manager.
    - Add usage examples consistent with existing examples.
    - Review [proxy support](proxy-mode.md), [sandbox profiles](sandbox.md), and [Windows limits](windows-support.md).
      Update only the surfaces the client changes.
 
-8. Add e2e workflow
+9. Add e2e workflow
    - In `.github/workflows/pmg-e2e.yml`, add setup and test steps to the existing `e2e-test` job.
    - Mirror structure and steps used by other ecosystems.
    - Update alias and shim expectations. Add Windows steps when the tool supports Windows.
@@ -85,7 +91,7 @@ A new ecosystem needs its own interception path.
    - Add an acceptance `.txtar` script and `catalog.yaml` entry for each user-facing guarantee.
      Follow [the suite contract](../test/acceptance/README.md) and update tool setup in `acceptance.yml` as needed.
 
-9. Verify end-to-end behavior
+10. Verify end-to-end behavior
     - Test the CLI locally for:
       - Single package installation
       - Multiple package installation
@@ -98,7 +104,6 @@ A new ecosystem needs its own interception path.
     - Run setup checks with a scratch `HOME` and isolated config paths, or use setup acceptance scripts.
       Setup changes shell startup files as well as shims.
 
-10. Consistency pass
+11. Consistency pass
     - Confirm naming, errors, logs, and UX align with existing ecosystems.
     - Ensure code follows project patterns and is covered by tests.
-    - Run the build and tests required by [CLAUDE.md](../CLAUDE.md).

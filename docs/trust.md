@@ -11,15 +11,14 @@ The assertion in [2] cannot be *implicit*. If so, it breaks the entire security 
 
 - Adopt software supply chain security best practices so that PMG users can *verify* and only then trust PMG
 - PMG is open source, built in public and reviewed by the community for verifiable source of truth
-- Publish GitHub provenance for checksum-listed release archives and MSI assets.
-- Publish npm provenance for the launcher and platform packages.
-- Develop multiple security layers to reduce dependence on any one control.
+- Publish GitHub provenance for checksum-listed release archives and MSI assets
+- Publish npm provenance for the launcher and platform packages
+- Develop multiple security layers to reduce dependence on any one control
 
 GitHub and npm attestations describe build provenance.
 They do not replace OS code signing.
 The current release pipeline has no Apple Developer ID, notarization, or Authenticode signing step.
 The Homebrew cask removes quarantine on macOS.
-Inspect a specific downloaded artifact when you need its OS signature status.
 
 ## Verified Installation
 
@@ -35,7 +34,7 @@ Installation channels have different verification properties.
 | Channel | Verification behavior |
 | --- | --- |
 | Manual GitHub archive or MSI | The release workflow publishes build provenance. Verify the downloaded asset before extraction or installation. |
-| `install.sh` or GitHub Action | The installer checks the archive checksum from the same release over TLS. It does not perform GitHub provenance verification. Action cache hits check the tarball, not the extracted binary. |
+| `install.sh` or GitHub Action | The installer checks the archive checksum from the same release over TLS. It does not perform GitHub provenance verification. |
 | npm | The publish workflow requests provenance. Use `npm audit signatures` explicitly to verify installed local dependencies. |
 | Homebrew, mise, Chocolatey, or winget | Follow that channel's verification rules. A channel install is not evidence that the GitHub provenance command below ran. |
 | GHCR image | Buildx adds minimal registry provenance by default. The current container workflow has no GitHub artifact-attestation or explicit signing step. |
@@ -63,9 +62,6 @@ gh release verify -R safedep/pmg
 
 Select a release and download only the asset for your platform.
 This example uses Linux x86-64.
-You can supply an edge tag to the same archive-verification procedure.
-The release workflow also attests edge assets.
-Its npm publishing and the container tag trigger exclude edge tags.
 
 ```sh
 RELEASE_TAG=$(gh release view -R safedep/pmg --json tagName --jq .tagName)
@@ -73,11 +69,22 @@ gh release download "$RELEASE_TAG" -R safedep/pmg \
   -p pmg_Linux_x86_64.tar.gz --dir "./pmg-$RELEASE_TAG"
 gh attestation verify "./pmg-$RELEASE_TAG/pmg_Linux_x86_64.tar.gz" \
   -R safedep/pmg --signer-workflow safedep/pmg/.github/workflows/goreleaser.yml \
-  --source-ref "refs/tags/$RELEASE_TAG" --format json
+  --source-ref "refs/tags/$RELEASE_TAG" --format json > "./pmg-$RELEASE_TAG/attestation.json"
 ```
+
+To verify an edge release, set `RELEASE_TAG` to its edge tag.
+PMG does not publish edge tags to npm or as container image tags.
 
 Review the verified attestation's source commit and signer workflow.
 Check out that exact commit before you review or rebuild the source.
+
+```sh
+SOURCE_COMMIT=$(jq -r '.[0].verificationResult.signature.certificate.sourceRepositoryDigest' \
+  "./pmg-$RELEASE_TAG/attestation.json")
+gh repo clone safedep/pmg
+git -C pmg checkout "$SOURCE_COMMIT"
+```
+
 A tag checkout alone does not bind the reviewed tree to the attestation.
 You can add `--source-digest <reviewed-commit>` to require that commit during verification.
 See the [GitHub CLI options](https://cli.github.com/manual/gh_attestation_verify).
@@ -123,22 +130,21 @@ Navigate to the [npm package](https://www.npmjs.com/package/@safedep/pmg) to ins
 PMG aims to provide a multi-layered security model to avoid single point of trust or failure. PMG's security
 model consists of the following layers:
 
+1. Threat intelligence provides malware verdicts.
+2. Dependency cooldown applies a default 2-day age window. CEL policy guardrails are planned.
+3. The experimental sandbox provides opt-in containment on macOS and Linux. It is disabled by default. See [sandboxing](sandbox.md) for its enforcement scope and platform limits.
+
 PMG currently uses SafeDep as its threat intelligence source.
 When the analyzer fails, PMG allows the artifact through the malware check.
 Paranoid mode changes suspicious verdict handling but does not turn analyzer errors into blocks.
 Other controls can still reject the request.
 See [analysis behavior](proxy-mode.md#how-pmg-identifies-a-package).
 
-1. Threat intelligence provides malware verdicts.
-2. Dependency cooldown applies a default 2-day age window. CEL policy guardrails are planned.
-3. The experimental sandbox provides opt-in containment on macOS and Linux. It is disabled by default. See [sandboxing](sandbox.md) for its enforcement scope and platform limits.
-
 Use [SECURITY.md](../SECURITY.md) to report a vulnerability.
-The [README](../README.md#telemetry) describes telemetry and its opt-out.
 
 ## Certificate Authority
 
 PMG uses a MITM CA to inspect HTTPS package downloads. See [Certificate Authority](cert.md)
-for how it works and how to optionally persist and OS-trust the CA.
+for how it works and how to persist and OS-trust the CA.
 Go on macOS and Windows requires it.
 The enforcing Linux proxy also requires a root-owned system CA.

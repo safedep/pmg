@@ -67,7 +67,7 @@ PMG_LANDLOCK_E2E=1 go test -count=1 ./sandbox/platform
 ```
 
 Use the per-PMG [AppArmor profile](sandbox.md#apparmor-blocks-the-landlock-driver-ubuntu-2310) when host policy blocks namespaces.
-A global restriction change used by CI is not a required production setup step.
+Disabling the AppArmor user-namespace restriction globally, as CI does, is not required.
 
 ## Key decisions
 
@@ -99,26 +99,19 @@ taken. A read failure stops the run. A guess could equal the real overflow id.
 An earlier design mapped `0 → host_uid`. That design gave uid 0 and all capabilities to the
 full target tree. That was not necessary. The helper created the user namespace, so the
 kernel grants it `CAP_SYS_PTRACE` over the namespace. With the same uid on both sides, the
-helper can open descendant memory after `PR_SET_DUMPABLE=0`.
-A non-root caller has an exception after executing an unreadable binary whose owner is unmapped, such as a root-owned execute-only binary.
-The kernel can tie that image to an ancestor user namespace and make it non-dumpable.
-The helper then lacks ptrace access there.
-The memory open fails, and the supervisor denies the trapped syscall.
+helper can open the memory of a dumpable descendant. A task that sets
+`PR_SET_DUMPABLE=0`, or that executes a binary it cannot read, is not dumpable. For a
+non-root caller, the kernel then gives its `/proc/<pid>/mem` to root with mode 0600, and
+the helper has no `CAP_DAC_OVERRIDE`. The memory open fails, and the supervisor denies the
+trapped syscall.
 
 ### The shim applies Landlock and seccomp, Landlock first
 
-`RestrictPaths` opens rule paths with `openat(O_PATH)` to build the Landlock ruleset.
-These opens must run before seccomp starts trapping path calls.
-The shim applies Landlock first, then installs the filter on its locked exec thread.
-The Go process already has runtime threads.
-The helper runs the supervisor in a separate, unfiltered process.
-
-The outer process writes policy and command environment into a same-user temporary JSON file.
-The helper reads it, then gives its pathname to the shim for a second read.
-Other same-user processes can read the environment in this file.
-Another sandboxed run with the shared temp write grant can also alter rules or trap configuration before the shim reopens it.
-This race is inferred from the handoff code, not from a reproduced exploit.
-Do not treat concurrently sandboxed processes under one user as mutually isolated.
+`RestrictPaths` opens each rule path with `openat(O_PATH)` to build the Landlock ruleset.
+Landlock runs first. If seccomp ran first, the supervisor would deny the shim's own opens
+against the deny list. The shim then installs the filter on its locked exec thread. The Go
+process already has runtime threads. The helper runs the supervisor in a separate,
+unfiltered process.
 
 ### The filter does not use `TSYNC`
 
@@ -126,7 +119,8 @@ Do not treat concurrently sandboxed processes under one user as mutually isolate
 The filter applies only to the locked thread that calls `execve`.
 The target and its descendants inherit it.
 `TSYNC` would also filter the shim's other Go runtime threads.
-The separate supervisor process avoids the filtered-helper garbage-collector deadlock.
+A supervisor in the same filtered process could deadlock the garbage collector (see
+"Go-specific details").
 
 ### `Stop()` wakes the supervisor with an eventfd
 
@@ -187,7 +181,8 @@ the deny list. These edge cases shaped the rules:
   it never judges a recycled pid on the state of a different process.
 - Deny entries match in lexical form and in canonical form. So `~/.ssh` still matches when
   it is a symlink into a dotfiles checkout.
-- Deny-read and deny-write patterns without `**`, `**/<name>` patterns, and bare `<dir>/**` grants retain coverage of later files.
+- Deny-read and deny-write patterns without `**`, `**/<name>` patterns, and a bare
+  `<dir>/**` (which becomes a deny on `<dir>`) keep coverage of later files.
   `**/<name>` matches the name and its descendants at every depth.
   Seatbelt's equivalent regex matches only the name itself.
 - A based globstar with a suffix, such as `${HOME}/**/id_rsa`, expands once at setup.
@@ -246,7 +241,7 @@ Chrome sandbox, inside `pmg sandbox exec`.
 ### Network lockdown (`network_via_proxy_only`)
 
 Without `network_via_proxy_only`, the Landlock driver supplies no direct network confinement.
-A proxy `deny_outbound: ["*:*"]` does not create a network namespace here.
+A profile `network.deny_outbound: ["*:*"]` does not create a network namespace here.
 Only traffic that reaches the proxy receives those destination rules.
 Bubblewrap differs because it can translate a deny-all profile to `--unshare-net`.
 Separate host enforcement can still constrain traffic outside this driver.
@@ -270,8 +265,9 @@ Seatbelt:
   audit event. `pmg sandbox violations list` shows it as a `network_connect` violation.
 
 A `sendto` or `sendmsg` with a NULL destination address goes to a connected peer. That peer
-normally passed the connect check.
-The untrapped `sendmmsg` path is an exception to that assumption. The supervisor lets these calls continue without inspection.
+normally passed the connect check. The supervisor lets these calls continue without
+inspection. A TCP Fast Open send through the untrapped `sendmmsg` can connect a socket
+without the connect check.
 
 Only `AF_INET` and `AF_INET6` go through the matrix. The supervisor allows `AF_NETLINK`,
 which `getaddrinfo` uses to list interfaces. An `AF_UNIX` connect reaches the supervisor
@@ -337,7 +333,6 @@ These are the known holes in the current enforcement, in approximate priority or
   between the memory read of the supervisor and the `CONTINUE`d syscall in the kernel.
   This is the same class as the `openat` TOCTOU. It is adequate for benign install
   scripts. It is not a hardened defense against a determined escape.
-- **Loopback DNS remains available when binds are allowed.** A resolver on `127.0.0.53` or another loopback address can forward queries off-host even with `allow_direct_dns` false.
 - **`bind(2)` and `listen(2)` are unrestricted.** This gap is older than lockdown. A
   sandboxed process can listen on any address. The host limits what inbound traffic can
   reach it.
@@ -380,11 +375,14 @@ a constant cost. That cost explains most of the decisions above:
   The inherited `/proc` still exposes host process entries subject to Unix permissions.
   PMG does not apply Landlock signal scoping.
   Host signal permission checks and other host controls still apply.
-- **ABI limits affect the boundary.** ABI 1 cannot support cross-directory link and rename grants through `REFER`.
-  ABI 2 adds that right.
+- **ABI limits affect the boundary.** On ABI 1, the kernel refuses every cross-directory
+  rename or link with `EXDEV`.
+  ABI 2 adds `REFER`, which permits them.
   ABI 3 adds `TRUNCATE`.
   On ABI 1 or 2, a file outside `allow_write` can still be truncated if Unix permissions permit it and no deny path matches.
   The supervisor's truncate check enforces denies, not the full write allow-list.
+  The translator drops a `deny_write` entry outside `allow_write`. On ABI 1 or 2, such an
+  entry never stops a `truncate(2)`.
   Device ioctl control applies only when ABI 5 rights are selected.
   PMG does not select signal scopes from newer ABIs.
 - **A root caller loses `CAP_DAC_OVERRIDE` in the sandbox.** The target runs as uid
@@ -406,6 +404,14 @@ a constant cost. That cost explains most of the decisions above:
   process can rewrite the path bytes in its memory, or replace a symlink on disk, after
   the supervisor reads them and before the kernel resolves the path. This is adequate for
   benign install scripts. It is not a hardened defense.
+- **The policy file goes through a shared temporary directory.** The outer process writes
+  the policy and the command environment into a same-user temporary JSON file. The helper
+  reads it, then gives its pathname to the shim for a second read. Other same-user
+  processes can read the environment in this file. Another sandboxed run with the shared
+  temp write grant can also change the rules or the trap configuration before the shim
+  reads the file again. This race is inferred from the handoff code, not from a
+  reproduced exploit. Do not treat concurrent sandboxed processes under one user as
+  isolated from each other.
 - **Driver audit capture is bounded.** The helper sends events over a Unix audit socket.
   Connection failure is debug-only and loses captured driver events.
   The driver buffers at most 512 events, including operational events, and deduplicates captured denials.

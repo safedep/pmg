@@ -1,9 +1,8 @@
 # Sandbox Exec
 
-`pmg sandbox exec` runs any program inside the PMG sandbox. The program keeps its own stdin,
-stdout, stderr and exit code in direct mode.
-With terminal stdin and stdout, PMG uses a PTY.
-The child's stderr then shares PMG's stdout stream, so `2>` does not capture it.
+`pmg sandbox exec` runs any program inside the PMG sandbox. The program keeps its own exit code.
+When stdin and stdout are a terminal, PMG runs the program in a PTY.
+Its stderr then reaches the terminal on the stdout stream, so `2>` does not capture it.
 PMG applies credential denies, environment scrubbing, and write restrictions with the limits below.
 
 > `pmg sandbox exec` is experimental. SafeDep improves and hardens it actively, so its behavior
@@ -27,19 +26,19 @@ The built-in `exec` profile is deliberately broad on read and exec. A coding age
 toolchain and runs whatever the repository needs, so a narrow allow list only produces false
 denials. The value is in the deny rules:
 
-- The mandatory credential list covers `.env`, `.ssh`, `.aws`, and the other [listed paths](sandbox.md#security-model).
-  Driver path-matching limits still apply.
+- The mandatory credential list covers `.env`, `.ssh`, `.aws`, and the other [listed paths, with their driver limits](sandbox.md#mandatory-credential-protection).
   Other token files, including `~/.npmrc`, `~/.pypirc`, and `~/.cargo/credentials.toml`, remain readable unless a child profile denies them.
 - Unsigned `git add` and `git commit` can work.
   `.git/hooks` is denied for read and write, so Git cannot execute those hooks inside the sandbox.
   `.git/config` is read-only.
+  Submodule hooks and config under `.git/modules` stay writable.
   A `core.hooksPath` inside the writable checkout stays writable.
   A planted hook can run on a later unsandboxed commit.
   GPG and SSH signed commits fail when their credential directories or agent sockets are blocked.
 - Credential environment variables are scrubbed, model API keys included.
 - Writes land only in the repository, temp directories, tool caches and the state directories the
   presets add, plus the Gryph event database. System directories are read-only.
-- The explicit user hook files in [exec.yml](../sandbox/profiles/exec.yml) have write denies.
+- The user hook files that `pmg sandbox profile show exec` lists have write denies.
   Claude Code's project settings and hooks also have denies.
   Other project hook files remain writable under the checkout grant.
   Examples include `.cursor/hooks.json`, `.codex/hooks.json`, and `.codex/config.toml`.
@@ -56,7 +55,9 @@ Unix sockets are blocked. An agent cannot reach the SSH agent or the Docker daem
 over SSH fails.
 Use an HTTPS remote with a credential source the sandbox permits.
 The macOS keychain helper can supply stored credentials.
-On Linux, common credential files, gh state, credential-cache sockets, and libsecret sockets are blocked.
+The sandbox blocks common credential files and gh state on every platform.
+It also blocks the git credential-cache socket.
+On Linux, it also blocks the libsecret socket.
 `GH_TOKEN` and `GITHUB_TOKEN` are scrubbed.
 Enabling Unix sockets alone does not fix SSH because direct TCP and SSH files remain blocked.
 It can expose services such as Docker.
@@ -120,9 +121,8 @@ Prefer the one-run opt-out.
 The exec cache grants can include PMG's violation JSON and persistent analysis database.
 A sandboxed process can forge reports or alter later cached verdicts when disk analysis caching is enabled.
 `pmg setup cache clear` clears disk analysis verdicts in the current identity's cache.
-Stop a daemon first to discard its memory verdicts too.
 Clearing verdicts does not authenticate violation reports or stop a live writer.
-See [cache security](caching.md).
+See [Manage](caching.md#manage).
 
 Default PMG configuration and sandbox directories have explicit write denies.
 These denies do not follow `PMG_CONFIG_DIR`.
@@ -190,9 +190,9 @@ and raw TCP tools such as `nc`.
 Loopback remains open because the profile enables `allow_network_bind`.
 Remote direct DNS is refused, but a loopback resolver such as `127.0.0.53:53` can still answer and forward queries off-host.
 This remains a DNS exfiltration path.
-Linux Landlock also does not inspect `sendmmsg`, and a racing thread can change a destination after the supervisor check.
+On Linux, Landlock does not check `sendmmsg`, which can send UDP to any host or open a TCP connection with Fast Open.
+A racing thread can also change a destination after the check.
 See [network lockdown gaps](sandbox-landlock.md#network-lockdown-gaps).
-A child profile with `network_via_proxy_only: false` keeps only advisory environment routing.
 
 Node's built-in environment proxy support depends on the release line.
 For built-in `fetch`, use Node 22.21+ in the 22 line or Node 24.0+.
@@ -213,7 +213,7 @@ pmg sandbox exec --network-mode enforce --network-deny '*:*' \
 
 The rule flags add one `host:port` rule each to the resolved profile. `--network-allow` also
 removes an equal deny rule. The matcher treats a flag rule like a profile rule, so the more
-specific rule wins. A preset rule fully covered by one non-catch-all flag deny is dropped, and a saved allow does not
+specific rule wins. A runtime or saved preset rule that a flag deny other than `*:*` covers is dropped, and a saved allow does not
 remove a flag deny. Under `audit`, the default, the proxy records a match on a deny rule
 and lets the connection through. Under `enforce` the proxy refuses the connection with a 403 that
 names the destination and the rule. Under `global_lockdown`, pmg refuses `--network-allow`,

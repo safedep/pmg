@@ -69,7 +69,7 @@ sudo pmg setup remove --system --config-file   # also remove the system config f
 On Windows, run the same two commands without `sudo`, from a terminal started as administrator.
 
 Setup removal leaves the PMG binary and each user's runtime data.
-Certificate trust has a separate [removal procedure](cert.md#trust-scopes).
+Certificate trust has a separate [removal procedure](cert.md#install-the-persistent-ca).
 
 ## Files created
 
@@ -111,7 +111,7 @@ Bash, sh, and dash commonly load it through `/etc/profile`.
 zsh on Debian or Ubuntu and fish do not normally load `/etc/profile.d`.
 Arrange shim-first PATH in their system startup configuration.
 Services, schedulers, sudo policies, and remote commands can also use a different PATH.
-Set it explicitly or use the PMG prefix in each such context. For an already open shell, start a new login session or run:
+Set it explicitly in each such context, or run `pmg npm` and `pmg pip` there directly. For an already open shell, start a new login session or run:
 
 ```bash
 source /etc/profile.d/pmg.sh
@@ -234,7 +234,7 @@ In Docker images, avoid creating `/home/<user>/.config/safedep` as root during t
 
 If every `pmg` command fails with `permission denied` on the event log, check where the reported path points:
 
-- **Inside your own home**: a root run created it as root (a retained directory override, a preserved HOME, an image with the wrong HOME, or an older sudo build). Restore ownership: `sudo chown -R $(id -un) ~/.config/safedep`
+- **Inside your own home**: a root run created it as root (a retained directory override, a preserved HOME, an image with the wrong HOME, or an older PMG release run under `sudo`). Restore ownership: `sudo chown -R $(id -un) ~/.config/safedep`
 - **Inside another user's home**: your environment leaked that user's `HOME` or `XDG_CONFIG_HOME` (e.g. `sudo -u <user>` on GitHub-hosted runners). If only `XDG_CONFIG_HOME` leaked, set `export XDG_CONFIG_HOME="$HOME/.config"`.
   If HOME is wrong, run with the target user's own HOME, for example through `sudo -H -u <user>`. Do not change ownership of another user's directory.
   That can prevent their PMG commands from accessing it.

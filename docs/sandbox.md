@@ -8,38 +8,31 @@ that we use.
 
 ## Security Model
 
-Filesystem access is default-deny, with driver-specific implicit grants.
-Filesystem denies take precedence over allows where the driver can express them.
-Environment allows win over denies.
-Network rules use specificity and allow unmatched destinations.
-Process `allow_exec` is additive, not a portable exclusive allow-list.
-Seatbelt permits execution generally and applies `deny_exec`.
-Bubblewrap ignores `allow_exec` and masks named, existing denied binaries.
-Landlock grants execution through filesystem access and implicit system rules as well as `allow_exec`.
-A narrow Landlock filesystem policy can still restrict other execution.
-A denied executable path does not cover every copy or execution through an allowed loader.
-
-PMG ships mandatory denies for credential files (`.env`, `.ssh`, `.aws`, `.gcloud` and more). It also denies writes to the project-root directories whose
+Filesystem access is default-deny, with driver-specific implicit grants. For filesystem paths,
+deny rules win over allow rules where the driver can express them. An
+environment variable passes unless it matches the deny list. For environment variables, an allow
+wins over a deny. A network connection that matches no rule is allowed. To make a network allow
+list, add `*:*` to `deny_outbound`. The most specific network rule wins. Exec control differs per
+driver. PMG ships mandatory denies for credential files (`.env`,
+`.ssh`, `.aws`, `.gcloud` and more). It also denies writes to the project-root directories whose
 contents execute outside the sandbox (`.github/workflows`, `.vscode`). See
 [dangerous.go](../sandbox/util/dangerous.go) for the full list.
-Other future execution surfaces such as `.claude`, `.cursor`, `.devcontainer`, `.idea`, and `.husky` remain writable in ordinary package-manager profiles.
-To allow legitimate access, you can opt out of a mandatory deny
+This protects against accidental credential leaks and some classes of supply chain attacks that
+attempt to access credentials. To allow legitimate access, you can opt out of a mandatory deny
 via an exact match entry in `allow_read` or `allow_write` (in the policy or via `--sandbox-allow`).
-Driver limitations below qualify credential protection.
+The mandatory list does not deny writes yet to other directories whose contents can execute outside the sandbox,
+such as `.claude`, `.cursor`, `.devcontainer`, `.idea` and `.husky`.
 
 <details>
 <summary>Detailed rules</summary>
 
-- **Filesystem default deny.** A resolved policy needs at least one package manager and one access rule.
-  PMG refuses an empty policy.
+- **Default deny**: Filesystem access is blocked unless the policy or a driver-specific implicit grant allows it. A resolved policy needs at least one package manager and one access rule. PMG refuses an empty policy.
 - **Deny rules override allow rules**: When a path appears in both allow and deny lists, the deny rule wins. Deny rules are placed after allow rules in the generated sandbox profile to ensure this.
+- **Exec control differs per driver**: `allow_exec` adds grants. It is not an exclusive allow-list on every driver. Seatbelt allows every binary and blocks only the `deny_exec` paths. Bubblewrap ignores `allow_exec` and masks the `deny_exec` binaries that exist. Landlock allows execute through the filesystem grants, the system binary directories and `allow_exec`. A narrow Landlock policy can still block other binaries. A `deny_exec` entry does not block a copy of the binary or a run through an allowed loader.
 - **Credential and sensitive file protection**: The sandbox blocks read and write access to known list of credential files by default.
 - **Git hooks are always blocked**: Read and write access to `.git/hooks/` in both `$CWD` and `$HOME` is always denied to prevent arbitrary code execution via repository hooks. A repository that sets `core.hooksPath` to a directory inside the working tree (for example, husky sets `.husky/_`) is not covered. That directory is writable under the default profiles. Git does not read `.git/hooks` there. The `.git/config` deny stops a package from setting `core.hooksPath` itself.
-- **Git config is blocked by default.** Read and write access is denied unless `allow_git_config: true` changes it.
-  To enable only reads, add an exact `${CWD}/.git/config` read allowance or use the `git` preset.
-  The exec profile already has that read allowance.
-- **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files inside the project, and writes to `.git`, `.github/workflows` and `.vscode` at the project root. The whole `.git` directory is write-denied unless `allow_git_config: true` is set, because hooks and config also live under `.git/modules` and `.git/worktrees`. The `git` preset opts out with an exact `${CWD}/.git` entry while top-level hooks and config retain separate denies.
-  Submodule hooks and config under `.git/modules` can become writable with this opt-out.
+- **Git config is blocked by default**: Read and write access to `.git/config` is denied unless `allow_git_config: true` is set in the policy. This prevents credential helper manipulation. To let git read the file, add an exact `${CWD}/.git/config` entry to `allow_read`. The `git` preset adds this entry and also allows writes under `.git`. The `exec` profile already has this entry.
+- **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files inside the project, and writes to `.git`, `.github/workflows` and `.vscode` at the project root. On macOS, files inside a nested credential directory such as `sub/.aws` can stay readable. The whole `.git` directory is write-denied unless `allow_git_config: true` is set, because hooks and config also live under `.git/modules` and `.git/worktrees`. The `git` preset opts out with an exact `${CWD}/.git` entry while the top-level hooks and config stay denied. Submodule hooks and config under `.git/modules` can become writable with this opt-out.
 - **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, PMG removes equal entries after path expansion.
   An identical glob override can remove a glob deny such as `/etc/**`.
   A narrower path cannot remove a broader glob deny. An exact-match entry in `allow_read` or `allow_write` (policy or runtime) opts out of the mandatory deny for that credential file. `.git/hooks` does not accept opt-outs.
@@ -58,7 +51,7 @@ Driver limitations below qualify credential protection.
   The XDG spec treats an empty or relative value as unset, so the package manager also uses the default, and the rule matches its path. For `/`, `$HOME`, a parent of `$HOME` and a glob, PMG expands its rule to the default, but the package manager itself still writes to the value. The sandbox denies those writes, and the warning names the variable.
 - **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. Set `allow_unix_sockets: true` in a profile to open them. See [Unix Sockets](#unix-sockets).
 - **Dangerous syscalls are blocked on Linux**: The kernel refuses nested namespaces, ptrace, `bpf`, `io_uring`, mounts, kernel modules and a few more on both Linux drivers. See [sandbox-landlock.md](sandbox-landlock.md).
-- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. The drivers can turn the network on or off, or restrict direct outbound traffic with `network_via_proxy_only`, subject to their limits. The PMG proxy applies the host and port rules, see [Network rules](#network-rules).
+- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Seatbelt and Bubblewrap turn the network off only for a profile that denies all destinations and allows none. Landlock does not confine the network without `network_via_proxy_only`. With `network_via_proxy_only`, Seatbelt and Landlock limit it to the PMG proxy. Bubblewrap refuses that setting. The PMG proxy applies the host and port rules, see [Network rules](#network-rules).
 
 </details>
 
@@ -101,11 +94,13 @@ see what was removed.
 
 When a sandboxed command fails, or when a clean run records a denial, the scrubbed names are also
 recorded to the violation cache as `env_scrub` violations, so `pmg sandbox violations list` and
-`pmg sandbox explain --last` can name them after the run. After a failed run, text `explain` suggests `--sandbox-allow env=NAME` only when that scrub is the primary violation and its name permits a suggestion.
-`explain --json` gives per-variable saved commands in `env_remediations`.
-`pmg sandbox allow --last` saves only the primary violation.
-Another filesystem, execution, or network denial can outrank the scrub.
-`--last --all` includes other safe denials too and can require `--force` for a secret name. PMG records only the names. The values never reach the cache.
+`pmg sandbox explain --last` can name them after the run. After a failed run, for a conventionally
+named variable, `explain` suggests `--sandbox-allow env=NAME` when the scrub is the primary
+violation. `explain --json` lists `pmg sandbox allow env=NAME` in `env_remediations` for each such
+variable that is not a secret name. `pmg sandbox allow --last` saves only the primary violation.
+A filesystem, exec or network denial in the same run can outrank the scrub. `--last --all` also saves the other safe
+denials of the run, and it needs `--force` for a secret name. PMG records only the names. The
+values never reach the cache.
 
 A variable whose value is a secret gets no suggestion to save it. PMG treats a name as secret
 when one of its underscore-separated segments is `SECRET`, `TOKEN`, `KEY`, `APIKEY`,
@@ -175,7 +170,8 @@ to lift that restriction for pmg.
 - Linux kernel 5.13+ with Landlock enabled (default, no external dependencies)
 - Bubblewrap on Linux (fallback for kernels < 5.13, or when `PMG_SANDBOX_DRIVER=bubblewrap` is set)
 - Seatbelt on macOS
-- Linux amd64 or arm64 with user namespaces available for a non-root caller. Both Linux drivers need them.
+- Linux amd64 or arm64 with user namespaces available for a non-root caller. Landlock always needs
+  them. Bubblewrap needs them unless `bwrap` is installed setuid root.
   A runtime namespace clone failure stops the run and does not trigger driver fallback.
 - On Ubuntu 23.10+, an AppArmor profile granting pmg unprivileged user namespaces. See
   [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
@@ -207,7 +203,7 @@ See [Bubblewrap Installation](https://github.com/containers/bubblewrap#installat
   
 See [configuration](./config.md) and [config/config.template.yml](../config/config.template.yml) for the configuration schema.
 Once sandbox is enabled, it covers commands that may download packages.
-Known non-download commands can bypass sandboxing.
+Known non-download commands are not sandboxed.
 For npm, this includes `ls`, `uninstall`, `rebuild`, and `pack`, even though some can run package code.
 Unknown subcommands and `npm run dev` remain sandboxed.
 Set `sandbox.enforce_always: true` or add `--sandbox-enforce` to include all commands.
@@ -235,7 +231,7 @@ pmg --sandbox --sandbox-profile=/path/to/custom-policy.yml npm install express
 On Linux, a profile can grant a store or cache under `${HOME}` only when that rule path exists. On a first run the package manager has not created it yet, so the sandboxed command
 fails when it tries to. Run the package manager once outside the sandbox, or create the
 directories by hand.
-Starting with v0.34.0-edge.1, macOS Seatbelt can permit creating missing ancestors for these write grants.
+Starting with v0.34.0, macOS Seatbelt can permit creating missing ancestors for these write grants.
 Earlier macOS versions need the mkdir step too. For aube:
 
 ```bash
@@ -378,7 +374,7 @@ when a command needs access that the default profile blocks.
 Enable sandboxing through configuration or `--sandbox` before using these overrides.
 
 ```bash
-# Allow writing to a specific file
+# Allow writing to a tool cache directory
 pmg --sandbox-allow "write=$HOME/.example-tool-cache/**" npx create-next-app@latest
 
 # Allow executing a binary blocked by the profile
@@ -406,7 +402,8 @@ A missing runtime preset warns and contributes no allowances.
 
 A `net-bind` value, and each `network.allow_bind` entry of a profile, is `host:port`. The host is
 loopback (`localhost`, `127.0.0.1`, `[::1]`) or all interfaces (`0.0.0.0`, `[::]`).
-PMG warns for all-interface `net-bind` overrides.
+PMG logs a warning for an all-interfaces `net-bind` override. The warning shows only with
+`--debug` or `--log`.
 Profile entries load without that warning, and presets reject them. PMG refuses any other
 host, because no driver can limit a bind to it. The port is a number or `*`. A `net-bind` override
 also turns on `allow_network_bind`, which allows every loopback port. Only macOS limits a bind to
@@ -523,7 +520,7 @@ export PMG_CONFIG_DIR="/path/to/pmg/config/dir"
 
 # Create the policy template file
 cat > "$PMG_CONFIG_DIR/sandbox-custom-policy.yml" <<'EOF'
-name: pnpm-macos-custom-sandbox
+name: pnpm-custom-sandbox
 description: Custom pnpm cache access
 inherits: pnpm
 package_managers: [pnpm]
@@ -539,12 +536,12 @@ policy for your package manager:
 ```yaml
 sandbox:
   policy_templates:
-    pnpm-macos-custom-sandbox:
+    pnpm-custom-sandbox:
       path: ./sandbox-custom-policy.yml
   policies:
     pnpm:
       enabled: true
-      profile: pnpm-macos-custom-sandbox
+      profile: pnpm-custom-sandbox
 ```
 
 Next time you run `pmg pnpm install`, the custom policy template will be used instead of the default policy.
@@ -576,13 +573,14 @@ It checks a fixed path-syscall table, not every syscall with a path.
 A process can race the path or symlink after the check.
 Metadata calls such as chmod, chown, and utimensat are not trapped.
 Treat these denies as a strong default rather than a hardened boundary.
-Based globstar denies such as `${HOME}/**/*.pem` expand once and compare the suffix literally.
-They can silently match nothing in an existing tree.
-The walk stops at depth 5 or 1000 paths.
-A bare `base/**` instead grants a directory and later descendants.
-Allows with more than 100 matches can widen to their parent.
-Missing rule paths are skipped.
-See [Landlock details](sandbox-landlock.md).
+See [sandbox-landlock.md](./sandbox-landlock.md) for the edge cases.
+
+**Glob limits.** A deny with `**` after a base path, such as `${HOME}/**/*.pem`, expands once at
+setup. PMG compares the part after `**` as literal text. So `*.pem` matches only a path that ends in
+the literal text `*.pem`. The walk stops at depth 5 or 1000 paths. A file created during the run is not
+covered. For a deny, use `**/<name>` or a literal path. A bare `base/**` allow grants the
+directory and every later descendant. An allow with more than 100 matches widens to its parent
+directory. PMG skips a rule path that does not exist.
 
 **Deny enforcement across the process tree**: seccomp-notify resolves the path argument of
 an intercepted `openat(2)` by reading `/proc/<pid>/mem` of the trapping process. PMG ships
@@ -599,11 +597,10 @@ descendant (grandchildren, great-grandchildren, etc.):
    tools never see uid 0. The mapped kernel uid stays 0, so the target owns the same
    files as the root caller. Access follows the permission bits. The target has no
    `CAP_DAC_OVERRIDE`.
-3. The helper opens `/proc/<pid>/mem` for each descendant. The helper created the user
-   namespace, so the kernel grants it `CAP_SYS_PTRACE` over the namespace. The read works
-   after a task uses `PR_SET_DUMPABLE=0` under the created namespace.
-   An unreadable executable owned outside the mapping can move the image's ptrace relationship to an ancestor namespace.
-   The helper can then lose access and deny trapped calls.
+3. The helper opens `/proc/<pid>/mem` for each descendant, so deny rules like `~/.ssh` are
+   enforced for the full process tree. For a non-root caller, the read works only while the
+   task is dumpable. A task that sets `PR_SET_DUMPABLE=0`, or that runs a binary it cannot
+   read, is not dumpable. The helper then cannot open its memory.
 
 **Fail closed when memory is unreadable**: the supervisor reads `/proc/<child>/mem` at
 startup. If it cannot read it, the run stops. So a host that blocks the read stops the run
@@ -611,10 +608,10 @@ instead of running with no enforcement. Examples are a `hidepid` proc mount,
 `kernel.yama.ptrace_scope=3`, and a hardening LSM. PMG does not fall back to Bubblewrap here.
 Bubblewrap may not be installed. At runtime the supervisor denies a trapped path or exec
 syscall when it cannot read the memory that holds the path. So a process cannot read a denied
-file when the supervisor cannot inspect its path.
-The ordinary dumpable change is not itself a bypass.
-The execute-only binary exception above can make trapped operations fail.
-Bubblewrap does not need process-memory reads but has different mount-layer limits.
+file by making its own memory unreadable. A non-dumpable process, such as gpg-agent or
+ssh-agent, loses file access on the Landlock driver. See step 3. Run it under the Bubblewrap
+driver. Bubblewrap
+enforces at the mount layer and does not read process memory.
 
 The user namespace is purely a capability vehicle for the shim. The uid and gid map to
 themselves, so targets see the caller's identity and the same filesystem ownership they
@@ -633,14 +630,15 @@ supervisor, which intercepts `connect`/`sendto`/`sendmsg` and confines outbound 
 to the PMG proxy's loopback port (plus loopback when the profile sets `allow_network_bind`,
 and port 53 when it sets `allow_direct_dns`). Denials surface as `network_connect`
 violations. The fail-closed contract is the same as on macOS: no running proxy, no command.
-Known gaps, including untrapped `sendmmsg`, address races, and loopback DNS are documented in
+Known gaps, such as untrapped `sendmmsg`, address races, and loopback DNS when the profile
+allows binds, are documented in
 [sandbox-landlock.md](./sandbox-landlock.md). Outside lockdown there is no fine-grained
 host filtering. PMG does not use the native port rules of Landlock V4 yet.
 
 **PID/IPC namespace isolation**: Applied best-effort via `CLONE_NEWPID|CLONE_NEWIPC|CLONE_NEWNS`.
-On `EPERM` or `EINVAL`, the helper warns and retries without PID, IPC, and paired mount isolation.
-A profile allowing a non-self `/proc` path skips PID and mount isolation with a diagnostic warning. Set `PMG_SANDBOX_DRIVER=bubblewrap`
-to force Bubblewrap if namespace isolation is required.
+If unavailable, a warning is printed and the command continues. Set `PMG_SANDBOX_DRIVER=bubblewrap`
+to force Bubblewrap if namespace isolation is required. A profile that allows a `/proc` path other
+than `/proc/self` turns off the PID and mount namespaces.
 
 **`/proc` access.** Landlock uses the inherited host procfs even when PID namespace creation succeeds.
 The driver grants `/proc` reads and drops authored proc denies.
@@ -672,9 +670,12 @@ coarse-grained fallback strategies when glob patterns match many files.
 Write globstars bind their base tree directly.
 Other expansion can reflect only existing paths.
 
-**Network filtering.** Bubblewrap can use `--unshare-net` for deny-all isolation.
-It rejects `network_via_proxy_only`.
-Proxy host rules apply only to clients that reach the proxy.
+**Network filtering**: All-or-nothing network isolation (via `--unshare-net`). Host-specific
+filtering is not enforced. Bubblewrap refuses a profile that sets `network_via_proxy_only`, such as
+the built-in `go`, `cargo` and `exec` profiles. Use the Landlock driver for these profiles. Or use
+a child profile that sets `network_via_proxy_only: false`, and set `sandbox.network_mode: enforce`
+so that the proxy refuses denied hosts. A client that ignores the proxy then has direct network
+access.
 
 **Deny targets are mount points**: a denied file is masked with `/dev/null` and a denied directory
 with a tmpfs. A mount point cannot be renamed or removed (`EBUSY`), which also blocks a rename of
@@ -743,7 +744,6 @@ loopback↔loopback connects open. Raw sockets, QUIC, and arbitrary non-loopback
 at the kernel.
 Direct DNS is disabled by default, because the proxy resolves names. `allow_direct_dns: true`
 re-opens it. The Go, Cargo, and exec profiles ship with proxy-only confinement.
-Remote DNS opens only with `allow_direct_dns`, but permitted loopback ports can reach a local resolver.
 
 **Deny targets are pinned against a move**: Seatbelt checks a rename against its source and its
 destination only, so a denied file would move along with its parent directory and a prepared
@@ -846,8 +846,8 @@ already set the key. A child profile that sets the key wins over its parent. Und
 host.
 
 The PMG proxy applies the rules to every connection it sees: a CONNECT, a redirected TLS
-connection, a plain HTTP request, and a request inside a terminated tunnel. The rules are a
-applied only to traffic that reaches the proxy.
+connection, a plain HTTP request, and a request inside a terminated tunnel. The rules apply only
+to traffic that reaches the proxy.
 Proxy-only confinement has the [Landlock gaps](sandbox-landlock.md#network-lockdown-gaps) and loopback or DNS openings described above.
 Persistent-proxy [kernel enforcement](persistent-proxy.md#kernel-enforcement-linux) routes eligible TCP on configured ports, default 80 and 443, subject to its exemptions.
 Other ports and bypass paths remain outside that policy. `pmg sandbox exec` runs a proxy of its own for the program. See
@@ -892,12 +892,10 @@ profile with a rule the proxy cannot parse does not run.
 ## Threat Model
 
 PMG trusts policy files and the operator's CLI as the source of intent. The sandbox implementation
-translates that intent with driver-specific limitations. Translation from PMG's YAML to the native sandbox format must
-preserve the intended boundary.
-Current drivers have the documented translation gaps above.
-Bubblewrap can coarsen grants, skip missing denies, and expose reads through write opt-outs.
-Treat these as limits of the implementation.
-Keep interpolation inputs trusted.
+must enforce what the policy declares. Translation from PMG's YAML to the native sandbox format must
+not weaken it. Variable interpolation must consume only trusted sources.
+Some drivers cannot express every rule. [Platform-Specific Limitations](#platform-specific-limitations)
+shows where a driver translation is coarser than the policy.
 
 <details>
 <summary>Detailed assumptions</summary>
@@ -955,7 +953,7 @@ Landlock is the default Linux driver.
 Use `pmg sandbox violations list`, `pmg sandbox explain --last`, and [Landlock tracing](sandbox-landlock.md#debugging-pmg_seccomp_trace).
 Inspect native policy before running it with `pmg sandbox profile show npm --driver landlock` on Linux.
 Use `--driver seatbelt` on macOS or `--driver bubblewrap` on Linux for those renderers.
-The renderer supports explicit HOME and CWD expansion options through its help.
+Add `--home` and `--cwd` to set `${HOME}` and `${CWD}` for the expansion.
 
 For the Bubblewrap driver, force selection while capturing the full wrapped command.
 
@@ -964,15 +962,12 @@ PMG_SANDBOX_DRIVER=bubblewrap pmg --debug --log /tmp/pmg-debug.log --sandbox npm
 grep 'Sandboxed command:' /tmp/pmg-debug.log
 ```
 
-Replay only a reviewed, current command from that log.
 The shorter `Bubblewrap arguments` line omits the seccomp shim.
 Bubblewrap has no `--verbose` option.
 For syscall detail, run the full command under `strace -f` on a disposable environment.
 Bubblewrap denials commonly appear as EROFS or ENOENT rather than EACCES.
 A file masked with `/dev/null` can read as empty.
 PMG records only the command-output denials it recognizes.
-
-See [Development](development.md) for the contributor test map and [profile rendering](sandbox-landlock.md#debugging-pmg_seccomp_trace) for inspection.
 
 ### AppArmor blocks the Landlock driver (Ubuntu 23.10+)
 
@@ -994,7 +989,7 @@ the `userns` permission.
 Create `/etc/apparmor.d/pmg` with the actual native binary path.
 `command -v pmg` suffices for the install-script layout.
 For Homebrew, resolve its link with `readlink -f`, or use a version-directory glob such as `/home/linuxbrew/.linuxbrew/Cellar/pmg/*/bin/pmg`.
-For npm, locate the installed `@safedep/pmg-linux-<arch>/bin/pmg` optional package beneath the launcher.
+For npm, use `$(npm root -g)/@safedep/pmg/node_modules/@safedep/pmg-linux-<arch>/bin/pmg`, where `<arch>` is `x64` or `arm64`.
 For mise, name the native binary under its installs directory, not its shim.
 A profile attached to a launcher or shim does not authorize the native helper.
 

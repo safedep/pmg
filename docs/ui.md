@@ -14,7 +14,6 @@ pmg --silent npm install express
 The verbosity level can be set per-invocation using `--silent` or `--verbose` CLI flags, or persisted via the `verbosity` option in the [configuration file](config.md).
 Use `PMG_VERBOSITY` for aliases and shims.
 For example, `PMG_VERBOSITY=silent npm install express` selects the PMG level through a POSIX shell alias.
-Lockdown can disable that environment override.
 `--silent` and `--verbose` are mutually exclusive.
 The local `pmg sandbox profile lint --verbose` flag adds info-level lint issues instead of changing global UI verbosity.
 
@@ -37,15 +36,14 @@ UI messages are displayed in the user interface, currently in the terminal. Foll
 | Message or report | Silent | Normal | Verbose |
 | --- | --- | --- | --- |
 | Status, info, success | Hidden | Shown | Shown |
-| Fatal errors | Shown | Shown | Shown with help and underlying detail |
+| Fatal errors | Shown | Shown | Shown with additional help and the original error |
 | `ShowWarning` warnings | Shown | Shown | Shown |
 | Malware block and its advisory | Shown | Shown | Shown with package detail |
 | Suspicious-package prompt on an interactive TTY | Shown | Shown | Shown |
-| Cooldown-only, insecure-bypass, and network-policy execution reports | Hidden | Shown subject to outcome selection | Detailed |
+| Cooldown-only, insecure-bypass, and network-policy execution reports | Hidden | Shown when that outcome applies | Detailed |
 
 This table describes the shared UI and report helpers.
 Other commands can print directly.
-Normal insecure reporting returns before cooldown detail, even though cooldown can still enforce.
 Verbose output adds the execution report, flagged-package summaries, network decisions, and withheld cooldown versions.
 
 A suspicious-package prompt defaults to refusal.
@@ -70,7 +68,7 @@ Contributors should use the existing helper for the message category.
 
 Some reports and prompts write stdout.
 Do not add unsolicited result output to a machine-readable command path.
-Follow [error conventions](../CLAUDE.md#error-handling) and [development guidance](development.md).
+Follow the [development guidance](development.md).
 
 Colors turn off for nonterminal output and with `TERM=dumb`.
 Set `NO_COLOR=1` to request plain output explicitly.
@@ -80,7 +78,7 @@ Set `NO_COLOR=1` to request plain output explicitly.
 Logs are by default for inspection and debugging purposes. They are not shown by default. Consider logs as something meant for use only when there is an unexpected behavior.
 UI verbosity does not set diagnostic log levels.
 Use `--debug` for stdout debug logs or `--log <file>` for an info-level file sink.
-Combine them for file debug detail.
+Combine them to write debug logs to the file and to stdout.
 
 ```sh
 pmg --debug npm install express
@@ -88,9 +86,7 @@ pmg --debug --log /tmp/pmg-debug.log npm install express
 APP_LOG_LEVEL=debug APP_LOG_FILE=/tmp/pmg-debug.log pmg npm install express
 ```
 
-The environment-only example writes a file.
-Without `--debug`, PMG forces stdout logging off.
-Using `--log` without `--debug` sets the level to info.
-The root `--log` option also redirects audit events into that file.
+The `APP_LOG_*` example writes only to the file.
+The root `--log` option also redirects event-log entries into that file.
 It disables the default daily event-log directory for that process.
 Profile proposal commands that read the daily directory cannot discover those redirected runs.
