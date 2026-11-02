@@ -71,7 +71,7 @@ The legacy flat config key `proxy_install_only` is still supported when the `pro
 
 Guard mode (the non-proxy analysis flow) has been removed and proxy interception can no longer be disabled. PMG fails with an error when it detects a leftover opt-out: `proxy.enabled: false` or `proxy_mode: false` in the config file, or `PMG_PROXY_ENABLED=false` or `PMG_PROXY_MODE=false` in the environment. PMG does not silently switch to proxy interception when it finds one of these settings. Remove the setting to proceed. The `--proxy-mode` flag is removed and fails as an unknown flag.
 
-Note one trade-off versus the removed guard mode: the proxy analyzes packages as they are downloaded, so installs fully served from a local package manager cache (e.g. npm cache, pnpm store, pip cache, `--offline` installs) do not trigger analysis. Guard mode analyzed manifest-listed packages via registry metadata regardless of downloads. PMG analyzes a package when it fetches it through the proxy.
+The proxy analyzes packages as clients download them. Installs fully served from a local package manager cache do not trigger analysis. Examples include the npm cache, pnpm store, pip cache, and `--offline` installs. Guard mode analyzed manifest-listed packages via registry metadata regardless of downloads. PMG analyzes a package when it fetches it through the proxy.
 It does not analyze artifacts already cached by a run without PMG.
 It also does not recheck a package-manager cache when the malware database changes.
 Audit or clear those caches when adopting PMG.
@@ -123,7 +123,7 @@ Other bases must retain a standard `/simple/{project}/` or `/pypi/{project}/json
 
 ### How PMG matches a request
 
-PMG intercepts traffic only to the exact origin of an endpoint URL: the scheme, the host, and the port. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com`. An endpoint on port 8443 does not cause PMG to decrypt traffic to port 443. Built-in registries are different: they also cover every subdomain of their host.
+PMG intercepts traffic only to the exact origin of an endpoint URL. The origin includes the scheme, host, and port. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com`. An endpoint on port 8443 does not cause PMG to decrypt traffic to port 443. Built-in registries also cover every subdomain of their host.
 
 PMG decides in two steps.
 
@@ -135,7 +135,7 @@ These known registry hosts also receive no Host Observation.
 A nested cross-ecosystem install can therefore receive neither analysis nor this observation.
 The [persistent proxy](persistent-proxy.md) handles all supported ecosystems, subject to its Go trust check.
 
-Traffic to unknown hosts goes through an ordinary encrypted tunnel. PMG cannot see the request path or body. PMG records the host in the audit log as a Host Observation event, so you can see which outside hosts your build reached. The event records the port and how the connection reached the proxy. Under [kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux) it also names the client: the pid, name and executable of a host process, or the address of a container. A process outside the daemon's PID namespace has a name only.
+Traffic to unknown hosts goes through an ordinary encrypted tunnel. PMG cannot see the request path or body. PMG records the host in the audit log as a Host Observation event, so you can see which outside hosts your build reached. The event records the port and how the connection reached the proxy. Under [kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux) it also records the client's identity. This includes the pid, name and executable of a host process, or the address of a container. A process outside the daemon's PID namespace has a name only.
 
 After decryption, PMG matches each request against an endpoint by:
 

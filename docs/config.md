@@ -167,8 +167,8 @@ Preserve only the variables a root process needs under the host's sudo policy.
 For example, `sudo --preserve-env=SAFEDEP_API_KEY,SAFEDEP_TENANT_ID pmg cloud sync`
 passes cloud credentials but does not preserve the rest of the invoking user's environment.
 
-The file for a root daemon is the managed config. `--system` on `pmg config edit`, `config set`
-and `config get` works on it:
+To configure a machine-wide baseline for a root daemon, use the managed config.
+The `--system` flag selects that file for `pmg config edit`, `config set`, and `config get`.
 
 ```bash
 sudo pmg config edit --system

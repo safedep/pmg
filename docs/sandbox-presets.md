@@ -135,10 +135,12 @@ network:
 An invalid edit stays on disk and PMG skips it at load time.
 Use an editor that waits until editing finishes, such as `code --wait`.
 
-Validate it:
+Validate the file that `init` created.
+Replace `<config-dir>` with the config directory in the path that `init` printed.
+Keep the quotes if the path contains spaces.
 
 ```bash
-pmg sandbox preset lint ./myapp.yml
+pmg sandbox preset lint "<config-dir>/sandbox/presets/myapp.yml"
 ```
 
 A bind entry also enables `allow_network_bind`.

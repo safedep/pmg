@@ -256,9 +256,11 @@ variables work for all of them.
 Except for Go on macOS and Windows, you do not run `pmg setup cert
 install`. The proxy reuses a persisted user CA when available.
 Otherwise it generates an ephemeral signing CA.
-Run `pmg setup cert install --system` as your normal user on macOS or Windows.
-It keeps the keypair in that user's config directory and elevates the trust-store write.
-A non-enforcing proxy under that user reuses it.
+On macOS, run `pmg setup cert install --system` as your normal user and approve the elevation prompt.
+On Windows, run it from a terminal started as administrator.
+The keypair stays in the running account's config directory.
+If Windows elevation uses a different administrator account, that account owns the keypair.
+A non-enforcing proxy under the keypair's account reuses it.
 On Linux, `sudo pmg setup cert install --system` instead writes a root-owned keypair to `/etc/safedep/pmg` for kernel enforcement.
 An unprivileged proxy does not read that root keypair.
 See [certificate scopes](cert.md#trust-scopes).

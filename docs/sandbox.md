@@ -32,7 +32,7 @@ Driver limitations below qualify credential protection.
   PMG refuses an empty policy.
 - **Deny rules override allow rules**: When a path appears in both allow and deny lists, the deny rule wins. Deny rules are placed after allow rules in the generated sandbox profile to ensure this.
 - **Credential and sensitive file protection**: The sandbox blocks read and write access to known list of credential files by default.
-- **Git hooks are always blocked**: Read and write access to `.git/hooks/` in both `$CWD` and `$HOME` is always denied to prevent arbitrary code execution via repository hooks. A repository that sets `core.hooksPath` to a directory inside the working tree (for example, husky sets `.husky/_`) is not covered: that directory is writable under the default profiles and git does not read `.git/hooks` there. The `.git/config` deny stops a package from setting `core.hooksPath` itself.
+- **Git hooks are always blocked**: Read and write access to `.git/hooks/` in both `$CWD` and `$HOME` is always denied to prevent arbitrary code execution via repository hooks. A repository that sets `core.hooksPath` to a directory inside the working tree (for example, husky sets `.husky/_`) is not covered. That directory is writable under the default profiles. Git does not read `.git/hooks` there. The `.git/config` deny stops a package from setting `core.hooksPath` itself.
 - **Git config is blocked by default.** Read and write access is denied unless `allow_git_config: true` changes it.
   To enable only reads, add an exact `${CWD}/.git/config` read allowance or use the `git` preset.
   The exec profile already has that read allowance.
@@ -695,7 +695,7 @@ Other missing literals, including `.env` and `.github/workflows`, are skipped.
 Under a writable project tree a process can therefore create `.github/workflows` when the
 repository has none. The Landlock driver denies the path by name and has no such gap.
 
-**Per-direction mandatory deny is asymmetric under Bubblewrap**: bwrap has no primitive that allows writes
+**Per-direction mandatory deny is asymmetric under Bubblewrap.** bwrap has no primitive that allows writes
 while denying reads for the same path. `--bind` exposes both directions. `--tmpfs` and
 `--ro-bind /dev/null` block both. If you opt out of write for a mandatory deny path (e.g., list it
 in `allow_write` but not `allow_read`), the bind mount also exposes reads, and PMG cannot enforce

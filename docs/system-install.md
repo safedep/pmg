@@ -180,7 +180,7 @@ Older Unix builds, including v0.33.0 and v0.34.0-edge.1, do not provide this che
 Administrators of those versions must secure the entire path themselves.
 
 - **Linux and macOS.** Root must own the file and each directory from `/` down to it. No group or other write is allowed. A sticky directory, such as `/tmp`, can be an exception.
-  This exception does not cover the two directories directly above the config file. A directory on a read-only mount is also an exception, because no account can create or rename an entry through that mount. A file on a read-only mount gets no exception: the source of a read-only bind mount can stay writable, so the file must still have no group or other write. Keep the source folder of a bind mount owned by root with no group or other write. PMG cannot see that folder from inside the mount. If another account can write it, that account can remove or replace the file, and lockdown then turns off. A link is followed only when root owns it, and its target must pass the same check. A NixOS `environment.etc` link passes. A Kubernetes ConfigMap volume passes: its directory has the mode `0777`, but the kubelet mounts it read-only. A `subPath` mount also passes, but Kubernetes does not update it when the ConfigMap changes.
+  This exception does not cover the two directories directly above the config file. A directory on a read-only mount is also an exception, because no account can create or rename an entry through that mount. A file on a read-only mount gets no exception. The source of a read-only bind mount can stay writable. The file must still have no group or other write. Keep the source folder of a bind mount owned by root with no group or other write. PMG cannot see that folder from inside the mount. If another account can write it, that account can remove or replace the file, and lockdown then turns off. A link is followed only when root owns it, and its target must pass the same check. A NixOS `environment.etc` link passes. A Kubernetes ConfigMap volume passes. Its directory has the mode `0777`, but the kubelet mounts it read-only. A `subPath` mount also passes, but Kubernetes does not update it when the ConfigMap changes.
 - **Windows.** Administrators or SYSTEM must own the file and the two directories above it, and no other account may write any of the three.
 
 Otherwise PMG ignores the file, and the per-user config applies. `global_lockdown` then has no effect. Each `pmg` command prints a warning that names the path the check refused. `pmg setup info` shows the reason, and `pmg setup info --json` puts it in `config.managed_config_error`. The "Managed config" row of `pmg setup doctor` fails. On Windows, `pmg setup doctor` also reports a managed config whose descriptor differs from the one the install wrote.
@@ -226,7 +226,7 @@ See [Windows paths](windows-support.md#files-created).
 
 You can relocate these with `PMG_CONFIG_DIR` and `PMG_CACHE_DIR`.
 
-When pmg runs under `sudo` (a non-root user elevated to root), its per-user data resolves under root's own home (`/root`), not the invoking user's, even if sudo preserved their `HOME`. Running directly as root honors `HOME`/`XDG_CONFIG_HOME` as usual, so golden images that set those on purpose keep working. This detection relies on sudo's `SUDO_USER` marker: Plain `su` normally resets HOME but can retain XDG or PMG directory overrides.
+When pmg runs under `sudo` (a non-root user elevated to root), its per-user data resolves under root's own home (`/root`), not the invoking user's, even if sudo preserved their `HOME`. Running directly as root honors `HOME`/`XDG_CONFIG_HOME` as usual, so golden images that set those on purpose keep working. This detection relies on sudo's `SUDO_USER` marker. Plain `su` normally resets HOME but can retain XDG or PMG directory overrides.
 `su -m` and `su -p` can preserve HOME too.
 These values can send root's state into another user's directories. Prefer `su -` or `sudo`.
 
@@ -238,7 +238,8 @@ If every `pmg` command fails with `permission denied` on the event log, check wh
 
 - **Inside your own home**: a root run created it as root (a retained directory override, a preserved HOME, an image with the wrong HOME, or an older sudo build). Restore ownership: `sudo chown -R $(id -un) ~/.config/safedep`
 - **Inside another user's home**: your environment leaked that user's `HOME` or `XDG_CONFIG_HOME` (e.g. `sudo -u <user>` on GitHub-hosted runners). If only `XDG_CONFIG_HOME` leaked, set `export XDG_CONFIG_HOME="$HOME/.config"`.
-  If HOME is wrong, run with the target user's own HOME, for example through `sudo -H -u <user>`. Do not chown another user's directory; that bricks their pmg instead.
+  If HOME is wrong, run with the target user's own HOME, for example through `sudo -H -u <user>`. Do not change ownership of another user's directory.
+  That can prevent their PMG commands from accessing it.
 
 The error message and `pmg setup doctor` print the fix matching your case.
 

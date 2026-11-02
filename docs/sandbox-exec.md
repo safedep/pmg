@@ -46,9 +46,11 @@ denials. The value is in the deny rules:
   The Codex preset also leaves `~/.codex/config.toml` writable, including inline hooks.
   A hook write can install future command execution or disable a security layer such as [Gryph](https://github.com/safedep/gryph).
 
-Every outbound connection goes through a PMG proxy, and the `exec` profile allows every
-destination, because an agent needs its model API and the registries of every tool it runs. A
-child profile or the network flags narrow it. See [Network](#network).
+PMG routes proxy-aware clients through its proxy.
+The `exec` profile allows every proxy destination so an agent can reach model APIs and package registries.
+A child profile or the network flags can narrow these proxy rules.
+Direct network restrictions have limits, including open loopback connections.
+See [Network](#network).
 
 Unix sockets are blocked. An agent cannot reach the SSH agent or the Docker daemon, so `git push`
 over SSH fails.

@@ -56,7 +56,7 @@ Contributors should use the existing helper for the message category.
 | Fatal useful error | `ErrorExit` or `ErrorExitWithCode`. These write stderr and preserve parseable child stdout. |
 | Child command exit | `ExitFromCommandError`. This preserves the command's exit semantics. |
 | Suspicious confirmation | `GetConfirmationOnMalwareWithReader`. Supply the routed PTY reader where applicable. |
-| Proxy result | Use the presenter in [proxy_presenter.go](../internal/ui/proxy_presenter.go) and `PrintReport`. |
+| Proxy result | Use the presenter in [proxy_presenter.go](../internal/ui/proxy_presenter.go) and `ui.Report`. |
 
 Some reports and prompts write stdout.
 Do not add unsolicited result output to a machine-readable command path.
