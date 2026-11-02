@@ -440,7 +440,9 @@ Deploy PMG one way on a runner host. Either use the action in each
 workflow, or install PMG for the whole system and run the daemon as a
 `systemd` service on the host. PMG does not support both on one host. On a
 host where the daemon runs as a service, remove the `safedep/pmg` step from
-the workflows, and put the trust variables in the runner's `.env` file. See
+the workflows. Put the variables that `pmg proxy env` prints in the
+runner's `.env` file, and restart the runner, because the runner reads the
+file when it starts. See [Trust](./persistent-proxy.md#trust) and
 [Run it as a service](./persistent-proxy.md#run-it-as-a-service). One host
 daemon serves all jobs, so the jobs get no post step, no job summary and
 no verdict for each job. The daemon routes only the processes on the host.
@@ -448,8 +450,11 @@ A job container, a Docker action or a `docker run` step goes around it
 unless the daemon redirects containers and each container trusts the PMG
 CA. See
 [Containers and other network namespaces](./persistent-proxy.md#containers-and-other-network-namespaces).
-`Restart=on-failure` does not restart a hung daemon, and the runner stays
-offline until an operator restarts the daemon.
+A daemon that exits detaches its kernel programs, so jobs run without PMG
+until it starts again. `Restart=on-failure` starts it again after a crash.
+A hung daemon keeps its programs, so the runner cannot reach GitHub and
+stays offline until an operator restarts the daemon. `Restart=on-failure`
+does not restart a hung daemon.
 
 ### Job containers and Docker actions
 
