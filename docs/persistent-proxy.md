@@ -654,7 +654,8 @@ and the image ID.
 
 The daemon looks for Docker at `/var/run/docker.sock` and for Podman at
 `/run/podman/podman.sock`, and a `unix://` address in `DOCKER_HOST` comes
-first. A `RUN` step of `docker build` names the builder, such as
+first. It looks once, when it starts. Start the runtime before
+`pmg proxy start`, or restart the daemon after the runtime starts. A `RUN` step of `docker build` names the builder, such as
 `container buildx_buildkit_builder0 (moby/buildkit:buildx-stable-1)`,
 because the step connects with the address of the builder. When no runtime
 answers, a row names the address, as in `container 172.17.0.2`.

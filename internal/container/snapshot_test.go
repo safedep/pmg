@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -114,4 +116,53 @@ func TestSnapshotUnmapsAnIPv4MappedAddress(t *testing.T) {
 	_, found, err := s.ContainerByAddress(context.Background(), netip.MustParseAddr("::ffff:172.17.0.2"))
 	require.NoError(t, err)
 	assert.True(t, found)
+}
+
+// blockingLister holds its first list call until release is closed.
+type blockingLister struct {
+	started chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (b *blockingLister) list(context.Context) (map[netip.Addr]Container, error) {
+	if b.calls.Add(1) == 1 {
+		close(b.started)
+		<-b.release
+	}
+	return map[netip.Addr]Container{webAddr: web}, nil
+}
+
+func TestSnapshotConcurrentLookupsShareOneList(t *testing.T) {
+	b := &blockingLister{started: make(chan struct{}), release: make(chan struct{})}
+	s := newSnapshot(RuntimeDocker, b.list)
+
+	const lookups = 8
+	var wg sync.WaitGroup
+	found := make(chan bool, lookups)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, ok, err := s.ContainerByAddress(context.Background(), webAddr)
+		assert.NoError(t, err)
+		found <- ok
+	}()
+	<-b.started
+	for range lookups - 1 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, ok, err := s.ContainerByAddress(context.Background(), webAddr)
+			assert.NoError(t, err)
+			found <- ok
+		}()
+	}
+	close(b.release)
+	wg.Wait()
+	close(found)
+
+	for ok := range found {
+		assert.True(t, ok)
+	}
+	assert.Equal(t, int32(1), b.calls.Load())
 }

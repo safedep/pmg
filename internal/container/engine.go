@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/safedep/dry/log"
 )
@@ -33,7 +34,8 @@ func newEngineClient(socket string) *engineClient {
 			var d net.Dialer
 			return d.DialContext(ctx, "unix", socket)
 		},
-		MaxIdleConns: 1,
+		MaxIdleConns:    1,
+		IdleConnTimeout: 30 * time.Second,
 	}
 	return &engineClient{http: &http.Client{Transport: transport}}
 }

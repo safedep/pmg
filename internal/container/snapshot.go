@@ -32,7 +32,8 @@ type snapshot struct {
 	list    func(context.Context) (map[netip.Addr]Container, error)
 	now     func() time.Time
 
-	// mu also makes concurrent lookups share one list call.
+	// mu also makes concurrent lookups share one list call. A caller waits
+	// for at most one list call, because a failed call starts the backoff.
 	mu       sync.Mutex
 	byAddr   map[netip.Addr]Container
 	listedAt time.Time

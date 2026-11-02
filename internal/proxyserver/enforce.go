@@ -344,9 +344,10 @@ func (r *destinationResolver) containerOf(c net.Conn) container.Container {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), containerLookupTimeout)
 	defer cancel()
-	found, ok, err := (*ins).ContainerByAddress(ctx, peer.Addr())
+	addr := peer.Addr().Unmap()
+	found, ok, err := (*ins).ContainerByAddress(ctx, addr)
 	if err != nil {
-		log.Debugf("enforce: name the container of %s: %v", peer.Addr(), err)
+		log.Debugf("enforce: name the container of %s: %v", addr, err)
 		return container.Container{}
 	}
 	if !ok {

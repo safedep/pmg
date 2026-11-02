@@ -53,6 +53,7 @@ func TestDestinationResolverNamesTheContainer(t *testing.T) {
 		{"a known address names the container", &fakeIntrospector{byAddr: map[netip.Addr]container.Container{netip.MustParseAddr("172.17.0.2"): web}}, "172.17.0.2:40000", web},
 		{"an unknown address names none", &fakeIntrospector{byAddr: map[netip.Addr]container.Container{}}, "172.17.0.9:40000", container.Container{}},
 		{"a runtime error names none", &fakeIntrospector{err: errors.New("engine hung")}, "172.17.0.2:40000", container.Container{}},
+		{"an IPv4-mapped peer is asked unmapped", &fakeIntrospector{byAddr: map[netip.Addr]container.Container{netip.MustParseAddr("172.17.0.2"): web}}, "[::ffff:172.17.0.2]:40000", web},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,7 +61,7 @@ func TestDestinationResolverNamesTheContainer(t *testing.T) {
 			r.useContainers(tc.ins)
 			assert.Equal(t, tc.want, r.containerOf(connFrom(t, tc.peer)))
 			require.Len(t, tc.ins.asked, 1)
-			assert.Equal(t, netip.MustParseAddrPort(tc.peer).Addr(), tc.ins.asked[0])
+			assert.Equal(t, netip.MustParseAddrPort(tc.peer).Addr().Unmap(), tc.ins.asked[0])
 		})
 	}
 }
