@@ -440,9 +440,11 @@ Deploy PMG one way on a runner host. Either use the action in each
 workflow, or install PMG for the whole system and run the daemon as a
 `systemd` service on the host. PMG does not support both on one host. On a
 host where the daemon runs as a service, remove the `safedep/pmg` step from
-the workflows. Put the variables that `pmg proxy env` prints in the
+the workflows. Put the variables that
+`sudo pmg proxy env --state /run/pmg/proxy-state.json` prints in the
 runner's `.env` file, and restart the runner, because the runner reads the
-file when it starts. See [Trust](./persistent-proxy.md#trust) and
+file when it starts. The example unit writes its state to that path, and
+only root can read the file. See [Trust](./persistent-proxy.md#trust) and
 [Run it as a service](./persistent-proxy.md#run-it-as-a-service). One host
 daemon serves all jobs, so the jobs get no post step, no job summary and
 no verdict for each job. The daemon routes only the processes on the host.
