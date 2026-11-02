@@ -436,12 +436,15 @@ trusts the PMG CA for every job. Set `enforce: true` on an ephemeral runner,
 or on a host that only trusted jobs use. The post step stops the root
 daemon at the end of the job.
 
-A host can also run the daemon as a `systemd` service for every job. See
-[Run it as a service](./persistent-proxy.md#run-it-as-a-service). Put the
-trust variables in the runner's `.env` file, and set `enforce: false` on the
-action, because the host daemon already enforces. `Restart=on-failure` does
-not restart a hung daemon, and the runner stays offline until an operator
-restarts the daemon.
+Deploy PMG one way on a runner host. Either use the action in each
+workflow, or install PMG for the whole system and run the daemon as a
+`systemd` service on the host. PMG does not support both on one host. On a
+host where the daemon runs as a service, remove the `safedep/pmg` step from
+the workflows, and put the trust variables in the runner's `.env` file. See
+[Run it as a service](./persistent-proxy.md#run-it-as-a-service). The host
+daemon serves every job, so the jobs get no post step, no job summary and
+no verdict for each job. `Restart=on-failure` does not restart a hung
+daemon, and the runner stays offline until an operator restarts the daemon.
 
 ### Job containers and Docker actions
 
