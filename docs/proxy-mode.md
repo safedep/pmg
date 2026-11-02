@@ -123,7 +123,7 @@ Other bases must retain a standard `/simple/{project}/` or `/pypi/{project}/json
 
 ### How PMG matches a request
 
-PMG intercepts traffic only to the exact origin of an endpoint URL. The origin includes the scheme, host, and port. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com`. An endpoint on port 8443 does not cause PMG to decrypt traffic to port 443. Built-in registries also cover every subdomain of their host.
+PMG intercepts traffic only to the exact origin of an endpoint URL: the scheme, the host, and the port. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com`. An endpoint on port 8443 does not cause PMG to decrypt traffic to port 443. Built-in registries are different: they also cover every subdomain of their host.
 
 PMG decides in two steps.
 
@@ -135,7 +135,7 @@ These known registry hosts also receive no Host Observation.
 A nested cross-ecosystem install can therefore receive neither analysis nor this observation.
 The [persistent proxy](persistent-proxy.md) handles all supported ecosystems, subject to its Go trust check.
 
-Traffic to unknown hosts goes through an ordinary encrypted tunnel. PMG cannot see the request path or body. PMG records the host in the audit log as a Host Observation event, so you can see which outside hosts your build reached. The event records the port and how the connection reached the proxy. Under [kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux) it also records the client's identity. This includes the pid, name and executable of a host process, or the address of a container. A process outside the daemon's PID namespace has a name only.
+Traffic to unknown hosts goes through an ordinary encrypted tunnel. PMG cannot see the request path or body. PMG records the host in the audit log as a Host Observation event, so you can see which outside hosts your build reached. The event records the port and how the connection reached the proxy. Under [kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux) it also names the client: the pid, name and executable of a host process, or the address of a container. A process outside the daemon's PID namespace has a name only.
 
 After decryption, PMG matches each request against an endpoint by:
 
@@ -303,18 +303,16 @@ pip config debug
 
 For Cargo, read the `[registries]` and `[source]` tables of each `.cargo/config.toml` that applies, and the `CARGO_REGISTRIES_*` environment variables. A `replace-with` source sends crates.io traffic to the mirror that it names, so configure that mirror as a custom registry.
 
-`npm config get @myscope:registry` reports one scope.
-Repeat it for every scope you use.
+`npm config get @myscope:registry` reports the registry for one scope. Repeat it for every scope you use.
 `pip config debug` groups files by kind, not precedence.
 pip applies global, user, site, then the `PIP_CONFIG_FILE` file.
 Later files override earlier files.
-Active `PIP_*` environment variables override files.
+It also lists active `PIP_*` environment variables under its `env_var:` section. An environment variable such as `PIP_INDEX_URL` overrides every config file.
 See [pip configuration](https://pip.pypa.io/en/stable/topics/configuration/).
 
 uv does not read pip configuration.
 Check its `pyproject.toml`, `uv.toml`, index options, and `UV_*` index environment variables.
 See [uv configuration](https://docs.astral.sh/uv/concepts/configuration-files/) and [pip compatibility](https://docs.astral.sh/uv/pip/compatibility/).
-Use each other client's own registry instructions when finding active endpoints.
 
 PMG itself can use an upstream corporate proxy through `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
 Its HTTP transport and CONNECT dialer support HTTP, HTTPS, and SOCKS proxies.
@@ -475,4 +473,4 @@ as dependency-installing commands.
 
 ## References
 
-- [Persistent Proxy Server](./persistent-proxy.md)
+- [Persistent Proxy Mode](./persistent-proxy.md)

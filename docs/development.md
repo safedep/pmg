@@ -8,8 +8,9 @@ The hooks run the linter and tests.
 The secret scan runs when `gitleaks` is installed.
 A missing `gitleaks` prints a warning instead of blocking every commit.
 
-- [User Interface](ui.md)
-- [Steps to introduce a new Package Manager](package-manager.md)
+- [User Interface](./ui.md)
+- [Steps to introduce a new Package Manager](./package-manager.md)
+- [System install](./system-install.md) (operator guide)
 - [Proxy library](proxy.md) and [proxy examples](../examples/proxy/README.md)
 - [Landlock internals](sandbox-landlock.md) and [profile authoring](../sandbox/profiles/README.md)
 - [Acceptance suite](../test/acceptance/README.md)

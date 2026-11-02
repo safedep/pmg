@@ -1,7 +1,8 @@
 # User Interface
 
-PMG has silent, normal, and verbose UI levels.
-Normal is the default.
+PMG is an interactive tool. We support multiple interactivity modes such as `silent`, `verbose` etc. to meet different developer experience needs. As such, we need to standardize the UI, UX and interactive messaging guidance for developers.
+
+Normal is the default UI level.
 Use root flags before a package-manager name.
 Flags after that name belong to the package manager.
 
@@ -10,7 +11,8 @@ pmg --verbose npm install express
 pmg --silent npm install express
 ```
 
-Set `verbosity` in [configuration](config.md) or use `PMG_VERBOSITY` for aliases and shims.
+The verbosity level can be set per-invocation using `--silent` or `--verbose` CLI flags, or persisted via the `verbosity` option in the [configuration file](config.md).
+Use `PMG_VERBOSITY` for aliases and shims.
 For example, `PMG_VERBOSITY=silent npm install express` selects the PMG level through a POSIX shell alias.
 Lockdown can disable that environment override.
 `--silent` and `--verbose` are mutually exclusive.
@@ -18,11 +20,19 @@ The local `pmg sandbox profile lint --verbose` flag adds info-level lint issues 
 
 ## Messaging
 
-Use UI helpers for user decisions and results.
-Use logs for diagnostic detail.
+Two types of messages to users are supported:
+
+1. UI messages
+2. Logs
+
 Child process output has its own rules and does not disappear in PMG silent mode.
 
 ### UI messages
+
+UI messages are displayed in the user interface, currently in the terminal. Following types of messages are supported:
+
+1. **Status updates** - Meant for showing the stage or status of the workflow.
+2. **Error messages** - Meant for showing fatal error messages
 
 | Message or report | Silent | Normal | Verbose |
 | --- | --- | --- | --- |
@@ -67,8 +77,8 @@ Set `NO_COLOR=1` to request plain output explicitly.
 
 ### Logs
 
+Logs are by default for inspection and debugging purposes. They are not shown by default. Consider logs as something meant for use only when there is an unexpected behavior.
 UI verbosity does not set diagnostic log levels.
-Logs are hidden by default.
 Use `--debug` for stdout debug logs or `--log <file>` for an info-level file sink.
 Combine them for file debug detail.
 

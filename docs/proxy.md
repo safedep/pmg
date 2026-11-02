@@ -1,12 +1,13 @@
 # PMG Proxy
 
-The `proxy` package provides an HTTP and HTTPS proxy with selective TLS interception.
-It uses [goproxy](https://github.com/elazarl/goproxy).
+A generic, extensible HTTP/HTTPS proxy server with man-in-the-middle (MITM) capabilities for intercepting and analyzing package manager traffic.
+Built with [goproxy](https://github.com/elazarl/goproxy) library.
 
 ## Features
 
-- Selective HTTPS interception through pluggable interceptors
-- Certificate generation, caching, persistence, and inspection
+- Selective interception of HTTPS traffic
+- Pluggable interceptors for different use cases
+- Certificate generation and management for HTTPS interception (MITM)
 - Optional destination policy with audit and enforce modes
 - Explicit proxy clients and transparent, kernel-redirected clients
 
@@ -179,7 +180,7 @@ See the [package-manager checklist](package-manager.md) when extending registry 
 
 ## Certificate Manager
 
-The `certmanager` package generates and caches host certificates.
+The `certmanager` package provides certificate generation and caching.
 It also saves and loads signing CAs, merges trust bundles, and reports status through `InspectCA`.
 The default CA lifetime is 365 days.
 Host certificates last 1 day and use an in-memory cache.

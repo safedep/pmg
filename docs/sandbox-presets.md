@@ -171,11 +171,14 @@ Rules the schema enforces:
   refused, because a preset must not open the whole network. The rules add
   to the profile's allow list without removing a deny entry.
   PMG drops a preset allow only when one authored deny covers its entire host and port range.
-  The catch-all `*:*` does not drop preset rules.
+  The catch-all deny `*:*` drops none,
+  because a preset rule is meant to rise above it. A preset adds allowances
+  and restricts nothing.
   A partial overlap can survive and win by specificity.
   For example, a more specific `host:*` preset allow can beat a `*.domain:443` or `*:443` authored deny.
   Use `--debug` or `--log <file>` to see drop warnings.
-  Under `exec`, outbound destinations are allowed until a profile adds a deny.
+  Under the `exec` profile every destination is
+  already allowed, so a preset rule matters once a profile denies `*:*`.
   A catch-all deny refuses other destinations only in `--network-mode enforce`.
   The default audit mode records matches and allows them.
   Proxy confinement is a separate control.

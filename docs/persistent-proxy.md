@@ -115,7 +115,8 @@ Use separate `--port` values only if your config fixes the listen port.
 
 `pmg proxy stop --if-running` exits 0 when the state file is absent.
 A stale state file left by a crashed daemon still fails.
-`--report <file>` writes JSON even on a violation.
+`--report <file>` writes the stop result as JSON, also on a
+violation.
 With no state and `--if-running`, it writes a zero-valued report before the violation gate.
 Typical fields follow.
 Optional fields can be absent.
@@ -254,8 +255,7 @@ it by default, modern pip reads it, and `requests` ships its own bundle. The
 variables work for all of them.
 
 Except for Go on macOS and Windows, you do not run `pmg setup cert
-install`. The proxy reuses a persisted user CA when available.
-Otherwise it generates an ephemeral signing CA.
+install`. The proxy reuses that CA when it exists and makes one for this run when it does not.
 On macOS, run `pmg setup cert install --system` as your normal user and approve the elevation prompt.
 On Windows, run it from a terminal started as administrator.
 The keypair stays in the running account's config directory.
@@ -630,8 +630,9 @@ proxy:
   daemon warns when an eligible user is in the `sudo` or `wheel` group.
 - `skip_destinations` takes CIDR prefixes such as `10.20.0.0/16` or `10.0.0.5/32`.
   It adds to the built-in host skip list for loopback, link-local metadata, and `168.63.129.16`.
-- `cgroup` is an absolute cgroup v2 directory path, such as `/sys/fs/cgroup/system.slice`. It limits the scope to that directory. The default is the
+- `cgroup` limits the scope to one cgroup v2 directory. The default is the
   root, which covers every process on the host.
+  Set an absolute path, such as `/sys/fs/cgroup/system.slice`.
 
 The cgroup, user, executable, and skip rules above apply to host sockets.
 Namespace redirect ignores these filters and the built-in skip list.
@@ -649,8 +650,9 @@ Without `PMG_CONFIG_DIR`, it does not read the invoking user's file.
 `pmg proxy status` and the daemon log name the loaded config.
 Detached start output does not normally print that path.
 A start using root's per-user file warns on the terminal.
-Use `sudo pmg config edit --system` or `sudo pmg config set --system <key> <value>` to change managed configuration.
-See [configuration paths](config.md#which-file-a-command-reads).
+Change the managed config with `sudo pmg config edit --system` or
+`sudo pmg config set --system <key> <value>`. See
+[config.md](./config.md#which-file-a-command-reads).
 
 ### Policy from the command line
 
@@ -795,7 +797,7 @@ A firewall with a default deny on input, such as ufw on iptables-nft, drops a
 redirected connection on its way to the listener, and the container hangs.
 The daemon detects nftables input chains with a drop policy.
 It does not detect legacy iptables firewalls.
-When it finds a drop-policy chain, it warns and names a rule to add. For ufw:
+The daemon warns at start when it finds such a chain and names the rule to add. For ufw:
 
 ```sh
 sudo ufw allow in on docker0 to 169.254.200.1
@@ -897,7 +899,7 @@ reaches the registry directly.
 - An exemption covers a file, not the code that runs in it. Any process can
   start an exempt program with `LD_PRELOAD` and run its own code in it.
 - `sudo` bypasses `eligible_users`. See above.
-- The proxy drops redirected TLS without usable SNI, including unsupported ECH and IP-only TLS.
+- The proxy decides by name. It drops redirected TLS without usable SNI, including unsupported ECH and IP-only TLS.
   Plain HTTP without `Host` receives HTTP 400.
   Plain HTTP with an IP `Host` passes through and receives registry analysis only if a configured endpoint names that IP.
   Use a hostname for a registry reached by TLS.

@@ -1,12 +1,16 @@
 # Trust
 
-PMG protects developers from malicious open source packages.
-You must also verify the PMG software that performs those checks.
+PMG exists to protect developers from malicious open source packages. This effectively means:
+
+1. Open source packages are not *implicitly* trusted
+2. PMG needs to be trusted to block malicious packages
+
+The assertion in [2] cannot be *implicit*. If so, it breaks the entire security and trust model.
 
 ## Security Goals
 
-- Let users verify PMG before they trust it.
-- Build public source through reviewable workflows.
+- Adopt software supply chain security best practices so that PMG users can *verify* and only then trust PMG
+- PMG is open source, built in public and reviewed by the community for verifiable source of truth
 - Publish GitHub provenance for checksum-listed release archives and MSI assets.
 - Publish npm provenance for the launcher and platform packages.
 - Develop multiple security layers to reduce dependence on any one control.
@@ -19,8 +23,14 @@ Inspect a specific downloaded artifact when you need its OS signature status.
 
 ## Verified Installation
 
-The [README](../README.md) lists installation channels.
-Their verification properties differ.
+Zero-friction installation options are available in [README](../README.md). However, for more control, you can install PMG manually
+after verifying the integrity of the PMG binary. Verified installations allow you to:
+
+- Verify the integrity of the PMG binary and identify the exact source code that was used to build the binary
+- Manually review the source code for trust
+- Build your own binary from source or download a pre-built archive with verified source provenance
+
+Installation channels have different verification properties.
 
 | Channel | Verification behavior |
 | --- | --- |
@@ -106,7 +116,12 @@ npm audit signatures
 [`npm audit signatures`](https://docs.npmjs.com/cli/v11/commands/npm-audit/#audit-signatures) checks registry signatures and published provenance.
 It does not support global installs.
 
+Navigate to the [npm package](https://www.npmjs.com/package/@safedep/pmg) to inspect its published provenance.
+
 ## Security Model
+
+PMG aims to provide a multi-layered security model to avoid single point of trust or failure. PMG's security
+model consists of the following layers:
 
 PMG currently uses SafeDep as its threat intelligence source.
 When the analyzer fails, PMG allows the artifact through the malware check.
@@ -123,8 +138,7 @@ The [README](../README.md#telemetry) describes telemetry and its opt-out.
 
 ## Certificate Authority
 
-PMG uses a MITM CA to inspect HTTPS downloads.
-See [Certificate Authority](cert.md) for persistence, trust scopes, and key risks.
-Persistent OS trust is optional for most tools.
+PMG uses a MITM CA to inspect HTTPS package downloads. See [Certificate Authority](cert.md)
+for how it works and how to optionally persist and OS-trust the CA.
 Go on macOS and Windows requires it.
 The enforcing Linux proxy also requires a root-owned system CA.

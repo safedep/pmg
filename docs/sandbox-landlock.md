@@ -122,6 +122,7 @@ Do not treat concurrently sandboxed processes under one user as mutually isolate
 
 ### The filter does not use `TSYNC`
 
+`SECCOMP_FILTER_FLAG_TSYNC` applies the filter to each thread in the thread group.
 The filter applies only to the locked thread that calls `execve`.
 The target and its descendants inherit it.
 `TSYNC` would also filter the shim's other Go runtime threads.
@@ -250,7 +251,8 @@ Only traffic that reaches the proxy receives those destination rules.
 Bubblewrap differs because it can translate a deny-all profile to `--unshare-net`.
 Separate host enforcement can still constrain traffic outside this driver.
 
-Landlock ABI 4 network rules match TCP ports without destination addresses.
+The network rules of Landlock (ABI V4) filter TCP ports only. They cannot match a
+destination address. They do not cover UDP.
 A port rule cannot confine a bind to loopback.
 Allowing a connection to a port permits it on every host.
 This cannot express arbitrary loopback-only connects required by `allow_network_bind`.

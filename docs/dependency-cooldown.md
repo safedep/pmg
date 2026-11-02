@@ -15,8 +15,7 @@ The enforcement method depends on the ecosystem.
 | Go modules | PMG blocks recent module `.zip` downloads with HTTP 403. It does not filter module metadata. |
 | Cargo crates | PMG removes recent versions from the sparse index. It also blocks recent `.crate` downloads with HTTP 403. |
 
-For metadata filtering, the resolver can select an older eligible release if the version constraint permits it.
-The install fails if no eligible version satisfies the request.
+For metadata filtering, PMG intercepts package metadata responses from the registry and strips versions published within the cooldown window. If the requested version range allows an older eligible release, the resolver falls back to it automatically. If no eligible version satisfies the request, the install fails.
 For npm, PMG repairs a withheld `latest` tag with the highest eligible stable version at or below the former `latest`.
 PMG removes the tag if no such version exists.
 PMG removes other tags that point to withheld versions.
@@ -36,15 +35,30 @@ Cargo git dependencies also bypass the crate registry handlers.
 
 ## How PMG Reports Cooldown
 
-Per-command runs, such as `pmg npm install`, report cooldown at normal or verbose verbosity.
-The metadata filtering report has three outcomes.
+These install-summary reports appear in per-command runs (`pmg npm ...`) at normal or verbose verbosity.
+For metadata filtering, PMG reports cooldown in three ways:
 
-- **No eligible version.** PMG reports a block with the version closest to leaving the window.
-- **Command-line pin withheld.** PMG reports a block when a command-line version pin refers to a withheld version.
-- **Eligible versions remain.** The resolver normally selects an eligible version. If the command fails, PMG lists withheld versions as a possible cause. A transitive exact pin can cause this failure. When more than 3 packages have withheld versions, the hint lists package names only.
+- **Block: no version is eligible.** Every version of the package is within the
+  cooldown window. The install fails and PMG reports the package as blocked,
+  with the version closest to exiting the window.
+- **Block: a requested version is withheld.** You pinned a version on the
+  command line (for example `pmg npm install pkg@1.2.3`) and that version is
+  within the window. The install fails and PMG reports that version as blocked.
+- **Hint: versions withheld, eligible versions remain.** Recent versions were
+  withheld but older eligible versions survive. The resolver normally falls
+  back to an eligible version and the install succeeds with no extra output.
+  The install can still fail when something requires exactly a withheld
+  version, for example a lockfile entry or a dependency with an exact version
+  pin. PMG cannot see that requirement in the metadata, so in this case it
+  prints the withheld versions after the package manager error as the likely
+  cause of the failure. When more than 3 packages had versions withheld, the
+  hint lists package names only; the package manager error above it names the
+  exact version it could not find.
+
+Run PMG with `--verbose` to always list the withheld versions in the execution
+report, including on successful installs.
 
 A Go or Cargo download block also appears in the execution report.
-Use `pmg --verbose npm install` to include withheld versions after a successful install.
 Silent mode omits cooldown details and the advisory for a cooldown-only block.
 Normal insecure output also omits cooldown details.
 Use verbose output to diagnose these cases.
@@ -58,9 +72,8 @@ Restart the daemon after a cooldown configuration change.
 
 ## Configuration
 
-Configure cooldown in `config.yml`.
-Use `pmg config edit` to edit the file.
-See [configuration](config.md) and the [config template](../config/config.template.yml) for the full schema.
+Dependency cooldown is configured in `config.yml`. See [config template](../config/config.template.yml) for the full schema. If you don't have a `config.yml` file, create one by running `pmg setup install`.
+Use `pmg config edit` to edit it. See [configuration](config.md) for overrides and managed files.
 This example uses a 5-day window.
 
 ```yaml
@@ -77,36 +90,44 @@ Its display follows the output limits above.
 
 ## Exempting Specific Packages
 
-Add packages that need an immediate release to `dependency_cooldown.skip`.
-A PURL without a version exempts all versions of that package.
-A PURL with a version exempts only that version.
+Some packages — typically first-party or internal — need to be installed as soon
+as they are published (for example, to sanity-test a freshly released version)
+and cannot wait out the cooldown window. List them under the
+`dependency_cooldown.skip` list:
 
 ```yaml
 dependency_cooldown:
   enabled: true
   days: 5
   skip:
-    - purl: pkg:npm/my-internal-sdk
-      reason: First-party SDK
-    - purl: pkg:npm/another-internal-pkg@1.2.3
-      reason: Approved release
+    - purl: pkg:npm/my-internal-sdk             # all versions
+      reason: "First-party SDK; sanity-tested immediately on release"
+    - purl: pkg:npm/another-internal-pkg@1.2.3  # only this version
+      reason: "Pin a specific just-published build"
     - purl: pkg:golang/example.com/team/module@v1.2.3
       reason: Approved Go release
     - purl: pkg:cargo/internal-crate@0.4.0
       reason: Approved Cargo release
 ```
 
-Skip entries waive only cooldown.
-PMG still analyzes these packages for malware.
+The skip list is a **per-control exemption**: packages on it **skip only the
+cooldown window — they are still analyzed for malware.** Use it when you want a
+package to bypass cooldown but still go through every other security control.
 The top-level [`trusted_packages`](trusted-packages.md) list waives malware analysis and cooldown.
 Neither list changes sandbox or proxy network policy.
 
 | List | Waives malware analysis | Waives cooldown |
 | --- | --- | --- |
-| `trusted_packages` | yes | yes |
+| `trusted_packages` (top level) | yes | yes |
 | `dependency_cooldown.skip` | no | yes |
 
-PyPI names use lowercase with `_` and `.` replaced by `-`.
+Matching:
+
+- A PURL **without a version** skips cooldown for **all versions** of the package.
+- A PURL **with a version** skips cooldown for **that version only** (the version
+  stays installable; other recent versions are still held).
+
+PyPI names are matched in their normalized form (lowercase, `_`/`.` → `-`).
 Cargo names use lowercase.
 Go module paths are case-sensitive.
 Use the ecosystem's actual version spelling, including the `v` prefix for Go.
@@ -122,7 +143,7 @@ Whole-package skips do not produce a per-version skip audit trail.
 
 ## CLI Override
 
-Put the root flag before the package manager name to disable cooldown for one command.
+Use `--skip-dependency-cooldown` to disable cooldown enforcement for a single invocation without changing the config file:
 
 ```bash
 pmg --skip-dependency-cooldown npm install express
@@ -147,14 +168,13 @@ PMG refuses authenticated lookup redirects to another origin.
 That refusal can leave cooldown unenforced for the download.
 Malware analysis can still run when cooldown cannot determine the package age.
 
-### PyPI requires pip 22.2+ or a PEP 691-capable client
+### PyPI: requires pip 22.2+ or a PEP 691-capable client
 
 PMG filters the [PEP 691 JSON Simple API](https://peps.python.org/pep-0691/).
 [pip 22.2](https://pip.pypa.io/en/stable/news/#v22-2) added support for this format in July 2022.
 PMG reads the optional per-file `upload-time` field added by [PEP 700](https://peps.python.org/pep-0700/) in Simple API version 1.1.
 A JSON response without that field does not provide cooldown protection for those files.
 
-Older pip clients request HTML responses.
-PMG passes these responses through without cooldown filtering.
+Older pip versions request the HTML Simple API, which carries no publish timestamps. PMG cannot apply cooldown filtering to HTML responses and fails open; the request passes through unchanged and the client receives the full version list. Old pip gets no cooldown protection but does not break.
 The current warning says to upgrade to pip 22.3+.
 pip 22.2 already supports the required JSON format.

@@ -10,7 +10,10 @@ The optional SQLite cache reuses benign verdicts across processes.
 
 ## How It Works
 
-The analyzer reads and writes the persistent cache through `analyzer.MalysisCache`.
+- The cache is modeled as the `analyzer.MalysisCache` interface — a pluggable
+  contract the analyzer layer reads through. A concrete backend (e.g. sqlite) is
+  injected by the caller, so the abstraction is decoupled from any single store.
+
 The SQLite implementation stores verdicts in `<cache-dir>/localdb/pmg.db`.
 See [Storage](caching.md#storage) for platform paths and `PMG_CACHE_DIR`.
 
@@ -35,8 +38,9 @@ See [Manage](caching.md#manage) for status and clearing commands.
 
 ## Configuration
 
-The persistent cache is off by default.
-Enable it in the active `config.yml` file.
+Disabled by default. Caching is analyzer-specific, so it is configured per
+analyzer under `analysis_cache`; today only the Malysis (malware) analyzer has a
+cache. Enable it in `config.yml`:
 
 ```yaml
 analysis_cache:
@@ -45,8 +49,8 @@ analysis_cache:
     ttl: 24h
 ```
 
-`enabled` defaults to `false`. Disabling it retains stored rows.
-`ttl` defaults to `24h`. Use a Go duration such as `30m`, `24h`, or `168h`.
+- `enabled` — turn the persistent cache on/off. Disabling it retains stored rows.
+- `ttl` defaults to `24h`. Use a Go duration such as `30m`, `24h`, or `168h`.
 The unit `d` is not valid. A zero or negative TTL disables the disk cache.
 Always include a unit. An unquoted YAML integer represents nanoseconds.
 

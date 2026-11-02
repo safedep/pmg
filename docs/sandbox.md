@@ -19,10 +19,12 @@ Landlock grants execution through filesystem access and implicit system rules as
 A narrow Landlock filesystem policy can still restrict other execution.
 A denied executable path does not cover every copy or execution through an allowed loader.
 
-PMG adds mandatory credential denies and project-root write denies for `.github/workflows` and `.vscode`.
-See [dangerous.go](../sandbox/util/dangerous.go) for the lists.
+PMG ships mandatory denies for credential files (`.env`, `.ssh`, `.aws`, `.gcloud` and more). It also denies writes to the project-root directories whose
+contents execute outside the sandbox (`.github/workflows`, `.vscode`). See
+[dangerous.go](../sandbox/util/dangerous.go) for the full list.
 Other future execution surfaces such as `.claude`, `.cursor`, `.devcontainer`, `.idea`, and `.husky` remain writable in ordinary package-manager profiles.
-Exact allow entries can opt out of most mandatory denies.
+To allow legitimate access, you can opt out of a mandatory deny
+via an exact match entry in `allow_read` or `allow_write` (in the policy or via `--sandbox-allow`).
 Driver limitations below qualify credential protection.
 
 <details>
@@ -263,10 +265,10 @@ Use profile commands to inspect, create, and validate sandbox profiles.
 pmg sandbox profile list
 
 # Scaffold a user profile that inherits from a built-in
-pmg sandbox profile init my-pnpm --from pnpm --package-manager pnpm
+pmg sandbox profile init my-npm --from npm --package-manager npm
 
 # Open a user profile in $VISUAL / $EDITOR, then validate and lint it
-pmg sandbox profile edit my-pnpm
+pmg sandbox profile edit my-npm
 
 # Show a profile, or its fully resolved policy
 pmg sandbox profile show npm-restrictive
@@ -280,7 +282,7 @@ pmg sandbox profile lint ./my-profile.yml --strict
 pmg sandbox profile diff npm-restrictive pypi-restrictive
 
 # Propose network rules from the destinations of the last run
-pmg sandbox profile propose --last --new my-pnpm-network
+pmg sandbox profile propose --last --new my-npm-network
 ```
 
 `pmg sandbox profile edit` resolves the profile name to its file under the user profile
@@ -377,7 +379,7 @@ Enable sandboxing through configuration or `--sandbox` before using these overri
 
 ```bash
 # Allow writing to a specific file
-pmg --sandbox-allow write=$HOME/.example-tool-cache/** npx create-next-app@latest
+pmg --sandbox-allow "write=$HOME/.example-tool-cache/**" npx create-next-app@latest
 
 # Allow executing a binary blocked by the profile
 pmg --sandbox-allow exec=$(which curl) npm install some-package
@@ -393,7 +395,7 @@ pmg --sandbox-allow env=GOOGLE_APPLICATION_CREDENTIALS npm install some-package
 
 # Multiple overrides
 pmg \
-  --sandbox-allow write=$HOME/.example-tool-cache/** \
+  --sandbox-allow "write=$HOME/.example-tool-cache/**" \
   --sandbox-allow exec=$(which curl) \
   npm install some-package
 ```
@@ -451,7 +453,7 @@ That save removes the ignored entries and keeps the others.
 
 ```bash
 # Save manual allowances for the current repo
-pmg sandbox allow write=$HOME/.example-tool-cache/** net-bind=localhost:4321
+pmg sandbox allow "write=$HOME/.example-tool-cache/**" net-bind=localhost:4321
 
 # Persist an environment variable allowance so the profile stops scrubbing it
 # in this repo (same semantics as --sandbox-allow env=..., but saved)

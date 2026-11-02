@@ -81,15 +81,15 @@ profile that denies `*:*`, which `pmg sandbox profile propose` writes. The prese
 agent's hosts. The profile keeps the hosts the repository needs. Read a preset with
 `pmg sandbox preset show claude`.
 
-Apply a preset for one run, or save it for the current repository:
+Apply a preset for one run, or save it for the current repository.
+Save it only when you accept those allowances for every later sandboxed workload, including package install scripts.
 
 ```bash
 pmg sandbox exec --sandbox-allow preset=claude -- claude
+pmg sandbox allow preset=claude && pmg sandbox exec -- claude
 pmg sandbox exec --sandbox-profile agent --network-mode enforce --sandbox-allow preset=claude -- claude
 ```
 
-Save an agent preset only when you accept it for every later sandboxed workload in this repository.
-A saved overlay also grants those allowances to package install scripts.
 Use `pmg sandbox project reset` to remove saved allowances.
 To customize a preset, give the copy a new name under `<config-dir>/sandbox/presets/` and use `preset=<new-name>`.
 A same-name copy is shadowed by the built-in.
@@ -185,7 +185,8 @@ The program gets the proxy through `HTTP_PROXY`, `HTTPS_PROXY`, their lower-case
 `NODE_USE_ENV_PROXY=1`. The `exec` profile also sets `network_via_proxy_only`, so the sandbox
 driver restricts direct outbound connections.
 Clients that ignore the proxy generally fail on their direct remote connection.
-Examples include database clients, SSH, and raw TCP tools.
+Examples include database clients such as `psql` and `mysql`, `ssh` and git over ssh,
+and raw TCP tools such as `nc`.
 Loopback remains open because the profile enables `allow_network_bind`.
 Remote direct DNS is refused, but a loopback resolver such as `127.0.0.53:53` can still answer and forward queries off-host.
 This remains a DNS exfiltration path.

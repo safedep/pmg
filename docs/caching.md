@@ -1,18 +1,18 @@
 # Caching
 
-PMG can reuse malware-analysis results to reduce repeat network queries.
-The persistent disk cache is opt-in and off by default.
+PMG can cache package analysis results across runs to reduce repeat-install
+latency. Persistent caching is opt-in and disabled by default.
 Every proxy also has an in-memory cache for its own lifetime.
 
 ## Storage
 
 The analysis cache uses the SQLite file `<cache-dir>/localdb/pmg.db`.
 
-| Platform | Default cache directory |
-|---|---|
-| macOS | `~/Library/Caches/safedep/pmg` |
-| Linux | `$XDG_CACHE_HOME/safedep/pmg`, or `~/.cache/safedep/pmg` |
-| Windows | `%LOCALAPPDATA%\safedep\pmg` |
+| Platform | Default cache dir |
+|----------|-------------------|
+| macOS    | `~/Library/Caches/safedep/pmg` |
+| Linux    | `$XDG_CACHE_HOME/safedep/pmg` (or `~/.cache/safedep/pmg`) |
+| Windows  | `%LOCALAPPDATA%\safedep\pmg` |
 
 `PMG_CACHE_DIR` replaces the whole cache root. PMG adds no `safedep/pmg` suffix.
 Keep this directory on a local disk. Do not use an NFS or SMB share.
@@ -30,8 +30,11 @@ The built-in exec profile permits writes to the default cache directories.
 
 ## Malysis analysis cache
 
-The disk cache stores only benign `ALLOW` results.
-PMG does not persist malicious, suspicious, or tenant-excluded results.
+Persists **benign** Malysis (malware analysis) verdicts on disk, so a package
+version that was already screened is not re-analyzed on a later download while its cached verdict is valid.
+
+Only benign verdicts are cached on disk, and each entry expires after a TTL.
+PMG never persists malicious, suspicious, or tenant-excluded verdicts.
 A disk-cache hit skips the backend query for that package version.
 If the backend flags it later, PMG can allow the old cached verdict until it expires.
 See [Analysis Cache](analysis-cache.md#security-trade-off) for this trade-off.
@@ -50,7 +53,7 @@ Restart the daemon to apply a new malware verdict or tenant exclusion.
 
 ### Enable
 
-Set the values in the active `config.yml` file.
+In `config.yml`:
 
 ```yaml
 analysis_cache:
@@ -64,7 +67,7 @@ You can also use the CLI when the keys already exist in the file.
 ```bash
 pmg config set analysis_cache.malysis.enabled true
 pmg config set analysis_cache.malysis.ttl 24h
-pmg config edit
+pmg config edit   # open the config file directly
 ```
 
 If a key is missing, add it with `pmg config edit` or merge template keys with `pmg setup install`.
@@ -85,11 +88,10 @@ A daemon reads these settings only at startup. Restart it after a change.
 ### Manage
 
 ```bash
-pmg setup cache status
-pmg setup cache clear
+pmg setup cache status   # show path, enabled state, TTL, and entry count
+pmg setup cache clear    # delete all cached verdicts
 ```
 
-Status shows the database path, enabled state, TTL, and entry count.
 `Entries` includes expired rows. PMG removes an expired row when it looks it up.
 No background task prunes the database. A zero count alone does not prove cache failure.
 

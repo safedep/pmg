@@ -242,7 +242,7 @@ At the end of the job, the post step of the action:
 2. Proposes a network profile from the destinations the job reached. See
    [Build the profile from a run](#build-the-profile-from-a-run).
 3. Writes the job summary. The summary shows the verdict, each denied
-   connection, destination and the proposed profile. Tables stop at 100 rows.
+   connection, each destination and the proposed profile. Tables stop at 100 rows.
    The run gets one annotation with the blocked package count.
    It gets up to 10 individual denial annotations and a remaining count.
    Audit-mode matches appear as warnings.
@@ -261,10 +261,10 @@ job, or warns when `fail-on-violation` is `false`. A job that stops PMG in
 its own step must set `auto-stop: false`. When the daemon still runs but its
 state file is gone, the post step fails the job with every setting.
 
-The verdict trusts every job step and install script.
-A step runs as the runner user and can use `sudo` on hosted runners.
-An unflagged package, a trusted package, or a compromised action can stop the daemon or replace the binary.
-These actions can change the final verdict.
+The verdict trusts the steps and install scripts of the job. A step runs as the runner user and
+can use `sudo` on a hosted runner, so a hostile step can stop the daemon or replace the `pmg`
+binary before the post step runs.
+An unflagged package, a trusted package, or a compromised action can do the same.
 The noninteractive daemon declines suspicious packages and counts them as blocks.
 See [trust decisions](trust.md) and [cooldown](dependency-cooldown.md).
 
@@ -358,10 +358,11 @@ The action sets `NODE_EXTRA_CA_CERTS` on every job that does not already set it.
 On Node versions that ignore system trust, a job-set bundle must contain the PMG CA.
 Otherwise registry TLS fails.
 
-A Docker action also receives this host path.
+A Docker container action also gets the variable, with a path on the runner host.
 In many images, the same path names the image's own bundle without the PMG CA.
-If the path is absent or malformed, Node warns and continues.
-Set the step's `NODE_EXTRA_CA_CERTS` to a bundle available inside the container.
+If the path is absent or malformed, Node warns and continues. Set `NODE_EXTRA_CA_CERTS` in the `env:` of that step to change
+it.
+Use a bundle available inside the container.
 
 The policy inputs cover the common cases without a config file. Each list
 adds to the config's list. The config is the staged `config-file` when the

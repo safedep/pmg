@@ -58,8 +58,7 @@ To uninstall:
 pmg setup remove
 ```
 
-This removes the user shims and user PATH entry.
-Configuration and cache stay.
+This deletes the shims and the `PATH` entry. Per-user configuration and cache stay, as on macOS and Linux.
 Use `pmg setup remove --config-file` to request config removal too.
 Remove setup before deleting a manual executable or uninstalling the npm package.
 If the binary is already gone, remove the stale per-user shim directory and its user PATH entry.
@@ -89,7 +88,7 @@ Use the explicit PMG prefix.
 Cargo receives `CARGO_HTTP_CAINFO` and `CARGO_HTTP_CHECK_REVOKE=false`.
 On Windows, the latter disables Cargo revocation checks for all HTTPS traffic in the guarded run, including Cargo nested under another manager.
 
-`pmg go` needs persistent OS trust. Go reads the OS trust store only, so run `pmg setup cert install` once before `pmg go get`. macOS has the same requirement. See [cert.md](./cert.md).
+`pmg go` is the exception. Go reads the OS trust store only, so run `pmg setup cert install` once before `pmg go get`. macOS has the same requirement. See [cert.md](./cert.md).
 
 ## How a shim starts the manager
 
@@ -111,7 +110,7 @@ Go rebuilds a command line with standard Windows C-runtime quoting.
 A `PATH` shim does not intercept everything. `pmg setup doctor` reports the state on your machine rather than assuming it.
 
 - **Current directory.** `cmd.exe` searches the current directory before `PATH`. A repository that holds its own `npm.cmd` runs that file, not the shim.
-- **Programs that skip the shell.** A program that starts `npm` directly, with no shell, appends `.exe` only and never finds a `.cmd` shim. For `.cmd`-based managers such as npm, npx, or npm-installed pnpm and Yarn, this can mean no program is found.
+- **Programs that skip the shell.** A program that starts `npm` directly, with no shell, appends `.exe` only and never finds a `.cmd` shim. On a stock machine it finds no `npm` at all, so this is missing coverage rather than a bypass. An IDE task that does not run through a shell behaves the same way.
   Managers that ship an `.exe`, including pip, pip3, pipx, uv, uvx, Bun, and Poetry, can instead run directly without PMG.
   Use `pmg <manager>` explicitly in scripts and IDE tasks.
 - **Node.js from the MSI is not intercepted by a per-user install.** The nodejs.org installer, `winget install OpenJS.NodeJS` and Chocolatey put `C:\Program Files\nodejs` on the machine `PATH`. Windows builds a process `PATH` as the machine value, then the user value, so the per-user shim directory can never move ahead of it. On such a machine a bare `npm install` runs Node's own `npm`. `pmg setup install` and `pmg setup doctor` report this. Use a machine-wide install to fix this. Run `pmg setup install --system` from a terminal started as administrator. This puts administrator-owned shims first on the machine `PATH`. The binary must first be at `%ProgramFiles%\safedep\pmg\pmg.exe` without a reparse point on that path.
@@ -125,10 +124,9 @@ A `PATH` shim does not intercept everything. `pmg setup doctor` reports the stat
 - **Interpreter entry points.** `python -m pip` and `py -m pip` do not invoke a pip shim.
   Use `pmg pip install ...`, or import the proxy and trust environment for a running foreground proxy.
   Starting a proxy alone does not route Python through it.
-- **No sandbox.** Windows does not support the current sandbox model.
+- **No sandbox.** Windows has no Landlock or Seatbelt equivalent that fits the current policy model. See [sandbox.md](./sandbox.md).
   Keep `sandbox.enabled: false` in Windows fleet configuration.
   Commands that reach sandbox resolution with it enabled fail instead of silently running unconfined.
-  See [sandbox.md](sandbox.md).
 - **No proxy daemon.** `pmg proxy start --daemon` needs a detached process, a liveness check and a stop path that Windows does not share with Unix. Use a foreground start and Ctrl+C shutdown.
   The current liveness probe makes stop, status, and stop/report gating unsupported on Windows.
   Stop can remove a live server's state and return an error while it continues running.
@@ -138,7 +136,7 @@ A `PATH` shim does not intercept everything. `pmg setup doctor` reports the stat
   WSL 1 has no Linux kernel and cannot provide Landlock or Bubblewrap.
   Enabling sandboxing there fails.
   Check with `pmg setup doctor`.
-  PMG inside WSL protects only that environment's toolchain.
+  It protects package managers inside WSL only. A native Windows toolchain needs the Windows build.
 
 For a foreground proxy in another terminal, import its environment in the client terminal.
 Use the same config, cache, and state scope for both terminals.

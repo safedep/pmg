@@ -18,7 +18,7 @@ To edit configuration file:
 pmg config edit
 ```
 
-To read a merged config value as JSON, run this command.
+To get a config value (output is JSON):
 
 ```bash
 pmg config get paranoid
@@ -30,7 +30,7 @@ It can return an environment value as a string.
 It does not reflect every later CLI mutation of the runtime config.
 `config get --system` reads the managed file over the template without environment overrides.
 
-To set a scalar config value, run this command.
+To set a scalar config value:
 
 ```bash
 pmg config set paranoid true
@@ -129,7 +129,7 @@ Under a [globally managed config](#globally-managed-configuration) with `global_
 **Limitation**
 
 - `config set` can only update keys that are present and uncommented in the config file.
-  If a key is commented out or missing entirely, `set` will
+  If a key is commented out (e.g. `# endpoint_id: "my-machine"`) or missing entirely, `set` will
   return a "key not found" error. To fix this, uncomment or add the key manually via `pmg config edit`,
   or run `pmg setup install` to merge missing template keys into your config.
 - Lists and maps need `config edit`. `config set` updates existing scalar nodes only.
@@ -145,10 +145,11 @@ Under a [globally managed config](#globally-managed-configuration) with `global_
   ignored by a root daemon: it reads /root/.config/safedep/pmg/config.yml, or /etc/safedep/pmg/config.yml when that exists
 ```
 
-The source is `user`, `root per-user`, `PMG_CONFIG_DIR`, or `managed`.
-Without a managed file, sudo normally selects root's own per-user file.
+The source is one of `user`, `root per-user`, `PMG_CONFIG_DIR` or `managed`. A command under
+`sudo` normally reads root's own per-user file when no managed file applies.
 A preserved `PMG_CONFIG_DIR` can select another file instead.
-`pmg proxy status` names the file the daemon loaded.
+Without that override, a root daemon such as `sudo pmg proxy start --enforce` does not see edits a user makes with
+`pmg config edit`. `pmg proxy status` names the file the daemon loaded.
 A daemon reads all settings at startup. Restart it after config changes.
 
 | Platform | User configuration | Default event logs |

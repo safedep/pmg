@@ -158,9 +158,7 @@ Install PMG in the image as above, or use an enforcing host proxy with [namespac
 
 ## Configuration
 
-An accepted system config governs every user and replaces each per-user file.
-Linux uses `/etc/safedep/pmg/config.yml`.
-Windows uses `%PROGRAMDATA%\safedep\pmg\config.yml`.
+The system config file is authoritative for every user. A per-user `config.yml` is ignored while PMG accepts `/etc/safedep/pmg/config.yml`. On Windows the file is `%PROGRAMDATA%\safedep\pmg\config.yml`.
 macOS has no system shim install but accepts `/Library/Application Support/safedep/pmg/config.yml`.
 Deploy it through MDM or `sudo pmg config edit --system`.
 Without `global_lockdown: true`, environment variables and CLI flags can override the managed values.
