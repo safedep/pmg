@@ -112,6 +112,55 @@ func TestSnapshotBacksOffAfterAFailure(t *testing.T) {
 	assert.Equal(t, 2, l.calls)
 }
 
+// slowLister moves the clock forward during each list call, like a runtime
+// that takes time to answer.
+type slowLister struct {
+	fakeLister
+	clock *time.Time
+	took  time.Duration
+}
+
+func (l *slowLister) list(ctx context.Context) (map[netip.Addr]Container, error) {
+	*l.clock = l.clock.Add(l.took)
+	return l.fakeLister.list(ctx)
+}
+
+func TestSnapshotWindowsStartWhenTheListCallReturns(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    error
+		window time.Duration
+	}{
+		{"a slow list is fresh when it returns", nil, listMaxAge},
+		{"the backoff starts when a slow list fails", errors.New("engine hung"), failureBackoff},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := time.Unix(1000, 0)
+			l := &slowLister{
+				fakeLister: fakeLister{byAddr: map[netip.Addr]Container{webAddr: web}, err: tc.err},
+				clock:      &clock,
+				took:       time.Second,
+			}
+			s := newSnapshot(RuntimeDocker, l.list)
+			s.now = func() time.Time { return clock }
+			ctx := context.Background()
+
+			_, _, err := s.ContainerByAddress(ctx, webAddr)
+			if tc.err != nil {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			clock = clock.Add(tc.window - time.Millisecond)
+			_, _, err = s.ContainerByAddress(ctx, webAddr)
+			require.NoError(t, err)
+			assert.Equal(t, 1, l.calls, "the runtime is not asked inside the window")
+		})
+	}
+}
+
 func TestSnapshotUnmapsAnIPv4MappedAddress(t *testing.T) {
 	clock := time.Unix(1000, 0)
 	l := &fakeLister{byAddr: map[netip.Addr]Container{webAddr: web}}

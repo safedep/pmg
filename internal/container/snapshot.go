@@ -59,12 +59,15 @@ func (s *snapshot) ContainerByAddress(ctx context.Context, addr netip.Addr) (Con
 		return Container{}, false, nil
 	}
 
+	// The list call can take up to a second, so both windows start when it
+	// returns. A window that starts before the call can end before the
+	// lookups that waited on mu read the list.
 	byAddr, err := s.list(ctx)
 	if err != nil {
-		s.failedAt = now
+		s.failedAt = s.now()
 		return Container{}, false, err
 	}
-	s.byAddr, s.listedAt = byAddr, now
+	s.byAddr, s.listedAt = byAddr, s.now()
 	c, found := byAddr[addr]
 	return c, found, nil
 }
