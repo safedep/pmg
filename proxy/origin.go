@@ -63,7 +63,10 @@ func (o Origin) String() string {
 		parts = append(parts, "exe="+o.Exe)
 	}
 	if !o.Container.IsZero() {
-		parts = append(parts, o.Container.Label())
+		parts = append(parts, "container="+o.Container.Ref())
+		if o.Container.Image != "" {
+			parts = append(parts, "image="+o.Container.Image)
+		}
 	}
 	if len(parts) == 0 {
 		return string(o.EntryPoint)

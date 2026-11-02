@@ -900,6 +900,18 @@ func TestTranslateHostObservationDetails(t *testing.T) {
 				assert.False(t, c.HasImageId())
 			},
 		},
+		"a container value over its bound is clipped": {
+			seen: HostObservation{Hostname: "cdn.example.com", Method: "CONNECT", EntryPoint: ProxyEntryPointRedirectedNamespace, Client: ProxyClient{
+				Address:   "172.17.0.2",
+				Container: container.Container{Runtime: container.RuntimeDocker, ID: "aaaa", Name: strings.Repeat("n", 300), Image: strings.Repeat("i", 1100)},
+			}},
+			check: func(t *testing.T, obs *controltowerv1.PmgHostObservation) {
+				c := obs.GetClient().GetContainer()
+				assert.Len(t, c.GetName(), maxContainerName)
+				assert.Len(t, c.GetImage(), maxContainerImage)
+				assert.Equal(t, "aaaa", c.GetId())
+			},
+		},
 		"a host process carries its identity": {
 			seen: HostObservation{Hostname: "cdn.example.com", Method: "CONNECT", EntryPoint: ProxyEntryPointRedirectedHost, Client: ProxyClient{PID: 42, Comm: "curl", Exe: "/usr/bin/curl"}},
 			check: func(t *testing.T, obs *controltowerv1.PmgHostObservation) {

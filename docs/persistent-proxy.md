@@ -653,15 +653,18 @@ in `container web (node:22)`. The audit events also carry the container ID
 and the image ID.
 
 The daemon looks for Docker at `/var/run/docker.sock` and for Podman at
-`/run/podman/podman.sock`, and a `unix://` address in `DOCKER_HOST` comes
-first. It looks once, when it starts. Start the runtime before
-`pmg proxy start`, or restart the daemon after the runtime starts. A `RUN` step of `docker build` names the builder, such as
+`/run/podman/podman.sock`. It looks once, when it starts. Start the runtime
+before `pmg proxy start`, or restart the daemon after the runtime starts. A
+`RUN` step of `docker build` names the builder, such as
 `container buildx_buildkit_builder0 (moby/buildkit:buildx-stable-1)`,
 because the step connects with the address of the builder. When no runtime
 answers, a row names the address, as in `container 172.17.0.2`.
 
-The name comes from the runtime and is a label only. The network policy
-does not decide on it.
+The name is a label, and the network policy does not decide on it. The
+daemon trusts a list of containers for a quarter of a second. A runtime
+gives the address of a stopped container to the next one, so in that time a
+new container can show the name of the old one. A container that changes
+its own address can show the name of another container.
 
 #### Host firewalls
 

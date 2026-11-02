@@ -25,7 +25,7 @@ const maxEngineResponseBytes = 16 << 20
 // engineClient talks to the Docker Engine API on a Unix socket. Docker serves
 // that API, and Podman serves a compatible one, so one client covers both.
 type engineClient struct {
-	http *http.Client
+	client *http.Client
 }
 
 func newEngineClient(socket string) *engineClient {
@@ -37,7 +37,7 @@ func newEngineClient(socket string) *engineClient {
 		MaxIdleConns:    1,
 		IdleConnTimeout: 30 * time.Second,
 	}
-	return &engineClient{http: &http.Client{Transport: transport}}
+	return &engineClient{client: &http.Client{Transport: transport}}
 }
 
 func (e *engineClient) get(ctx context.Context, path string, v any) error {
@@ -45,7 +45,7 @@ func (e *engineClient) get(ctx context.Context, path string, v any) error {
 	if err != nil {
 		return err
 	}
-	resp, err := e.http.Do(req)
+	resp, err := e.client.Do(req)
 	if err != nil {
 		return err
 	}

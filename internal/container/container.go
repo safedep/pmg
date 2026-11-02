@@ -31,31 +31,30 @@ type Container struct {
 // IsZero reports whether no container is named.
 func (c Container) IsZero() bool { return c == Container{} }
 
-// Label names the container for a person, as in "container web (node:22)".
-// A container without a name shows its short ID.
-func (c Container) Label() string {
-	name := c.Name
-	if name == "" {
-		name = shortID(c.ID)
+// Ref names the container: its name, or its short ID when it has no name.
+func (c Container) Ref() string {
+	if c.Name != "" {
+		return c.Name
 	}
-	label := "container " + name
+	return c.ID[:min(len(c.ID), shortIDLen)]
+}
+
+// shortIDLen is the length of the short ID that Docker shows.
+const shortIDLen = 12
+
+// Label names the container for a person, as in "container web (node:22)".
+func (c Container) Label() string {
+	label := "container " + c.Ref()
 	if c.Image != "" {
 		label += " (" + c.Image + ")"
 	}
 	return label
 }
 
-func shortID(id string) string {
-	const n = 12
-	if len(id) > n {
-		return id[:n]
-	}
-	return id
-}
-
 // Introspector names the container that owns an address on this host. found
-// is false when no running container of the runtime has the address. An
-// error means the runtime did not answer.
+// is false, and c is zero, when no running container of the runtime has the
+// address. An error means the runtime did not answer. An IPv4-mapped address
+// names the same container as its IPv4 form.
 type Introspector interface {
 	Runtime() Runtime
 	ContainerByAddress(ctx context.Context, addr netip.Addr) (c Container, found bool, err error)

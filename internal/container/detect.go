@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"os"
-	"strings"
+	"time"
 
 	"github.com/safedep/dry/log"
 )
@@ -18,11 +18,14 @@ var engineSockets = []string{
 	"/run/podman/podman.sock",
 }
 
+// probeTimeout bounds the wait for each socket, so a runtime that hangs does
+// not hide the next one.
+const probeTimeout = time.Second
+
 // Detect returns an Introspector for the first runtime that answers on a
-// known socket, or nil when none does. A unix:// address in DOCKER_HOST
-// comes first.
+// known socket, or nil when none does.
 func Detect(ctx context.Context) Introspector {
-	return detect(ctx, candidateSockets(os.Getenv("DOCKER_HOST"), engineSockets))
+	return detect(ctx, engineSockets)
 }
 
 func detect(ctx context.Context, sockets []string) Introspector {
@@ -31,7 +34,7 @@ func detect(ctx context.Context, sockets []string) Introspector {
 			continue
 		}
 		client := newEngineClient(socket)
-		runtime, err := client.runtime(ctx)
+		runtime, err := probe(ctx, client)
 		if err != nil {
 			log.Debugf("container: no runtime answers on %s: %v", socket, err)
 			continue
@@ -44,9 +47,8 @@ func detect(ctx context.Context, sockets []string) Introspector {
 	return nil
 }
 
-func candidateSockets(dockerHost string, defaults []string) []string {
-	if socket, ok := strings.CutPrefix(dockerHost, "unix://"); ok && socket != "" {
-		return append([]string{socket}, defaults...)
-	}
-	return defaults
+func probe(ctx context.Context, client *engineClient) (Runtime, error) {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	return client.runtime(ctx)
 }

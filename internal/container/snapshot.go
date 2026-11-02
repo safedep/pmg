@@ -8,25 +8,21 @@ import (
 )
 
 const (
-	// hitMaxAge is how long a listed address is trusted. A runtime gives the
-	// address of an exited container to the next one, so an old list can
-	// name the wrong container.
-	hitMaxAge = 2 * time.Second
-
-	// missMaxAge is how long an address that no container had stays a miss.
-	// A container that just started is not in an older list.
-	missMaxAge = 250 * time.Millisecond
+	// listMaxAge is how long a list of containers is trusted, for a hit and
+	// for a miss. A runtime gives the address of an exited container to the
+	// next one, so an older list can name the wrong container. A container
+	// that just started is not in an older list. The proxy asks on each new
+	// connection from a container, so the runtime gets at most one list call
+	// per listMaxAge.
+	listMaxAge = 250 * time.Millisecond
 
 	// failureBackoff is how long the runtime is not asked after it failed to
-	// answer. The proxy asks on each new connection from a container, and a
-	// hung runtime must not slow every one of them.
+	// answer, so a hung runtime does not slow every connection.
 	failureBackoff = 10 * time.Second
 )
 
 // snapshot is an Introspector that answers from the last list of running
-// containers and lists again when the list is too old to trust. One list
-// answers many connections, so a busy container costs one call to the
-// runtime per hitMaxAge, not one per connection.
+// containers and lists again when the list is too old to trust.
 type snapshot struct {
 	runtime Runtime
 	list    func(context.Context) (map[netip.Addr]Container, error)
@@ -55,9 +51,8 @@ func (s *snapshot) ContainerByAddress(ctx context.Context, addr netip.Addr) (Con
 	defer s.mu.Unlock()
 
 	now := s.now()
-	c, found := s.byAddr[addr]
-	age := now.Sub(s.listedAt)
-	if (found && age < hitMaxAge) || (!found && age < missMaxAge) {
+	if now.Sub(s.listedAt) < listMaxAge {
+		c, found := s.byAddr[addr]
 		return c, found, nil
 	}
 	if now.Sub(s.failedAt) < failureBackoff {
@@ -70,6 +65,6 @@ func (s *snapshot) ContainerByAddress(ctx context.Context, addr netip.Addr) (Con
 		return Container{}, false, err
 	}
 	s.byAddr, s.listedAt = byAddr, now
-	c, found = byAddr[addr]
+	c, found := byAddr[addr]
 	return c, found, nil
 }

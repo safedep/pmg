@@ -28,7 +28,7 @@ const containerList = `[
 ]`
 
 // fakeEngine serves the Docker Engine API on a Unix socket and returns its
-// path. A nil handler for a path answers 404.
+// path. A path without a route answers 404.
 func fakeEngine(t *testing.T, routes map[string]http.HandlerFunc) string {
 	t.Helper()
 	// A Unix socket path has a short length limit, so the directory is not

@@ -46,41 +46,45 @@ func TestSnapshotReusesAFreshList(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, web, c)
 
-	clock = clock.Add(hitMaxAge - time.Millisecond)
+	clock = clock.Add(listMaxAge - time.Millisecond)
 	_, found, err = s.ContainerByAddress(ctx, webAddr)
 	require.NoError(t, err)
 	assert.True(t, found)
-	assert.Equal(t, 1, l.calls, "a fresh hit does not ask the runtime")
-
-	clock = clock.Add(time.Millisecond)
-	_, _, err = s.ContainerByAddress(ctx, webAddr)
-	require.NoError(t, err)
-	assert.Equal(t, 2, l.calls, "an old hit asks the runtime again")
+	assert.Equal(t, 1, l.calls, "a fresh list answers without the runtime")
 }
 
-func TestSnapshotListsAgainSoonAfterAMiss(t *testing.T) {
-	clock := time.Unix(1000, 0)
-	l := &fakeLister{byAddr: map[netip.Addr]Container{}}
-	s := newTestSnapshot(l, &clock)
-	ctx := context.Background()
+func TestSnapshotListsAgainWhenTheListIsOld(t *testing.T) {
+	db := Container{Runtime: RuntimeDocker, ID: "bbbb", Name: "db"}
+	cases := []struct {
+		name  string
+		first map[netip.Addr]Container
+		later map[netip.Addr]Container
+		want  Container
+		found bool
+	}{
+		{"a container that started after the list is found", map[netip.Addr]Container{}, map[netip.Addr]Container{webAddr: web}, web, true},
+		{"a new container on a reused address gets its own name", map[netip.Addr]Container{webAddr: web}, map[netip.Addr]Container{webAddr: db}, db, true},
+		{"an exited container is not named", map[netip.Addr]Container{webAddr: web}, map[netip.Addr]Container{}, Container{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := time.Unix(1000, 0)
+			l := &fakeLister{byAddr: tc.first}
+			s := newTestSnapshot(l, &clock)
+			ctx := context.Background()
 
-	_, found, err := s.ContainerByAddress(ctx, webAddr)
-	require.NoError(t, err)
-	assert.False(t, found)
+			_, _, err := s.ContainerByAddress(ctx, webAddr)
+			require.NoError(t, err)
 
-	_, found, err = s.ContainerByAddress(ctx, webAddr)
-	require.NoError(t, err)
-	assert.False(t, found)
-	assert.Equal(t, 1, l.calls, "a fresh miss does not ask the runtime")
-
-	// The container starts after the first list.
-	l.byAddr = map[netip.Addr]Container{webAddr: web}
-	clock = clock.Add(missMaxAge)
-	c, found, err := s.ContainerByAddress(ctx, webAddr)
-	require.NoError(t, err)
-	assert.True(t, found)
-	assert.Equal(t, web, c)
-	assert.Equal(t, 2, l.calls)
+			l.byAddr = tc.later
+			clock = clock.Add(listMaxAge)
+			c, found, err := s.ContainerByAddress(ctx, webAddr)
+			require.NoError(t, err)
+			assert.Equal(t, tc.found, found)
+			assert.Equal(t, tc.want, c)
+			assert.Equal(t, 2, l.calls)
+		})
+	}
 }
 
 func TestSnapshotBacksOffAfterAFailure(t *testing.T) {
@@ -118,7 +122,7 @@ func TestSnapshotUnmapsAnIPv4MappedAddress(t *testing.T) {
 	assert.True(t, found)
 }
 
-// blockingLister holds its first list call until release is closed.
+// blockingLister holds every list call until release is closed.
 type blockingLister struct {
 	started chan struct{}
 	release chan struct{}
@@ -128,35 +132,38 @@ type blockingLister struct {
 func (b *blockingLister) list(context.Context) (map[netip.Addr]Container, error) {
 	if b.calls.Add(1) == 1 {
 		close(b.started)
-		<-b.release
 	}
+	<-b.release
 	return map[netip.Addr]Container{webAddr: web}, nil
 }
 
+// While the first list call is held, the other lookups must wait for it. A
+// lookup that does not wait would start a list call of its own.
 func TestSnapshotConcurrentLookupsShareOneList(t *testing.T) {
+	clock := time.Unix(1000, 0)
 	b := &blockingLister{started: make(chan struct{}), release: make(chan struct{})}
 	s := newSnapshot(RuntimeDocker, b.list)
+	s.now = func() time.Time { return clock }
 
 	const lookups = 8
 	var wg sync.WaitGroup
 	found := make(chan bool, lookups)
-	wg.Add(1)
-	go func() {
+	lookup := func() {
 		defer wg.Done()
 		_, ok, err := s.ContainerByAddress(context.Background(), webAddr)
 		assert.NoError(t, err)
 		found <- ok
-	}()
+	}
+	wg.Add(1)
+	go lookup()
 	<-b.started
 	for range lookups - 1 {
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, ok, err := s.ContainerByAddress(context.Background(), webAddr)
-			assert.NoError(t, err)
-			found <- ok
-		}()
+		go lookup()
 	}
+
+	assert.Never(t, func() bool { return b.calls.Load() > 1 }, 200*time.Millisecond, 5*time.Millisecond,
+		"a lookup started a second list call while the first was held")
 	close(b.release)
 	wg.Wait()
 	close(found)

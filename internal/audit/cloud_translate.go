@@ -566,21 +566,30 @@ func newProxyClient(c ProxyClient) *controltowerv1.PmgProxyClient {
 	return client
 }
 
-// newContainer sets the container fields the runtime reported.
+// The bounds of PmgContainer. The runtime does not bound the length of a
+// container name, and one value over a bound makes Control Tower reject the
+// event.
+const (
+	maxContainerID      = 256
+	maxContainerName    = 256
+	maxContainerImage   = 1024
+	maxContainerImageID = 256
+)
+
 func newContainer(c container.Container) *controltowerv1.PmgContainer {
 	pc := &controltowerv1.PmgContainer{}
 	pc.SetRuntime(containerRuntime(c.Runtime))
 	if c.ID != "" {
-		pc.SetId(c.ID)
+		pc.SetId(clipUTF8(c.ID, maxContainerID))
 	}
 	if c.Name != "" {
-		pc.SetName(c.Name)
+		pc.SetName(clipUTF8(c.Name, maxContainerName))
 	}
 	if c.Image != "" {
-		pc.SetImage(c.Image)
+		pc.SetImage(clipUTF8(c.Image, maxContainerImage))
 	}
 	if c.ImageID != "" {
-		pc.SetImageId(c.ImageID)
+		pc.SetImageId(clipUTF8(c.ImageID, maxContainerImageID))
 	}
 	return pc
 }

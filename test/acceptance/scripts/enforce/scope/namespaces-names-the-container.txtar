@@ -13,6 +13,9 @@ exec pmg proxy start --daemon --enforce --enforce-namespaces redirect --profile 
 exec sh -c 'pmg proxy env --state "$ENFORCE_STATE" | grep PMG_CA_BUNDLE= | cut -d= -f2 > bundle.path'
 exec sh -c 'test -s bundle.path'
 
+# A container left by an earlier run would make the name taken.
+exec sh -c 'docker rm -f pmg-label-probe >/dev/null 2>&1 || true'
+
 # Audit lets the connection through, so the curl exit status says nothing
 # about the policy. The report does.
 exec sh -c 'docker run --rm --name pmg-label-probe -v "$(cat bundle.path)":/pmg-ca.pem:ro -e CURL_CA_BUNDLE=/pmg-ca.pem curlimages/curl:8.11.1 -sS -o /dev/null https://pastebin.com/ || true'
