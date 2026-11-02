@@ -27,14 +27,21 @@ Assert-PathAbsent $ProductDir
 Assert-PathAbsent $GlobalConfigDir
 
 function Invoke-Winget {
-  param([string[]]$ArgumentList)
+  param([string[]]$ArgumentList, [int[]]$AllowExitCode = @())
   & winget @ArgumentList --disable-interactivity
-  if ($LASTEXITCODE -ne 0) { Stop-OnFailure "winget $($ArgumentList -join ' ') exited with $LASTEXITCODE" }
+  if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -notin $AllowExitCode) {
+    Stop-OnFailure "winget $($ArgumentList -join ' ') exited with $LASTEXITCODE"
+  }
 }
+
+# APPINSTALLER_CLI_ERROR_MANIFEST_VALIDATION_WARNING. The manifest is valid.
+# A winget client older than the schema the manifests name warns that it does
+# not know the schema header URL. Validation failure is a different code.
+$ValidationWarning = -1978335192
 
 try {
   Write-Step 'validating the manifests'
-  Invoke-Winget @('validate', '--manifest', $env:PMG_WINGET_MANIFEST_DIR)
+  Invoke-Winget -ArgumentList @('validate', '--manifest', $env:PMG_WINGET_MANIFEST_DIR) -AllowExitCode $ValidationWarning
 
   Write-Step 'installing pmg from the manifests'
   Invoke-Winget @('settings', '--enable', 'LocalManifestFiles')

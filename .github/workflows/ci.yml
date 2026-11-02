@@ -312,7 +312,7 @@ jobs:
         run: |
           $server = Start-Process -FilePath python -ArgumentList @('-m', 'http.server', '8765', '--bind', '127.0.0.1') -WorkingDirectory "$env:RUNNER_TEMP\msi" -PassThru
           try {
-            scripts/winget/build.ps1 -Version $env:BASE_VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl 'http://127.0.0.1:8765/pmg_Windows_x86_64.msi' -OutDir $env:PMG_WINGET_MANIFEST_DIR
+            scripts/winget/build.ps1 -Version $env:BASE_VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl 'http://127.0.0.1:8765/pmg_Windows_x86_64.msi' -ReleaseDate (Get-Date -AsUTC -Format yyyy-MM-dd) -OutDir $env:PMG_WINGET_MANIFEST_DIR
             pwsh -NoProfile -File scripts/winget/tests/winget_e2e_test.ps1
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } finally {

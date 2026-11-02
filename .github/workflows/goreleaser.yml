@@ -229,8 +229,15 @@ jobs:
       - name: Install winget
         run: scripts/winget/install_winget.ps1
 
+      # The approval gate can hold this job past the release day, so the
+      # release date comes from the release and not from the clock.
       - name: Build the winget manifests
-        run: scripts/winget/build.ps1 -Version $env:VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\winget"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseDate = gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --json publishedAt --jq '.publishedAt[0:10]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          scripts/winget/build.ps1 -Version $env:VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl $env:MSI_URL -ReleaseDate $releaseDate -OutDir "$env:RUNNER_TEMP\winget"
 
       - name: Validate the manifests, then install and uninstall from them
         env:
