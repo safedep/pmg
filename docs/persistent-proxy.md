@@ -549,17 +549,20 @@ starts it again after a crash. The unit writes its state to
 sudo pmg proxy status --state /run/pmg/proxy-state.json
 ```
 
+On a GitHub Actions runner host, the service replaces the `safedep/pmg`
+action. PMG does not support both on one host. See
+[Self-hosted runners](./github-action.md#self-hosted-runners).
+
 The example's `Before=actions.runner.service` is not a real runner unit name.
-Use a drop-in on the actual `actions.runner.<repo-or-org>.<runner>.service` with `After=pmg-proxy.service` and `Requires=pmg-proxy.service`.
-`Type=simple` alone does not wait for enforcement readiness.
-Add a bounded readiness check, such as the following service directive, for a fresh `/run/pmg` state directory.
+To start the runner after the proxy, add a drop-in to the actual
+`actions.runner.<repo-or-org>.<runner>.service` with `After=pmg-proxy.service`
+and `Requires=pmg-proxy.service`. `Type=simple` does not wait until
+enforcement is ready. The daemon writes its state file after it attaches, so
+this directive in the PMG unit makes the start wait for it:
 
 ```ini
 ExecStartPost=/bin/sh -c 'i=0; until [ -s /run/pmg/proxy-state.json ]; do i=$((i+1)); [ "$i" -lt 150 ] || exit 1; sleep 0.2; done'
 ```
-
-The daemon writes initial state after attach.
-Check that the state belongs to this service instance if you retain it across starts.
 
 ### How it works
 
