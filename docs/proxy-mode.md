@@ -7,6 +7,19 @@ PMG protects package installations through proxy based interception:
 - Intercepts package registry requests and analyzes packages as they are downloaded
 - Blocks malicious packages and allows trusted packages to be installed
 
+Under normal analysis, a verified malicious result blocks the download.
+An unverified malware inference asks for confirmation.
+Paranoid mode turns that inference into a block.
+A declined, failed, or expired confirmation returns HTTP 403.
+The response wait expires after 5 minutes.
+Noninteractive direct mode declines without a prompt.
+Trusted packages, insecure installation, and authenticated tenant exclusions can change these decisions.
+See [trust](trust.md) and [trusted packages](trusted-packages.md).
+
+Without a terminal, PMG supplies `CI=true` only when `CI` is absent.
+An explicit `CI=false` stays unchanged.
+It does not restore a terminal or an interactive confirmation prompt.
+
 ## Usage
 
 ```bash
@@ -24,8 +37,8 @@ proxy:
 
 | Key             | Default | Description                                                                                                                        |
 | --------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `install_only`  | `false` | When `true`, only install commands are proxied. Other commands (e.g., `npm ls`, `pip list`) bypass the proxy and execute directly. |
-| `skip_commands` | `{}`    | Per-package-manager commands to bypass the proxy. Only applies when `install_only` is `true`.                                      |
+| `install_only`  | `false` | When `true`, known non-download commands such as `npm ls` and `pip list` bypass the proxy. Unknown commands, `npm run`, `npm exec`, `npm ci`, and all `uv` commands still use it. |
+| `skip_commands` | `{npm: []}` | Per-package-manager commands to bypass the proxy. Only applies when `install_only` is `true`.                                      |
 
 ### Per-package-manager skip commands
 
@@ -35,11 +48,16 @@ The `skip_commands` map lets you define additional commands that should bypass t
 proxy:
   install_only: true
   skip_commands:
-    npm: ["dev", "my-script"]
-    pip: ["list", "show"]
+    pnpm: ["dev", "my-script"]
+    yarn: ["dev"]
 ```
 
-Commands in `skip_commands` are matched against the first non-flag argument. For example, `npm dev` would match `dev`, but `npm install dev` would not since `install` is the first non-flag argument.
+PMG matches the first non-flag argument under the exact package-manager name.
+For example, `pnpm dev` matches `dev`, but `pnpm install dev` does not.
+`npm run dev` matches `run`.
+An `npm: ["run"]` entry skips every npm script.
+A `pip` entry does not cover `pip3` or `pipx`.
+A skipped command receives no proxy interception from this invocation.
 
 ### Environment variables
 
@@ -53,7 +71,10 @@ The legacy flat config key `proxy_install_only` is still supported when the `pro
 
 Guard mode (the non-proxy analysis flow) has been removed and proxy interception can no longer be disabled. PMG fails with an error when it detects a leftover opt-out: `proxy.enabled: false` or `proxy_mode: false` in the config file, or `PMG_PROXY_ENABLED=false` or `PMG_PROXY_MODE=false` in the environment. PMG does not silently switch to proxy interception when it finds one of these settings. Remove the setting to proceed. The `--proxy-mode` flag is removed and fails as an unknown flag.
 
-Note one trade-off versus the removed guard mode: the proxy analyzes packages as they are downloaded, so installs fully served from a local package manager cache (e.g. npm cache, pnpm store, pip cache, `--offline` installs) do not trigger analysis. Guard mode analyzed manifest-listed packages via registry metadata regardless of downloads. Packages are analyzed when first fetched through the proxy, which is when they enter those caches.
+Note one trade-off versus the removed guard mode: the proxy analyzes packages as they are downloaded, so installs fully served from a local package manager cache (e.g. npm cache, pnpm store, pip cache, `--offline` installs) do not trigger analysis. Guard mode analyzed manifest-listed packages via registry metadata regardless of downloads. PMG analyzes a package when it fetches it through the proxy.
+It does not analyze artifacts already cached by a run without PMG.
+It also does not recheck a package-manager cache when the malware database changes.
+Audit or clear those caches when adopting PMG.
 
 ## Custom Registries
 
@@ -71,8 +92,7 @@ proxy:
     - name: pypi-mirror
       ecosystem: pypi
       endpoints:
-        - url: https://packages.example.com/artifactory/api/pypi/python/simple
-        - url: https://artifacts.example.com/packages
+        - url: https://packages.example.com/artifactory/api/pypi/python
     - name: go-proxy
       ecosystem: go
       endpoints:
@@ -84,13 +104,16 @@ proxy:
         - url: https://packages.example.com/artifactory/api/cargo/cargo-virtual/v1/crates
 ```
 
-Both PyPI URLs belong to one logical registry. List every metadata and artifact endpoint you want PMG to analyze. PMG does not trust hosts that it discovers through metadata links or redirects.
+The PyPI repository root covers its `simple` metadata and `packages` downloads.
+List every metadata and artifact endpoint you want PMG to analyze. PMG does not trust hosts that it discovers through metadata links or redirects.
 
 For a Go module proxy, configure the exact base URL that `GOPROXY` uses, such as the URL of one Artifactory Go repository. PMG reads the module path after the base path.
 
-For a custom PyPI Simple API, configure a base URL that ends in `/simple` or `/+simple`.
-PMG uses this suffix to recognize project pages such as `/demo/` below that base.
-Other base paths must retain the standard `/simple/{project}/` or `/pypi/{project}/json` route.
+Choose a PyPI base that covers both metadata and linked distribution files.
+A base ending in `/simple` or `/+simple` recognizes project pages directly below it.
+It does not cover sibling artifact paths.
+A repository root above `/simple` can cover both paths, as the example shows.
+Other bases must retain a standard `/simple/{project}/` or `/pypi/{project}/json` route.
 
 | Key               | Description                                                                                                                                           |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -100,13 +123,19 @@ Other base paths must retain the standard `/simple/{project}/` or `/pypi/{projec
 
 ### How PMG matches a request
 
-PMG intercepts traffic only to the exact origin of an endpoint URL: the scheme, the host, and the port. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com`. An endpoint on port 8443 does not cause PMG to decrypt traffic to port 443. Built-in registries are different: they also cover their known subdomains.
+PMG intercepts traffic only to the exact origin of an endpoint URL: the scheme, the host, and the port. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com`. An endpoint on port 8443 does not cause PMG to decrypt traffic to port 443. Built-in registries are different: they also cover every subdomain of their host.
 
 PMG decides in two steps.
 
 At CONNECT time, before any request path is visible, PMG checks the hostname and port. PMG decrypts the connection when they match the exact origin of a configured HTTPS endpoint. An `http://` endpoint never causes an HTTPS connection to be decrypted. PMG also decrypts traffic for the built-in registry hosts that it analyzes. It recognizes but does not decrypt a few other built-in hosts, for example GitHub's npm registry mirror and the PyPI test instances.
 
-Traffic to every other host goes through an ordinary encrypted tunnel. PMG cannot see the request path or body. PMG records the host in the audit log as a Host Observation event, so you can see which outside hosts your build reached. The event records the port and how the connection reached the proxy. Under [kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux) it also names the client: the pid, name and executable of a host process, or the address of a container. A process outside the daemon's PID namespace has a name only.
+A per-command run creates handlers only for that command's ecosystem.
+For example, `pmg npm` tunnels built-in and custom PyPI registry hosts without analysis.
+These known registry hosts also receive no Host Observation.
+A nested cross-ecosystem install can therefore receive neither analysis nor this observation.
+The [persistent proxy](persistent-proxy.md) handles all supported ecosystems, subject to its Go trust check.
+
+Traffic to unknown hosts goes through an ordinary encrypted tunnel. PMG cannot see the request path or body. PMG records the host in the audit log as a Host Observation event, so you can see which outside hosts your build reached. The event records the port and how the connection reached the proxy. Under [kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux) it also names the client: the pid, name and executable of a host process, or the address of a container. A process outside the daemon's PID namespace has a name only.
 
 After decryption, PMG matches each request against an endpoint by:
 
@@ -115,7 +144,9 @@ After decryption, PMG matches each request against an endpoint by:
 
 The base path check works on whole path segments, not on raw string prefixes. An endpoint base of `/repository/npm` matches `/repository/npm` and `/repository/npm/lodash`. It does not match `/repository/npm-private`, because `npm-private` is a different segment. Query strings and fragments never affect the match.
 
-Configuration validation rejects nested endpoint base paths on the same origin, so a request cannot match more than one custom endpoint.
+Configuration validation rejects nested endpoint base paths on the same origin, so a request cannot match more than one `proxy.registries` endpoint.
+The run-specific `GOPROXY` entries added by `pmg go` can nest.
+See [Go](#go-experimental).
 
 A request on a configured host whose path matches no endpoint passes through unchanged. PMG does not analyze it and does not block it.
 
@@ -128,6 +159,19 @@ This check applies to GET and HEAD requests unless the user enables insecure ins
 PMG allows npm API paths under `/-/` and PyPI root index listings without a package identity.
 Endpoints with analysis disabled, including the GitHub npm endpoints, remain outside this check.
 Analyzer errors still allow downloads in both modes.
+PMG needs access to `community-api.safedep.io:443` for community analysis.
+Resolved keychain or environment credentials select authenticated analysis independently of cloud event-sync enablement.
+Allow the authenticated data-plane endpoint too, including configured overrides.
+Credential rejection falls back to community analysis.
+Queries use a 10-second context.
+After 3 consecutive failures, the circuit breaker waits 30 seconds before a trial request.
+Analyzer failures appear in diagnostic logs, not an install warning.
+Use `pmg --debug npm install` or `pmg --log pmg-debug.log npm install` to inspect them.
+
+`PMG_INSECURE_INSTALLATION=true` bypasses malware analysis and unresolved-identity blocking.
+It does not disable cooldown or network policy.
+A concrete artifact handled by the insecure bypass emits an insecure-bypass audit event.
+[Lockdown](config.md#lockdown) clears this setting.
 
 Cooldown keeps entries whose filenames PMG cannot parse.
 An unrecognized artifact URL does not become a project metadata request.
@@ -142,21 +186,31 @@ When [dependency cooldown](./dependency-cooldown.md) is enabled, PMG requests th
 
 ### PyPI registry requirements
 
-A custom PyPI metadata endpoint must serve the [Simple Repository API](https://packaging.python.org/en/latest/specifications/simple-repository-api/), as PEP 691 JSON or PEP 503 HTML. An endpoint that can only serve PEP 503 HTML gets no dependency cooldown protection, because PMG reads upload times from the PEP 691 JSON response. Malware analysis of file downloads is not affected.
+A custom PyPI metadata endpoint must serve the [Simple Repository API](https://packaging.python.org/en/latest/specifications/simple-repository-api/), as PEP 691 JSON or PEP 503 HTML. An endpoint that can only serve PEP 503 HTML gets no dependency cooldown protection, because PMG needs each file's optional `upload-time` field from PEP 700, API version 1.1.
+A PEP 691 JSON response without this field also leaves that file eligible for cooldown.
+See [client requirements](dependency-cooldown.md#limitations). Malware analysis of file downloads is not affected.
 
 PMG identifies a distribution file, a wheel or an sdist, by its standard filename, at any depth below the configured base. An endpoint configured only for artifact downloads does not need to serve project metadata.
 
 The endpoint base does not have to end in `/simple`. PMG recognizes these project page layouts:
 
-- `<base>/<project>/` when the base itself ends in `/simple`
+- `<base>/<project>/` when the base itself ends in `/simple` or `/+simple`
 - `<base>/simple/<project>/` when the base sits above the standard Simple API mount
 - `<base>/pypi/<project>/json`, the standard JSON API path
 
 A Simple API exposed some other way, such as a root-mounted index, gets no project page recognition and no dependency cooldown. PMG still analyzes distribution file downloads under that base, because it identifies them from their filename.
+In paranoid mode, PMG returns HTTP 403 for an unrecognized project page unless insecure installation is active.
+Use a standard Simple API path for paranoid mode.
+A root-mounted index has no recognized project path.
 
 ### Cargo registry requirements
 
-A custom Cargo endpoint must serve a [sparse registry index](https://doc.rust-lang.org/cargo/reference/registry-index.html#sparse-protocol). PMG does not analyze a registry with a git index. Configure the index URL from `.cargo/config.toml`. PMG removes a `sparse+` prefix, so you can copy the value unchanged.
+For a [sparse Cargo registry](https://doc.rust-lang.org/cargo/reference/registry-index.html#sparse-protocol), configure the index URL from `.cargo/config.toml`.
+PMG removes the `sparse+` prefix.
+PMG cannot read a git index for cooldown.
+It can still analyze that registry's `.crate` downloads when the `dl` URL from `config.json` is a configured endpoint.
+Do not configure the git index URL as an endpoint.
+PMG cannot parse git requests, and paranoid mode blocks them.
 
 PMG reads `config.json` and the index files at the base of the endpoint. It finds a crate download at any depth below the base, in one of these layouts:
 
@@ -187,13 +241,17 @@ When PMG fetches the index file of a crate for the cooldown, it sends the `Autho
 
 ### Plain HTTP endpoints
 
-PMG accepts an `http://` endpoint. It prints one startup warning, and `pmg setup doctor` reports the endpoint. Use `https://` where you can. Anyone on the network path can read and change plain HTTP traffic.
+PMG accepts an `http://` endpoint. It logs a startup warning for each plain HTTP endpoint.
+Use `--debug` or `--log <file>` to see it.
+`pmg setup doctor` also reports these endpoints. Use `https://` where you can. Anyone on the network path can read and change plain HTTP traffic.
 
 ### Troubleshooting
 
 **A shallow base path matches more than expected.** The base path check works on whole segments, so a shallow base also matches sibling repositories under the same prefix. A base of `/repository` also matches `/repository/npm-private`. Configure the base as deep as your registry's actual mount point.
 
-**A vendor-specific PyPI project page is not recognized.** The metadata path must use one of the standard layouts above. PMG does not guess that an arbitrary `<base>/<project>/` path is project metadata unless the base ends in `/simple`. Distribution file downloads under the matched endpoint are still analyzed.
+**A vendor-specific PyPI project page is not recognized.** The metadata path must use one of the standard layouts above. PMG does not guess that an arbitrary `<base>/<project>/` path is project metadata unless the base ends in `/simple` or `/+simple`.
+Distribution file downloads under the matched endpoint are still analyzed.
+Paranoid mode returns HTTP 403 for an unrecognized project page unless insecure installation is active.
 
 **An artifact is never analyzed.** Compare its URL with the configured endpoint origin and base path. A Host Observation in the audit log means the artifact used an unknown origin: add that origin as an endpoint. A non-matching path on a configured origin passes through without a Host Observation: correct the base path or add a disjoint endpoint.
 
@@ -217,9 +275,25 @@ PMG rejects these values:
 
 The error names the registry and the specific problem. An empty name has no registry name to report, so the error names the entry position instead, for example `proxy.registries[0]`. While the error stands, commands that run intercepted traffic (`pmg <pkg-manager>` installs, `pmg proxy start`) fail closed, because a fallback to defaults would silently drop the configured protection. Commands such as `pmg config`, `pmg setup doctor`, and `pmg version` still work, so you can repair the file with PMG itself.
 
+Host Observations use event type `proxy_host_observed` in daily `YYYYMMDD-pmg.log` JSON-lines files.
+The default directory is `<effective-user-config-dir>/logs`.
+On Windows it is `%LOCALAPPDATA%/safedep/pmg/logs`.
+`PMG_CONFIG_DIR` also relocates logs when set.
+The hostname is in `details.hostname`.
+For example, with `jq` and the appropriate log directory, run the following command.
+
+```sh
+jq -c 'select(.event_type == "proxy_host_observed") | .details' <logs-dir>/*-pmg.log
+```
+
+`skip_event_logging` disables the default event writer.
+The root `--log <file>` option redirects diagnostics and events to one file instead of the daily directory.
+See [configuration paths](config.md).
+
 ### Find your current registry settings
 
-PMG does not read your package manager's own registry configuration. Check each package manager before you add a matching custom registry entry:
+PMG does not import npm, pip, uv, or Cargo registry settings into its catalog.
+`pmg go` reads the effective `GOPROXY`, including `go env -w` values. Check each package manager before you add a matching custom registry entry:
 
 ```bash
 npm config get registry
@@ -229,7 +303,26 @@ pip config debug
 
 For Cargo, read the `[registries]` and `[source]` tables of each `.cargo/config.toml` that applies, and the `CARGO_REGISTRIES_*` environment variables. A `replace-with` source sends crates.io traffic to the mirror that it names, so configure that mirror as a custom registry.
 
-`npm config get @myscope:registry` reports the registry for one scope. Repeat it for every scope you use. `pip config debug` lists the `index-url` from every config file pip found, in the order pip applies them. It also lists active `PIP_*` environment variables under its `env_var:` section. An environment variable such as `PIP_INDEX_URL` overrides every config file.
+`npm config get @myscope:registry` reports one scope.
+Repeat it for every scope you use.
+`pip config debug` groups files by kind, not precedence.
+pip applies global, user, site, then the `PIP_CONFIG_FILE` file.
+Later files override earlier files.
+Active `PIP_*` environment variables override files.
+See [pip configuration](https://pip.pypa.io/en/stable/topics/configuration/).
+
+uv does not read pip configuration.
+Check its `pyproject.toml`, `uv.toml`, index options, and `UV_*` index environment variables.
+See [uv configuration](https://docs.astral.sh/uv/concepts/configuration-files/) and [pip compatibility](https://docs.astral.sh/uv/pip/compatibility/).
+Use each other client's own registry instructions when finding active endpoints.
+
+PMG itself can use an upstream corporate proxy through `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
+Its HTTP transport and CONNECT dialer support HTTP, HTTPS, and SOCKS proxies.
+The child receives PMG's proxy address instead.
+Loopback destinations bypass the upstream proxy.
+For TLS connections PMG establishes, configure private roots for PMG itself.
+For an opaque tunnel, the client validates the destination certificate.
+See the [proxy transport reference](proxy.md#quick-start).
 
 ## Supported Package Managers
 
@@ -245,6 +338,8 @@ For Cargo, read the `[registries]` and `[source]` tables of each `.cargo/config.
 | `aubr`          | ✅              |
 | `aubx`          | ✅              |
 | `pip`           | ✅              |
+| `pip3`          | ✅              |
+| `pipx`          | ✅              |
 | `uv`            | ✅              |
 | `uvx`           | ✅              |
 | `poetry`        | ✅              |
@@ -274,6 +369,8 @@ the confirmation prompt, aube exits with an error. The dependency stays in
 `package.json` but is not installed in `node_modules`. Run
 `aube remove <package>` to remove the entry, or edit `package.json`.
 
+See [Windows support](windows-support.md) for the aube client availability caveat.
+
 ### Go (experimental)
 
 `pmg go` guards Go module downloads through the same proxy flow. It is
@@ -300,7 +397,16 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
   [Go on macOS and Windows](./cert.md#go-on-macos-and-windows). Linux works
   out of the box.
 - Modules matching `GOPRIVATE`/`GONOPROXY` are fetched directly from their
-  VCS host and are not analyzed; PMG warns when these are set.
+  VCS host and are not analyzed. PMG logs a warning when these variables are set.
+  Use `--debug` or `--log <file>` to see it.
+- PMG removes `direct` entries and changes pipe fallback separators to commas.
+  If no entry remains, PMG injects `https://proxy.golang.org`.
+  Module paths can therefore reach this public service.
+  Set private-module routing explicitly.
+- PMG clears an environment-set `GOINSECURE` for the child.
+  A value stored with `go env -w` can still apply.
+  Explicit HTTP proxy URLs remain possible.
+  This behavior is not a general ban on plain HTTP.
 - PMG matches each `GOPROXY` entry by the path that go sends, not by the
   text of the entry. go trims a trailing slash and cleans the path before it
   appends the module path.
@@ -310,9 +416,10 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
   `https://proxy.golang.org/example.com` and `https://proxy.golang.org`.
   When the two bases read one request as two different modules, PMG blocks
   the request. PMG cannot tell which base go used.
-- `pmg go` fails when a `GOPROXY` entry and an npm or PyPI registry endpoint
-  share an origin and their base paths nest. PMG cannot tell which ecosystem
-  owns a request there.
+- `pmg go` rejects an entry that overlaps another ecosystem's registry.
+  Built-in npm, PyPI, and Cargo hosts and their subdomains conflict on any scheme or port.
+  Configured endpoints conflict when their origins match and base paths nest.
+  PMG cannot determine which ecosystem owns such a request.
 - The persistent proxy analyzes `proxy.golang.org` and the Go proxies in
   `proxy.registries` without `pmg go`. See
   [Go modules](./persistent-proxy.md#go-modules).
@@ -340,8 +447,13 @@ as dependency-installing commands.
   [Cargo registry requirements](#cargo-registry-requirements).
 - PMG sets `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse` for the child
   process so PMG can intercept index traffic. PMG sets `CARGO_HTTP_CAINFO`
-  because cargo's libcurl reads only this CA variable. You do not need to
+  which Cargo reads on every platform. You do not need to
   change the OS trust store on any platform.
+  PMG also sets `CARGO_HTTP_CHECK_REVOKE=false`.
+  On Windows, this disables Cargo certificate revocation checks for every HTTPS host, including tunneled hosts.
+  PMG's short-lived leaf certificates have no revocation endpoint.
+  On other platforms, this matches Cargo's default.
+  PMG sets these Cargo variables for every guarded child, including Cargo nested under npm or pip.
 - Dependency cooldown removes in-window versions from sparse-index
   responses. It reads the per-version `pubtime` field in the index. Cargo's
   resolver then falls back to an older release. PMG blocks a pinned or
@@ -363,4 +475,4 @@ as dependency-installing commands.
 
 ## References
 
-- [Persistent Proxy Mode](./persistent-proxy.md)
+- [Persistent Proxy Server](./persistent-proxy.md)
