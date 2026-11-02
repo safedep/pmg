@@ -44,11 +44,7 @@
   <text x="820" y="98" text-anchor="middle" font-size="12" fill="#111827">Install runs</text>
   <text x="820" y="118" text-anchor="middle" font-size="14" font-weight="700" fill="#2b9246">✓</text>
 
-  <line x1="225" y1="132" x2="225" y2="250" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
-
-  <line x1="225" y1="250" x2="758" y2="250" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <text x="460" y="170" text-anchor="middle" font-size="12" fill="#6b7280">Layers show controls, not execution order. The sandbox wraps the process.</text>
-  <text x="460" y="190" text-anchor="middle" font-size="12" fill="#6b7280">Audit events include blocks and session outcomes.</text>
+  <line x1="820" y1="132" x2="820" y2="218" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
 
   <rect x="760" y="220" width="120" height="60" rx="8" fill="#ffffff" stroke="#374151" stroke-width="1.5" stroke-dasharray="4 3"/>
   <text x="820" y="246" text-anchor="middle" font-size="12" fill="#111827">Audit Log</text>

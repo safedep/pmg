@@ -244,11 +244,6 @@ The aube profile uses these default paths. `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `A
 `AUBE_CACHE_DIR` move them, and the profile then denies the new location. Add the new paths
 with `--sandbox-allow write=...` or a project overlay.
 
-The following recording enables the sandbox visibly and uses `CI=true` for direct child execution.
-It uses the current proxy flow.
-
-![Sandbox refusal recorded with PMG](demo/pmg-sandbox.gif)
-
 ### Run any program in the sandbox
 
 `pmg sandbox exec -- <command>` runs a program, such as a coding agent, under the built-in
