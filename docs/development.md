@@ -4,7 +4,8 @@ Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for setup, normal builds, tests
 Follow [AGENTS.md](../AGENTS.md) for code and writing rules.
 Use the tool versions in [mise.toml](../mise.toml) and [.tool-versions](../.tool-versions).
 Install Lefthook and run `lefthook install` to enable repository hooks.
-The hooks run the linter and tests.
+The pre-commit hook runs the linter and the secret scan.
+The pre-push hook runs the tests.
 The secret scan runs when `gitleaks` is installed.
 A missing `gitleaks` prints a warning instead of blocking every commit.
 
@@ -32,10 +33,17 @@ make all
 ./bin/pmg version
 ```
 
-An accepted machine-managed file still takes precedence over this user config directory.
+These exports also apply to `make test` and the pre-push hook in this shell.
+Some tests then fail.
+Run `unset PMG_CONFIG_DIR PMG_CACHE_DIR PMG_DISABLE_TELEMETRY PMG_CLOUD_ENABLED` before you run the tests.
+
+A [globally managed config](config.md#globally-managed-configuration) replaces the config file in this directory.
 Lockdown disables configuration environment overrides.
 Check `pmg setup info --json` before an experiment.
-Setup can modify real shell startup files even when config and cache paths are isolated.
+Setup also writes outside the isolated paths.
+It changes shell startup files and writes shims to the user data directory.
+On Windows, it changes the user `PATH`.
+On macOS or Linux, set `HOME` to a scratch directory and unset `XDG_DATA_HOME` before you test setup.
 
 On Windows, keep LF line endings when you clone.
 For example, use `git clone -c core.autocrlf=false <repository-url>`.
@@ -75,6 +83,7 @@ Landlock uses a temporary helper policy file.
 Do not depend on that variable for a permanent policy dump.
 
 Dependency changes have separate age gates.
-The [vet policy](../.github/vet/policy.yml) treats dependency-cooldown findings for versions younger than 2 days as high severity.
+vet's dependency-cooldown control reports a version younger than 2 days as high severity.
+The [vet policy](../.github/vet/policy.yml) fails the check on each high finding.
 [pnpm-workspace.yaml](../pnpm-workspace.yaml) sets `minimumReleaseAge` to 4320 minutes.
 Treat suppressions as reviewed policy exceptions.

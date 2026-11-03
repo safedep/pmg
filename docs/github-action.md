@@ -102,7 +102,7 @@ Use `endpoint-id` to set another identity.
 
 The JavaScript boolean inputs accept only case-insensitive `true` as true.
 Other nonempty values, including `yes` and `1`, are false.
-This includes `auto-stop`, `fail-on-violation`, `baseline`, `sandbox`, and `expose-to-job-network`.
+This includes `auto-stop`, `fail-on-violation`, `baseline`, `sandbox`, `expose-to-job-network`, and `skip-event-logging`.
 A typo can disable the job-end gate.
 Use lowercase `true` or `false` for these inputs.
 Use exactly lowercase `true` for `cache` and `sandbox`. The shell scripts check these values separately.
@@ -213,7 +213,8 @@ trusted_packages:
 The action copies the file to `${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml`.
 Server mode does not run `pmg setup install`.
 Under kernel enforcement, the root daemon gets a copy in `$PMG_PROXY_CONFIG_DIR`.
-PMG applies missing template defaults in memory.
+In server mode, PMG applies the missing template keys in memory.
+In shim mode, `pmg setup install` adds them to the copied file.
 Specify only the keys to override.
 
 ### Server mode
@@ -258,7 +259,7 @@ An unflagged package, a trusted package, or a compromised action can do the same
 The noninteractive daemon declines suspicious packages and counts them as blocks.
 See [trusted packages](trusted-packages.md) and [cooldown](dependency-cooldown.md).
 
-With `auto-stop: false`, the action skips its post step. The job gets no
+With `auto-stop: false`, the post step stops nothing. The job gets no
 verdict, summary or proposal, and the proxy variables stay set. Stop PMG
 in your own step with `if: always()`:
 
@@ -691,7 +692,8 @@ See [docs/config.md](./config.md) for the full mapping.
 
 | Runner | Supported |
 |---|---|
-| `ubuntu-latest`, `ubuntu-24.04`, `ubuntu-22.04` (x86_64) | Yes |
+| `ubuntu-latest`, `ubuntu-24.04` (x86_64) | Yes |
+| `ubuntu-22.04` (x86_64) | Repository action CI does not test it. |
 | `ubuntu-24.04-arm`, `ubuntu-22.04-arm` (arm64) | The installer supports arm64. Repository action CI does not test it. |
 | Other labels, including `ubuntu-26.04`, `ubuntu-26.04-arm`, and `ubuntu-slim` | Not verified by the repository action CI. Test the image and enforcement mode before use. |
 | A job container on a Linux runner, Alpine on x86_64 included | Yes. See [Job containers and Docker actions](#job-containers-and-docker-actions). |

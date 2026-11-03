@@ -17,6 +17,7 @@ A new ecosystem needs its own interception path.
    - Introduce config logic in the flat `packagemanager/` package, for example `npm.go` or `pypi.go`.
      For a new ecosystem, add `packagemanager/<eco>.go`.
    - Use `Default<Name>PackageManagerConfig()` and implement `PackageManager`.
+     An executor uses `Default<Name>PackageExecutorConfig()`.
    - Keep interfaces and structs consistent with other managers.
    - Review client routing and CA settings in [proxy_env.go](../packagemanager/proxy_env.go).
      Test registry protocols, nested invocations, and client configuration that overrides proxy variables.
@@ -25,7 +26,9 @@ A new ecosystem needs its own interception path.
      Document command-line, client-configuration, and protocol limits.
    - Add a leaf profile under `sandbox/profiles/` and a `sandbox.policies.<name>` entry in `config/config.template.yml`.
      An enabled sandbox fails when the policy is missing.
-     Inherit the ecosystem base and grant only required filesystem access.
+     In the npm or PyPI ecosystem, inherit `npm-restrictive` or `pypi-restrictive`.
+     A new ecosystem needs a standalone profile, like `cargo.yml` and `go.yml`.
+     Grant only required filesystem access.
      Review credential files and tokens. Do not automatically allow publish tokens.
      Extend the [environment contract](../sandbox/profiles_env_test.go) where applicable.
      Check Seatbelt, Landlock, and supported Bubblewrap behavior.
@@ -86,7 +89,8 @@ A new ecosystem needs its own interception path.
 9. Add e2e workflow
    - In `.github/workflows/pmg-e2e.yml`, add setup and test steps to the existing `e2e-test` job.
    - Mirror structure and steps used by other ecosystems.
-   - Update alias and shim expectations. Add Windows steps when the tool supports Windows.
+   - Update alias and shim expectations.
+     Add Windows steps to `.github/workflows/pmg-e2e-windows.yml` when the tool supports Windows.
    - Add a `TestCase` to the existing [proxy E2E harness](../test/proxye2e) for security-sensitive changes.
    - Add an acceptance `.txtar` script and `catalog.yaml` entry for each user-facing guarantee.
      Follow [the suite contract](../test/acceptance/README.md) and update tool setup in `acceptance.yml` as needed.

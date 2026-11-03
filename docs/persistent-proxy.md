@@ -22,7 +22,7 @@ steps.
 | Proxy lifetime | One command | Until `pmg proxy stop` |
 | Who runs the package manager | PMG | You, or the CI job |
 | Ecosystems | The one you run | All supported |
-| Suspicious package | Interactive prompt on a TTY. Verified malware blocks without a prompt. | Block, no prompt |
+| Suspicious package | Prompt on a TTY. Block without a TTY. Verified malware blocks without a prompt. | Block, no prompt |
 | Report | When the command exits | At `pmg proxy stop` |
 | Made for | Local development | CI jobs |
 
@@ -110,9 +110,10 @@ pmg proxy status   # report whether a proxy runs, and which network policy it ap
 
 `pmg proxy <command> --help` lists the flags. `--daemon` works on Unix only.
 On Windows use the foreground `pmg proxy start`, and stop it with Ctrl+C in
-that terminal. `pmg proxy stop` and `status` do not work on Windows. Stop
-removes the state of a running proxy. Do not use `--if-running` as a
-workaround.
+that terminal. `pmg proxy stop` and `status` do not work on Windows.
+`pmg proxy stop` deletes the state file of a running proxy and fails. The
+proxy continues to run. `pmg proxy env` and `pmg proxy stop` then cannot
+find it.
 
 To run more than one proxy on a host, give each its own `--state` path.
 Also give each its own `PMG_CONFIG_DIR`, or run `pmg setup cert install` so
@@ -125,8 +126,9 @@ default port is random, so `--port` is necessary only when the config sets
 so a job-end script does not fail after an earlier step stopped the
 proxy. A state file that a crashed daemon left still fails.
 `--report <file>` writes the stop result as JSON, also on a
-violation. With no state file and `--if-running`, it writes a report with
-`stopped: false`. Optional fields can be absent:
+violation. When the stop itself fails, it writes no report. With no state
+file and `--if-running`, it writes a report with `stopped: false`.
+Optional fields can be absent:
 
 ```json
 {"stopped":true,"pid":1234,"blocked_count":0,"state_verified":true,"run_id":"example","observed":2}
@@ -218,7 +220,9 @@ The daemon does not analyze these fetches:
 A Cargo `http.proxy` in `.cargo/config.toml`, `CARGO_HTTP_PROXY` or the git
 configuration has priority over `HTTPS_PROXY`, so cargo can go around the
 daemon. Under kernel enforcement this is possible when that other proxy
-listens on a port that the kernel does not route.
+listens on a port that the kernel does not route. A proxy at a skip
+destination, such as a loopback address, also goes around it. See
+[Eligibility](#eligibility).
 
 cargo reads `CARGO_HTTP_CAINFO`, which `pmg proxy env` prints. Under
 enforcement cargo trusts the system trust store.
@@ -443,10 +447,10 @@ take a daemon from no policy to `enforce`.
 A later run adds destinations with `--into .pmg/profiles/ci.yml`. A
 proposal adds allow rules and does not remove rules, because one run does
 not reach every destination. A destination that a specific deny rule
-matches stays denied. A destination that only the catch-all or the
-`ip_literal` rule denies gets an allow rule. A destination that the proxy
-refused under `enforce` gets no rule. Add one by hand when the job needs
-it. `--last` uses the newest run of the repository.
+matches stays denied. A destination that the proxy refused under
+`enforce` gets no rule. Add one by hand when the job needs it. Another
+destination that only the catch-all or the `ip_literal` rule denies gets
+an allow rule. `--last` uses the newest run of the repository.
 `--since 30d` merges every run of the repository in the window. The event
 log keeps `event_log_retention_days` of runs. With `skip_event_logging` on,
 the command has no data.
@@ -963,11 +967,13 @@ reaches the registry directly.
   `pmg proxy stop` and `status` do not. See [Commands](#commands).
 - There is no interactive prompt. A flagged package is always blocked. That
   is intended for CI.
-- One proxy per state file. On Unix, a second foreground start that points
-  at the same state file is refused while one runs. A second `--daemon`
-  start changes nothing, also when it adds `--enforce`. It prints the start
-  message with the address and pid of the daemon that already runs. Run
-  `pmg proxy stop` first.
+- One proxy per state file. On Unix, a second foreground start on the same
+  state file fails while one runs. A second `--daemon` start does not start
+  a new proxy. It prints the address and pid of the daemon that already
+  runs and exits `0`. PMG ignores the flags of the second start. With
+  `--enforce`, the second start runs the enforcement checks first. It fails
+  with `EnforceAlreadyActive` when a daemon already enforces the same
+  cgroup. Run `pmg proxy stop` first.
 - Without `--enforce`, routing depends on the variables, and a process that
   drops or ignores them bypasses the proxy. Use
   [kernel enforcement](#kernel-enforcement-linux) on Linux. For system-wide

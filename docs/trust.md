@@ -44,7 +44,7 @@ The container `latest` tag also moves on main-branch pushes.
 Pin a reviewed image digest when you need a stable image identity.
 See [Docker build attestations](https://docs.docker.com/build/metadata/attestations/) for the registry provenance format.
 
-For a local source build on Linux, disable cgo as the release build does.
+For a local source build, disable cgo as the release build does.
 
 ```sh
 CGO_ENABLED=0 go build -o ./bin/pmg ./main.go
@@ -56,15 +56,20 @@ CGO_ENABLED=0 go build -o ./bin/pmg ./main.go
 It does not download or install the assets.
 This release attestation is distinct from build provenance.
 
-```sh
-gh release verify -R safedep/pmg
-```
-
-Select a release and download only the asset for your platform.
-This example uses Linux x86-64.
+Set `RELEASE_TAG` to the release that you verify.
+This example selects the latest release.
+To verify an edge release, set `RELEASE_TAG` to its edge tag.
+PMG does not publish edge tags to npm or as container image tags.
 
 ```sh
 RELEASE_TAG=$(gh release view -R safedep/pmg --json tagName --jq .tagName)
+gh release verify "$RELEASE_TAG" -R safedep/pmg
+```
+
+Download only the asset for your platform.
+This example uses Linux x86-64.
+
+```sh
 gh release download "$RELEASE_TAG" -R safedep/pmg \
   -p pmg_Linux_x86_64.tar.gz --dir "./pmg-$RELEASE_TAG"
 gh attestation verify "./pmg-$RELEASE_TAG/pmg_Linux_x86_64.tar.gz" \
@@ -72,11 +77,9 @@ gh attestation verify "./pmg-$RELEASE_TAG/pmg_Linux_x86_64.tar.gz" \
   --source-ref "refs/tags/$RELEASE_TAG" --format json > "./pmg-$RELEASE_TAG/attestation.json"
 ```
 
-To verify an edge release, set `RELEASE_TAG` to its edge tag.
-PMG does not publish edge tags to npm or as container image tags.
-
 Review the verified attestation's source commit and signer workflow.
 Check out that exact commit before you review or rebuild the source.
+The next step needs `jq`.
 
 ```sh
 SOURCE_COMMIT=$(jq -r '.[0].verificationResult.signature.certificate.sourceRepositoryDigest' \
@@ -99,10 +102,15 @@ Use the actual downloaded path for each verification command.
 `@safedep/pmg` is a launcher.
 An optional platform package contains the executable.
 Check both package layers.
+Run the real `npm` for each command in this section, not the PMG shim or alias.
+Dependency cooldown can hide a new release.
+Set `VERSION` to the release you installed.
+Without a version, `npm view` reads the `latest` dist-tag.
 
 ```sh
-npm view @safedep/pmg dist.attestations _npmUser
-npm view @safedep/pmg-linux-x64 dist.attestations _npmUser
+VERSION=0.34.0
+npm view "@safedep/pmg@$VERSION" dist.attestations _npmUser
+npm view "@safedep/pmg-linux-x64@$VERSION" dist.attestations _npmUser
 ```
 
 Other suffixes are `linux-arm64`, `darwin-x64`, `darwin-arm64`, and `win32-x64`.
@@ -116,7 +124,7 @@ For a cryptographic check, use an empty scratch project and review the result fo
 pmg_verify_dir=$(mktemp -d)
 cd "$pmg_verify_dir"
 npm init -y
-npm install --ignore-scripts @safedep/pmg
+npm install --ignore-scripts "@safedep/pmg@$VERSION"
 npm audit signatures
 ```
 
@@ -136,7 +144,8 @@ model consists of the following layers:
 
 PMG currently uses SafeDep as its threat intelligence source.
 When the analyzer fails, PMG allows the artifact through the malware check.
-Paranoid mode changes suspicious verdict handling but does not turn analyzer errors into blocks.
+Paranoid mode blocks suspicious verdicts and registry requests that PMG cannot identify.
+It does not turn analyzer errors into blocks.
 Other controls can still reject the request.
 See [analysis behavior](proxy-mode.md#how-pmg-identifies-a-package).
 

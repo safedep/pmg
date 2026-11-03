@@ -148,7 +148,7 @@ To restore the root daemon's CA, run `sudo pmg setup cert install --system`.
 | --- | --- | --- |
 | macOS | login keychain | System keychain (sudo) |
 | Windows | `CurrentUser\Root` | `LocalMachine\Root` (admin) |
-| Linux | not available, see below | `/usr/local/share/ca-certificates` (Debian, Ubuntu), `/etc/pki/ca-trust` (Fedora, RHEL) or `/etc/ca-certificates/trust-source` (Arch), with sudo |
+| Linux | not available, see below | `/usr/local/share/ca-certificates` (Debian, Ubuntu), `/etc/pki/ca-trust/source/anchors` (Fedora, RHEL) or `/etc/ca-certificates/trust-source/anchors` (Arch), with sudo |
 
 Linux has no user trust store. Running `pmg setup cert install` without `--system` on Linux
 persists the keypair and relies on `SSL_CERT_FILE` injection, which already covers Go on

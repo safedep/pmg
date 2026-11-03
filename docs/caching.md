@@ -37,6 +37,7 @@ The built-in exec profile permits writes to the default cache directories.
 
 Persists **benign** Malysis (malware analysis) verdicts on disk, so a package
 version that was already screened is not re-analyzed on a later download while its cached verdict is valid.
+Only the Malysis analyzer has a disk cache today.
 
 Only benign verdicts are cached on disk, and each entry expires after a TTL.
 PMG never persists malicious, suspicious, or tenant-excluded verdicts.

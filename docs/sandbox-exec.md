@@ -1,6 +1,7 @@
 # Sandbox Exec
 
 `pmg sandbox exec` runs any program inside the PMG sandbox. The program keeps its own exit code.
+On the Landlock driver, a program that a signal kills makes pmg exit with code 255.
 PMG runs the program in a PTY when stdin and stdout are a terminal, PMG runs in the foreground, and `CI` is not `true`.
 Its stderr then reaches the terminal on the stdout stream, so `2>` does not capture it.
 PMG applies credential denies, environment scrubbing, and write restrictions with the limits below.
@@ -43,6 +44,8 @@ denials. The value is in the deny rules:
   Other project hook files remain writable under the checkout grant.
   Examples include `.cursor/hooks.json`, `.codex/hooks.json`, and `.codex/config.toml`.
   The Codex preset also leaves `~/.codex/config.toml` writable, including inline hooks.
+  The Claude preset leaves `~/.claude.json` writable. Its MCP server entries run commands on the next start.
+  The preset also leaves `~/.claude/plugins` writable. An installed plugin can carry hooks.
   A hook write can install future command execution or disable a security layer such as [Gryph](https://github.com/safedep/gryph).
 
 PMG routes proxy-aware clients through its proxy.
@@ -301,8 +304,10 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
 - Bubblewrap cannot confine outbound connections to the proxy, so it refuses the `exec`
   profile. Use a child with `network_via_proxy_only: false`.
   The Bubblewrap path limits below apply to that workaround. See [How the policy reaches the program](#how-the-policy-reaches-the-program).
-- On Landlock, the supervisor denies every trapped syscall of a non-dumpable process, such as
-  ssh-agent. The supervisor cannot read the memory of that process. Bubblewrap does not read
+- On Landlock, when a non-root user runs pmg, the supervisor cannot read the memory of a
+  non-dumpable process. The supervisor then denies the trapped exec and file syscalls of that
+  process. Under network lockdown, it also denies `connect`, `sendmsg`, and a `sendto` that names a
+  destination. gpg-agent and ssh-agent make themselves non-dumpable. Bubblewrap does not read
   process memory. To use Bubblewrap, set `PMG_SANDBOX_DRIVER=bubblewrap` and use a child profile
   with `network_via_proxy_only: false`. That child loses direct outbound confinement.
 - `git worktree add` and `git worktree remove` are not supported yet. A new worktree lands

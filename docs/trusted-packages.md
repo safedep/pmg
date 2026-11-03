@@ -16,7 +16,7 @@ They do not create an origin boundary.
 
 To skip only the cooldown window and still have the package analyzed for malware, use
 [`dependency_cooldown.skip`](dependency-cooldown.md#exempting-specific-packages).
-It is the only per-control skip list in `config.yml`.
+No other package list in `config.yml` exempts a package from one control only.
 
 ## Configuration
 
@@ -55,6 +55,8 @@ trusted_packages:
     reason: Approved Cargo version
 ```
 
+### PURL matching
+
 The launcher entry does not cover PMG's platform-specific optional dependencies.
 Those package names receive their own checks.
 Trust works for npm, PyPI, Go, and Cargo.
@@ -68,7 +70,8 @@ Cargo folds names to lowercase and treats `-` and `_` as the same.
 Go module paths remain case-sensitive.
 Use the actual Go version, including its `v` prefix.
 
-PMG ignores an invalid PURL with no visible warning.
+PMG ignores an invalid PURL and shows no warning, also with `--debug`.
+The `trusted packages` count in the `--debug` output also counts the invalid entry.
 `pmg config get` displays raw values and does not prove that each PURL parsed.
 
 When event logging is enabled, PMG records `install_trusted_allowed` for each trusted artifact.

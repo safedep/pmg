@@ -57,7 +57,7 @@ Use the network policy for destination refusal before decryption.
 | Action | Effect |
 | --- | --- |
 | `ActionAllow` or nil response | Continue to other interceptors and upstream. |
-| `ActionBlock` | Stop immediately. The default status is 403. `BlockMessage` overrides the configured renderer, followed by the default message. |
+| `ActionBlock` | Stop immediately. The default status is 403. The proxy uses `BlockMessage` when it is not empty. Otherwise it uses the `BlockMessageRenderer` result. If that is empty, it uses a default message. |
 | `ActionModifyRequest` | Replace headers when supplied. `ModifiedBody` has no effect. |
 | `ActionModifyResponse` | Register one response modifier. Another interceptor can replace it. Modifiers do not form a chain. |
 
@@ -122,6 +122,9 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
+    if err := os.WriteFile("ca-cert.pem", ca.Certificate, 0o644); err != nil {
+        log.Fatal(err)
+    }
     manager, err := certmanager.NewCertificateManagerWithCA(ca, certConfig)
     if err != nil {
         log.Fatal(err)
@@ -149,6 +152,10 @@ func main() {
 }
 ```
 
+The program writes its CA certificate to `ca-cert.pem` in its working directory.
+Run npm in the directory of the proxy process.
+Set `HTTPS_PROXY=http://127.0.0.1:8888` and `NODE_EXTRA_CA_CERTS="$PWD/ca-cert.pem"`.
+
 `DefaultProxyConfig` enables MITM, so supply a certificate manager.
 The constructor does not fill individual omitted timeout fields in a supplied config.
 Defaults include a 30-second connect and TLS-handshake timeout, a 5-minute response-header timeout, 30-minute server read/write deadlines, and 2 upstream retries.
@@ -159,7 +166,8 @@ Zero server read/write timeout uses 30 minutes.
 The upstream transport honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
 CONNECT dialing supports HTTP, HTTPS, and SOCKS5 upstream proxies.
 Loopback destinations bypass the upstream proxy.
-The proxy refuses attempts to dial its own listeners.
+With the default dialer, the proxy refuses to dial its own listeners.
+A custom `UpstreamDialContext` replaces that dialer and its check.
 Retries apply only to GET, HEAD, or OPTIONS requests without a body while the request context is live.
 Retries remain subject to the transport timeouts.
 TLS connections that the proxy establishes use TLS 1.2 or later and verify system roots by default.

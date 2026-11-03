@@ -26,7 +26,7 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
    pmg main ──fork+exec──► pmg __landlock_sandbox_exec      [helper, unfiltered]
                                   │ runs supervisor loop
                                   │
-                          clone(CLONE_NEWUSER, uid=host→host)
+                          clone(CLONE_NEWUSER, uid=caller→caller)
                                   │
                                   ▼
                            pmg __landlock_shim              [locked exec thread,
@@ -37,12 +37,14 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
                                   │
                                   ▼
                            target ─► child ─► grandchild    [filter inherited,
-                                                             host uid, no caps,
+                                                             caller uid (65533
+                                                             for root), no caps,
                                                              dumpable unless cleared]
 ```
 
-The helper has no filter on itself. So the helper can read `/proc/<pid>/mem` of each
-descendant to resolve `openat` paths.
+The helper has no seccomp filter. Its own syscalls never wait for the supervisor.
+The helper reads `/proc/<pid>/mem` of a descendant to resolve the path of a trapped syscall.
+For a non-root caller, this works only for a dumpable descendant.
 
 ### Code layout
 
@@ -67,7 +69,8 @@ Normal test runs skip these cases unless enabled.
 PMG_LANDLOCK_E2E=1 go test -count=1 ./sandbox/platform
 ```
 
-Use the per-PMG [AppArmor profile](sandbox.md#apparmor-blocks-the-landlock-driver-ubuntu-2310) when host policy blocks namespaces.
+The e2e tests build and run `<repo>/bin/pmg`.
+Name that path in the per-PMG [AppArmor profile](sandbox.md#apparmor-blocks-the-landlock-driver-ubuntu-2310) when host policy blocks namespaces.
 Disabling the AppArmor user-namespace restriction globally, as CI does, is not required.
 
 ## Key decisions
@@ -190,7 +193,7 @@ the deny list. These edge cases shaped the rules:
   It does not cover matching files created later.
   The walk uses a literal suffix comparison.
   `${HOME}/**/*.pem` therefore treats `*.pem` as literal text and can yield no denies without warning.
-  The walk stops at 5 levels or 1000 paths.
+  The walk stops at 5 levels or after 1000 matches.
   A missing base returns the whole base directory and can create a broader deny.
 - Every deny-exec glob expands at setup.
   Do not assume it covers a later binary.
@@ -212,7 +215,8 @@ Inspect the rendered result before relying on a narrow profile.
 Syscall numbers differ for each ABI. An `int 0x80` or x32 call could reach `openat` under a
 number that the filter does not trap. The filter checks `seccomp_data.arch` and, on amd64,
 the x32 bit. The filter returns `SECCOMP_RET_KILL_PROCESS`. The kernel does the kill. The
-process ends with `SIGSYS` (often shown as "Bad system call") and the supervisor records no violation.
+process ends with `SIGSYS`. When the killed process is the target, pmg exits with code 255.
+The supervisor records no violation.
 
 ### The filter denies kernel attack surface before the traps
 
@@ -247,8 +251,8 @@ Only traffic that reaches the proxy receives those destination rules.
 Bubblewrap differs because it uses `--unshare-net` for a profile with no `allow_outbound` rule.
 Separate host enforcement can still constrain traffic outside this driver.
 
-The network rules of Landlock (ABI V4) filter TCP ports only. They cannot match a
-destination address. They do not cover UDP.
+The network rules of Landlock filter ports only. They cannot match a destination address.
+ABI 4 adds TCP port rules. ABI 10 adds UDP port rules.
 A port rule cannot confine a bind to loopback.
 Allowing a connection to a port permits it on every host.
 This cannot express arbitrary loopback-only connects required by `allow_network_bind`.
@@ -417,8 +421,9 @@ a constant cost. That cost explains most of the decisions above:
   Connection failure is debug-only and loses captured driver events.
   The driver buffers at most 512 events, including operational events, and deduplicates captured denials.
   Environment scrubs and proxy denials have independent reporting paths.
-- **Kernel denials leave no violation record.** The syscalls in the kernel deny list and
-  a refused unix socket return an error in the kernel. The supervisor never sees them, so
+- **Kernel denials leave no violation record.** The Landlock allow-list, the syscalls in the
+  kernel deny list, a refused unix socket and a foreign-ABI kill all act in the kernel. The
+  supervisor never sees them, so
   `pmg sandbox violations list` does not list them.
 - **The filter does not trap metadata writes.** `chmod`, `chown` and `utimensat` on a
   protected path go through Landlock only. Landlock does not govern them.

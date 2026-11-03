@@ -40,10 +40,15 @@ pmg config set cloud.enabled true
 See [config template](../config/config.template.yml) for the configuration schema.
 PMG ignores unknown keys without a warning. Check spelling and nesting after every edit.
 A YAML syntax error or a value that PMG cannot decode can discard the whole file.
-PMG then uses built-in defaults. PMG shows no warning.
+PMG then ignores the file and uses a compiled-in fallback.
+The fallback is not the config template.
+It trusts no package and has no sandbox policies.
+It also ignores `PMG_*` overrides, except `PMG_INSECURE_INSTALLATION`.
+PMG shows no warning.
 This can disable configured sandbox or paranoid protection.
-Run `pmg config get <changed-key>` after an edit and check the value.
-If it prints `config not initialized`, PMG could not load the file and uses built-in defaults.
+`pmg config get` prints any key that the file sets, also a misspelled key.
+After an edit, run it with the key name from the config template and check the value.
+If it prints `config not initialized`, PMG could not load the file and uses the compiled-in fallback.
 Write durations such as `168h`. `7d` is not valid.
 
 Set custom npm, PyPI, Go, and Cargo endpoints in `proxy.registries`.
@@ -122,7 +127,7 @@ See [registry identity policy](proxy-mode.md#how-pmg-identifies-a-package) for e
 1. CLI flags
 2. Environment variables (`PMG_*`)
 3. Config file (`config.yml`)
-4. Built-in defaults
+4. Config template
 
 Under a [globally managed config](#globally-managed-configuration) with `global_lockdown` enabled, PMG disables `PMG_*` and managed-flag overrides.
 
@@ -270,9 +275,9 @@ Invalid decoded registries and network modes fail closed.
 
 | Mode                                   | Effective order (highest to lowest)                                        |
 | -------------------------------------- | -------------------------------------------------------------------------- |
-| No global config                       | CLI flags > `PMG_*` env > per-user `config.yml` > built-in defaults        |
-| Global config, no lockdown             | CLI flags > `PMG_*` env > global config > built-in defaults                |
-| Global config, `global_lockdown: true` | global config > built-in defaults (env and managed-flag overrides refused) |
+| No global config                       | CLI flags > `PMG_*` env > per-user `config.yml` > config template          |
+| Global config, no lockdown             | CLI flags > `PMG_*` env > global config > config template                  |
+| Global config, `global_lockdown: true` | global config > config template (env and managed-flag overrides refused)   |
 
 ### Deploying via MDM
 

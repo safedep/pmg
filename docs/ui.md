@@ -14,6 +14,8 @@ pmg --silent npm install express
 The verbosity level can be set per-invocation using `--silent` or `--verbose` CLI flags, or persisted via the `verbosity` option in the [configuration file](config.md).
 Use `PMG_VERBOSITY` for aliases and shims.
 For example, `PMG_VERBOSITY=silent npm install express` selects the PMG level through a POSIX shell alias.
+A [locked global config](config.md#lockdown) ignores `PMG_VERBOSITY`.
+The `--silent` and `--verbose` flags still apply.
 `--silent` and `--verbose` are mutually exclusive.
 The local `pmg sandbox profile lint --verbose` flag adds info-level lint issues instead of changing global UI verbosity.
 
@@ -40,11 +42,12 @@ UI messages are displayed in the user interface, currently in the terminal. Foll
 | `ShowWarning` warnings | Shown | Shown | Shown |
 | Malware block and its advisory | Shown | Shown | Shown with package detail |
 | Suspicious-package prompt on an interactive TTY | Shown | Shown | Shown |
-| Cooldown-only, insecure-bypass, and network-policy execution reports | Hidden | Shown when that outcome applies | Detailed |
+| Cooldown-only, insecure-bypass, and network-policy execution reports | Hidden | Shown when that outcome applies | Detailed for cooldown and insecure bypass. A network-policy denial adds only the one-run `--sandbox-allow` option. |
 
 This table describes the shared UI and report helpers.
 Other commands can print directly.
-Verbose output adds the execution report, flagged-package summaries, network decisions, and withheld cooldown versions.
+Verbose output adds the execution report, flagged-package summaries, and withheld cooldown versions.
+For a network-policy denial, verbose also shows the `--sandbox-allow` option for one run.
 
 A suspicious-package prompt defaults to refusal.
 The helper accepts a trimmed case-insensitive answer beginning with `y`.
@@ -58,7 +61,7 @@ Contributors should use the existing helper for the message category.
 
 | Purpose | Helper and stream |
 | --- | --- |
-| Transient progress | `SetStatus`, `ClearStatus`, and spinner helpers. Silent suppresses them. |
+| Transient progress | `SetStatus` and `ClearStatus`. `SetStatus` shows nothing in silent mode. Do not call `StartSpinner` directly. It ignores silent mode. |
 | Information or success | `Infof`, `Successf`. These write stdout and honor silent mode. |
 | Immediate warning | `ShowWarning`. This writes stderr in every UI level. |
 | Fatal useful error | `ErrorExit` or `ErrorExitWithCode`. These write stderr and preserve parseable child stdout. |
@@ -68,9 +71,10 @@ Contributors should use the existing helper for the message category.
 
 Some reports and prompts write stdout.
 Do not add unsolicited result output to a machine-readable command path.
-Follow the [development guidance](development.md).
 
-Colors turn off for nonterminal output and with `TERM=dumb`.
+Colors turn off when stdout is not a terminal and with `TERM=dumb`.
+This rule also controls color on stderr.
+When you redirect only stderr, the color codes stay.
 Set `NO_COLOR=1` to request plain output explicitly.
 
 ### Logs

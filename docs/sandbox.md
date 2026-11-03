@@ -163,8 +163,9 @@ CLI. Use HTTPS remotes, or a custom profile that sets `allow_unix_sockets: true`
 set it. With `network_via_proxy_only`, `allow_unix_sockets` lets traffic go around the proxy
 through a host socket, and `pmg sandbox profile lint` warns about it.
 
-On Ubuntu 23.10 and later, AppArmor also refuses a connect to a host socket from the Landlock
-driver's user namespace, even with `allow_unix_sockets: true`. Install the pmg AppArmor profile
+On Ubuntu 24.04 and later, or on 23.10 with the restriction turned on, AppArmor also refuses a
+connect to a host socket from the Landlock driver's user namespace. This refusal applies also with
+`allow_unix_sockets: true`. Install the pmg AppArmor profile
 described in [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
 to lift that restriction for pmg.
 
@@ -327,9 +328,13 @@ pmg sandbox violations list
 # Explain the latest captured denial and show a suggested override when possible
 pmg sandbox explain --last
 
-# Inspect the resolved policy PMG will apply
+# Show the built-in npm profile after inheritance
 pmg sandbox profile show npm --resolved
 ```
+
+This output does not include the profile that `sandbox.policies.npm.profile` names, the project
+overlay, `--sandbox-allow` overrides or the mandatory denies. Add `--driver` to see the mandatory
+denies.
 
 `pmg sandbox doctor` runs platform-specific checks for the current host. It checks the driver that
 PMG uses, so a driver that PMG does not use cannot fail it. Add `--driver` to check another driver.
@@ -366,7 +371,7 @@ It records scrubbed names after a failed run or a run with captured denials.
 A clean run with only scrubs does not create that report.
 
 PMG retains the 10 most recent local violation reports.
-Sandbox-denial audit events can contain driver, profile, `clean_exit`, denied path, executable or host, rule, process, and count.
+Sandbox-denial audit events can contain driver, profile, `clean_exit`, denied path, executable, host and port, rule, process, and count.
 Cloud delivery can include up to 100 denial entries, with a byte budget that can reduce the list further.
 Environment scrubs and diagnostic noise are filtered from that cloud denial payload.
 Review this local-path data flow before enabling cloud sync.
@@ -933,6 +938,7 @@ and [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime).
 
 PMG records Seatbelt denials in the violation cache. Inspect them with `pmg sandbox violations list`
 and `pmg sandbox explain --last`.
+Inspect native policy before running it with `pmg sandbox profile show npm --driver seatbelt`.
 
 To see every raw denial of a run, also the ones that PMG does not record after a clean run, run the
 command with debug logging:
@@ -959,8 +965,9 @@ built-in `log` command.
 Landlock is the default Linux driver.
 Use `pmg sandbox violations list`, `pmg sandbox explain --last`, and [Landlock tracing](sandbox-landlock.md#debugging-pmg_seccomp_trace).
 Inspect native policy before running it with `pmg sandbox profile show npm --driver landlock` on Linux.
-Use `--driver seatbelt` on macOS or `--driver bubblewrap` on Linux for those renderers.
+Use `--driver bubblewrap` for the Bubblewrap renderer.
 Add `--home` and `--cwd` to set `${HOME}` and `${CWD}` for the expansion.
+The mandatory denies in the output still use the real home and working directories.
 
 For the Bubblewrap driver, force selection while capturing the full wrapped command.
 

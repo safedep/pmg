@@ -179,8 +179,9 @@ Rules the schema enforces:
   Use `--debug` or `--log <file>` to see drop warnings.
   Under the `exec` profile every destination is
   already allowed, so a preset rule matters once a profile denies `*:*`.
-  A catch-all deny refuses other destinations only when `sandbox.network_mode` is `enforce`,
-  or with `pmg sandbox exec --network-mode enforce`.
+  A catch-all deny refuses other destinations only in enforce mode.
+  Set `sandbox.network_mode: enforce`, or pass `pmg sandbox exec --network-mode enforce`.
+  For the persistent proxy, set `proxy.server.network_mode: enforce`, or pass `pmg proxy start --network-mode enforce`.
   The default audit mode records matches and allows them.
   Proxy confinement is a separate control.
   A child profile can disable it with `network_via_proxy_only: false`.

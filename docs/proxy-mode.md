@@ -19,9 +19,9 @@ A tenant exclusion is a SafeDep Cloud entry that allows one flagged package vers
 PMG applies it only to authenticated queries.
 See [trusted packages](trusted-packages.md) and [How PMG identifies a package](#how-pmg-identifies-a-package).
 
-Without a terminal, PMG supplies `CI=true` only when `CI` is absent.
+When PMG does not prompt and `CI` is absent, PMG sets `CI=true` for the package manager.
 An explicit `CI=false` stays unchanged.
-It does not restore a terminal or an interactive confirmation prompt.
+`CI=false` does not make PMG prompt.
 
 ## Usage
 
@@ -57,7 +57,7 @@ proxy:
 
 PMG matches the first non-flag argument under the exact package-manager name.
 For example, `pnpm dev` matches `dev`, but `pnpm install dev` does not.
-PMG does not skip flag values. In `pnpm --filter web dev`, the first non-flag argument is `web`.
+PMG treats a flag value as a non-flag argument. In `pnpm --filter web dev`, the first non-flag argument is `web`.
 `npm run dev` matches `run`.
 An `npm: ["run"]` entry skips every npm script.
 A `pip` entry does not cover `pip3` or `pipx`.
@@ -79,6 +79,7 @@ The child receives PMG's proxy address instead.
 Loopback destinations bypass the upstream proxy.
 For TLS connections that PMG makes, add private roots to the system trust store, or set `SSL_CERT_FILE` in PMG's environment.
 When `SSL_CERT_FILE` is set on macOS or Windows, PMG uses only that file.
+`GODEBUG=x509sslcertoverrideplatform=0` keeps PMG on the system store.
 On Linux, PMG also reads the system certificate directories, such as `/etc/ssl/certs`.
 Set `SSL_CERT_DIR` to replace those directories.
 For an opaque tunnel, the client validates the destination certificate.
@@ -143,7 +144,7 @@ PMG intercepts traffic only to the exact origin of an endpoint URL. The origin i
 
 PMG decides in two steps.
 
-At CONNECT time, before any request path is visible, PMG checks the hostname and port. PMG decrypts the connection when they match the exact origin of a configured HTTPS endpoint. An `http://` endpoint never causes an HTTPS connection to be decrypted. PMG also decrypts traffic for the built-in registry hosts that it analyzes. It recognizes but does not decrypt a few other built-in hosts, for example GitHub's npm registry mirror and the PyPI test instances.
+At CONNECT time, before any request path is visible, PMG checks the hostname and port. PMG decrypts the connection when they match the exact origin of a configured HTTPS endpoint. An `http://` endpoint never causes an HTTPS connection to be decrypted. PMG also decrypts traffic for the built-in registry hosts that it analyzes. It recognizes but does not decrypt a few other built-in hosts, for example the GitHub Packages npm registry and the PyPI test instances.
 
 A per-command run creates handlers only for that command's ecosystem.
 For example, `pmg npm` tunnels built-in and custom PyPI registry hosts without analysis.
@@ -289,7 +290,9 @@ PMG rejects these values:
 
 The error names the registry and the specific problem. An empty name has no registry name to report, so the error names the entry position instead, for example `proxy.registries[0]`. While the error stands, commands that run intercepted traffic (`pmg <pkg-manager>` installs, `pmg proxy start`) fail closed, because a fallback to defaults would silently drop the configured protection. Commands such as `pmg config`, `pmg setup doctor`, and `pmg version` still work, so you can repair the file with PMG itself.
 
-Host Observations use event type `proxy_host_observed` in daily `YYYYMMDD-pmg.log` JSON-lines files.
+Host Observations use event type `proxy_host_observed` in `YYYYMMDD-pmg.log` JSON-lines files.
+PMG names each file for the day the process starts.
+A long-running proxy keeps writing to that file after midnight.
 The default directory is `<effective-user-config-dir>/logs`.
 On Windows it is `%LOCALAPPDATA%\safedep\pmg\logs`.
 `PMG_CONFIG_DIR` also relocates logs when set.
@@ -320,8 +323,9 @@ For Cargo, read the `[registries]` and `[source]` tables of each `.cargo/config.
 
 `npm config get @myscope:registry` reports the registry for one scope. Repeat it for every scope you use.
 `pip config debug` groups files by kind, not precedence.
-pip applies global, user, site, then the `PIP_CONFIG_FILE` file.
+pip applies the global, user, and site files, then the `PIP_CONFIG_FILE` file.
 Later files override earlier files.
+When the `PIP_CONFIG_FILE` file exists, pip does not read the user file.
 It also lists active `PIP_*` environment variables under its `env_var:` section. An environment variable such as `PIP_INDEX_URL` overrides every config file.
 See [pip configuration](https://pip.pypa.io/en/stable/topics/configuration/).
 

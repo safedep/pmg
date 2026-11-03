@@ -133,7 +133,7 @@ Cargo names use lowercase. Cargo treats `-` and `_` as the same.
 Go module paths are case-sensitive.
 Use the ecosystem's actual version spelling, including the `v` prefix for Go.
 Version entries match versions, not version ranges.
-See [PURL matching](trusted-packages.md) for ecosystem rules.
+See [PURL matching](trusted-packages.md#purl-matching) for ecosystem rules.
 An invalid PURL never matches.
 Cooldown remains active for the intended package.
 
