@@ -99,10 +99,14 @@ func writeOverview(b *strings.Builder, in Input) {
 		return
 	}
 	// Without a profile the proxy allows and records every connection, and
-	// denies none. That is audit. A run under enforce cannot reach this,
-	// because enforce without a profile fails at start.
+	// denies none. That is audit. A run under enforce cannot start without a
+	// profile. A final state that PMG could not read has no network policy
+	// either, and then the mode and the profile are unknown.
 	mode, profile, profileCell := config.SandboxNetworkModeAudit, "", code("none")
-	if in.Proposal != nil {
+	switch {
+	case !in.Stop.StateVerified:
+		mode, profileCell = "unknown", "unknown"
+	case in.Proposal != nil:
 		profileCell = code("none") + ", see the proposal below"
 	}
 	if n := in.Stop.Network; n != nil {
