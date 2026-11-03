@@ -56,7 +56,6 @@ func newAnalyzerCircuitBreakerWithTimeout(name string, cooldown time.Duration) *
 	})
 }
 
-// policy returns the policy that applies to this request.
 func (b *baseRegistryInterceptor) policy() *cloudpolicy.Policy {
 	return currentPolicy(b.execContext.Policy)
 }

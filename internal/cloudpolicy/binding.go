@@ -1,12 +1,5 @@
-// Package cloudpolicy applies the cloud policy of the tenant in pmg.
-//
-// The background sync fetches the resolved policy into a cache that
-// dry/cloud/configsync owns. At start, pmg loads the cache, decodes it with
-// dry/policy/project, and builds one package rule index of dry/policy/match
-// from the cloud rules and blocked_packages. The binding table maps the
-// settings of the policy onto pmg keys. The interceptors read the result
-// through a Source, so the proxy daemon can swap in a new policy with no
-// restart.
+// Package cloudpolicy is the cloud layer of pmg: the policy cache, the
+// binding table and the package rule index.
 package cloudpolicy
 
 import (

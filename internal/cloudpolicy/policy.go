@@ -10,21 +10,16 @@ import (
 	"github.com/safedep/pmg/config"
 )
 
-// Policy is the policy that the interceptors apply at one time: the package
-// rule index of the cloud rules and blocked_packages, and the cooldown after
-// the cloud layer. A Policy does not change. A new policy is a new value.
+// Policy does not change after it is built, so the proxy daemon can swap in
+// a new one while requests read the old one.
 type Policy struct {
 	index *match.Index
 
 	// Cooldown is dependency_cooldown after the cloud layer and the flags.
 	Cooldown config.DependencyCooldownConfig
 
-	// cooldownCitation is set when the cloud layer set the cooldown.
 	cooldownCitation *recordv1.DecisionCitation
-
-	// applied names the cloud policy that pmg applies. It is nil when no
-	// cloud policy applies.
-	applied *AppliedHeader
+	applied          *AppliedHeader
 
 	now func() time.Time
 }
@@ -37,22 +32,17 @@ type AppliedHeader struct {
 	DefaultPolicyRevision uint64
 }
 
-// Source gives the policy that applies now. The proxy daemon swaps in a new
-// policy after a fetch, so an interceptor reads Current for each request.
+// Source gives the policy that applies now. An interceptor reads Current for
+// each request, because the proxy daemon swaps the policy after a fetch.
 type Source interface {
 	Current() *Policy
 }
 
-// RuleMatch is the package rule that decided, with what a block message and
-// a decision event need.
+// RuleMatch is the package rule that decided. Applied and Citation are nil
+// for a local rule.
 type RuleMatch struct {
-	Rule match.Rule
-
-	// Applied names the cloud policy of a cloud rule. It is nil for a local
-	// rule.
-	Applied *AppliedHeader
-
-	// Citation cites the cloud rule. It is nil for a local rule.
+	Rule     match.Rule
+	Applied  *AppliedHeader
 	Citation *recordv1.DecisionCitation
 }
 
@@ -62,8 +52,7 @@ func (m RuleMatch) Cloud() bool {
 }
 
 // Block returns the block entry that matches the package, from the cloud or
-// from blocked_packages. A block entry needs no verdict, so pmg checks it
-// before every other step.
+// from blocked_packages.
 func (p *Policy) Block(ecosystem packagev1.Ecosystem, name, version string) (RuleMatch, bool) {
 	d := p.decide(ecosystem, name, version, 0, match.VerdictNone)
 	if d.Effect != match.EffectBlock {
@@ -147,9 +136,7 @@ func (p *Policy) Rules() []match.Rule {
 	return p.index.Rules()
 }
 
-// FromConfig returns the policy of cfg with no cloud layer: the cooldown of
-// the config and the rules of blocked_packages. An entry that does not parse
-// is a load error that stops each install, so it adds no rule here.
+// FromConfig returns the policy of cfg with no cloud layer.
 func FromConfig(cfg *config.RuntimeConfig) *Policy {
 	index, _ := newIndex(nil, cfg.BlockedRules())
 	return &Policy{index: index, Cooldown: cfg.Config.DependencyCooldown}
@@ -162,8 +149,7 @@ type Static struct {
 
 func (s Static) Current() *Policy { return s.Policy }
 
-// Runtime holds the policy of this process. The root command loads it once.
-// The proxy daemon swaps in a new one after a fetch.
+// Runtime holds the policy of this process.
 type Runtime struct {
 	current atomic.Pointer[Policy]
 	status  atomic.Pointer[Status]

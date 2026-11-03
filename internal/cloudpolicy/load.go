@@ -37,36 +37,27 @@ type Status struct {
 
 	State recordv1.ApplyState
 
-	// Tenant is the tenant of the login, or "" with no login.
+	// Tenant is "" with no login.
 	Tenant string
 
-	// CacheDir is the cache folder that pmg read the policy from, or the
-	// folder of pmg when no cache applies.
-	CacheDir string
-
-	// CacheState is the state.json of CacheDir, or nil when pmg cannot read
-	// it.
+	// CacheDir is the folder that pmg read, or its own folder when no cache
+	// applies. Under sudo it can be the folder of the invoking user.
+	CacheDir   string
 	CacheState *configsync.State
 
-	// Applied names the policy that pmg applies, or nil.
 	Applied *AppliedHeader
 
-	// FromPrevious is true when the current policy file failed a check and
-	// pmg applies the previous file. CurrentErr tells why.
+	// FromPrevious is true when the current policy file failed a check.
+	// CurrentErr tells why.
 	FromPrevious bool
 	CurrentErr   error
 
 	// LoadErr tells why no cache applies.
 	LoadErr error
 
-	// Projection is the decoded policy that pmg applies.
 	Projection *project.Projection
-
-	// Dropped are the rules that the index dropped.
-	Dropped []match.Dropped
-
-	// Keys are the pmg keys that the cloud layer set.
-	Keys []config.CloudKey
+	Dropped    []match.Dropped
+	Keys       []config.CloudKey
 
 	// Locked are the contract paths that global_lockdown kept from the cloud.
 	Locked []string
@@ -140,14 +131,11 @@ func (s *Status) CacheAge(now time.Time) time.Duration {
 	return now.Sub(s.CacheState.FetchedAt)
 }
 
-// Load reads the policy cache of cfg and builds the package rule index. It
-// does not change cfg. tenant is the tenant of the login, or "" with no
-// login: then pmg skips only the tenant check, because only a fetch with a
-// login writes the cache.
-//
-// Load never fails. A cache that pmg cannot use leaves the tool baseline,
-// and the Status tells why. The rules of blocked_packages apply in every
-// state.
+// Load reads the policy cache of cfg and builds the package rule index. With
+// no login, tenant is "" and pmg skips only the tenant check, because only a
+// fetch with a login writes the cache. A cache that pmg cannot use leaves
+// the tool baseline, so Load reports the reason in the Status instead of an
+// error.
 func Load(cfg *config.RuntimeConfig, tenant string) *Status {
 	st := &Status{
 		PolicyOn: cfg.Config.Cloud.Policy,
@@ -190,7 +178,6 @@ func Load(cfg *config.RuntimeConfig, tenant string) *Status {
 	return st
 }
 
-// loadCache loads the first usable cache folder into st.
 func loadCache(cfg *config.RuntimeConfig, st *Status) {
 	st.State = recordv1.ApplyState_APPLY_STATE_NONE
 
@@ -295,8 +282,6 @@ func restoreCapabilities(store *configsync.Store, loaded *configsync.Loaded, pro
 	}
 }
 
-// applyState is the ApplyState of a status after a load with cloud.policy
-// on.
 func applyState(st *Status, now time.Time) recordv1.ApplyState {
 	switch {
 	case st.Projection == nil && st.CacheState.HasPolicy() && !errors.Is(st.LoadErr, configsync.ErrTenantMismatch):
@@ -312,8 +297,8 @@ func applyState(st *Status, now time.Time) recordv1.ApplyState {
 	}
 }
 
-// machineID returns the machine id of the endpoint, from the identity that
-// the check-in sends. The header of the policy must carry it.
+// machineID comes from the identity that the check-in sends, so the header
+// check compares the machine that the server resolved the policy for.
 func machineID(cfg *config.RuntimeConfig) (string, error) {
 	endpoint, err := audit.NewEndpointIdentityResolver(cfg).Resolve()
 	if err != nil {
@@ -344,7 +329,6 @@ func cacheDirs(cfg *config.RuntimeConfig) []string {
 	return []string{dir, own}
 }
 
-// loginTenant returns the tenant of the cloud login, or "" with no login.
 func loginTenant() string {
 	creds, closeResolver, err := cloudauth.ResolveCredentials()
 	if err != nil {

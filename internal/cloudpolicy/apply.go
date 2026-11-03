@@ -9,14 +9,9 @@ import (
 )
 
 // Apply runs the binding table over target, the config of cfg or a copy of
-// it, and records in st each pmg key that it set and each contract path that
-// global_lockdown kept. A field that the policy does not set leaves its pmg
-// key at the lower layer.
-//
-// Under global_lockdown, the cloud does not change a key that the managed
-// file sets. When the file sets any key of a row, the whole row does not
-// apply. So a file that sets dependency_cooldown.days also keeps
-// dependency_cooldown.enabled.
+// it. Under global_lockdown a whole row does not apply when the managed file
+// sets any key of it, so a file that sets dependency_cooldown.days also
+// keeps dependency_cooldown.enabled.
 func Apply(cfg *config.RuntimeConfig, target *config.Config, st *Status) {
 	st.Keys = nil
 	st.Locked = nil
