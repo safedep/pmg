@@ -105,7 +105,7 @@ Other nonempty values, including `yes` and `1`, are false.
 This includes `auto-stop`, `fail-on-violation`, `baseline`, `sandbox`, and `expose-to-job-network`.
 A typo can disable the job-end gate.
 Use lowercase `true` or `false` for these inputs.
-Use exactly lowercase `true` for `cache`, which the install script checks separately.
+Use exactly lowercase `true` for `cache` and `sandbox`. The shell scripts check these values separately.
 
 | Input | Effect when set | PMG default if empty |
 |---|---|---|
@@ -116,7 +116,7 @@ Use exactly lowercase `true` for `cache`, which the install script checks separa
 | `paranoid` | `PMG_PARANOID` | `false` |
 | `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
 | `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `2` |
-| `proxy-mode` | Removed. Proxy interception cannot be disabled. The value `false` stops the action. Other values cause a warning and are ignored. | unset |
+| `proxy-mode` | Removed. Proxy interception cannot be disabled. The values `false`, `0`, and `f`, in any letter case, stop the action. Other values cause a warning and are ignored. | unset |
 | `sandbox` | `PMG_SANDBOX_ENABLED`. Also relaxes AppArmor user namespace limits on the runner | `false` |
 | `sandbox-driver` | `PMG_SANDBOX_DRIVER`. Use `landlock` or `bubblewrap` | `landlock` when sandbox is enabled |
 | `verbosity` | `PMG_VERBOSITY`. Use `silent`, `normal`, or `verbose` | `normal` |
@@ -124,7 +124,7 @@ Use exactly lowercase `true` for `cache`, which the install script checks separa
 | `skip-event-logging` | `PMG_SKIP_EVENT_LOGGING` | `false` |
 | `config-file` | Path to a YAML file in the repository. The action copies it to the PMG config directory before setup. Use it to override any config key. | unset |
 | `cache` | Reuse a previously extracted PMG binary from `$RUNNER_TOOL_CACHE`. On a cache hit the action fetches `checksums.txt` from upstream and verifies the cached tarball again. | `false` (download each run) |
-| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job, or only the trust variables under kernel enforcement, with `PMG_PROXY_RUN`, the id of the run in the event log. The post step of the action stops the daemon at the end of the job. Set `false` for [shim mode](#shim-mode). See [Server mode](#server-mode). | server mode, or shims with `sandbox: true` |
+| `server-mode` | Run PMG as a persistent proxy daemon. The action exports the proxy variables to the job. Under kernel enforcement, it exports only the trust variables. It also exports `PMG_PROXY_RUN`, the id of the run in the event log. The post step of the action stops the daemon at the end of the job. Set `false` for [shim mode](#shim-mode). See [Server mode](#server-mode). | server mode, or shims with `sandbox: true` |
 | `fail-on-violation` | With server mode, fail the job at its end when PMG blocked a package or the network policy denied a connection, or when PMG cannot verify the final proxy state. | `true` |
 | `auto-stop` | With server mode, stop the daemon in the post step. Set it to `false` when a step of the job stops the daemon. With `true` and `fail-on-violation`, a daemon that a step stopped fails the job. | `true` |
 | `baseline` | With server mode, propose a network profile from the destinations the job reached, and show it in the job summary. Without `network-profile` the proposal is for `.pmg/network.yml`. It needs the event log, so `skip-event-logging: true` turns it off. | `true` |
@@ -406,8 +406,7 @@ network:
     - "*:*"
 ```
 
-The runner is not exempt. Its traffic to GitHub goes through the proxy, see
-[Runner traffic](#runner-traffic). The built-in `github-actions` profile
+See [Runner traffic](#runner-traffic). The built-in `github-actions` profile
 allows the hosts of the runner, its agents, GitHub releases, and the cache
 and artifact storage, so a profile that inherits it does not list them. Run
 `pmg sandbox profile show github-actions` to see them. An action that
@@ -637,7 +636,8 @@ it, `pmg proxy stop` waits until its timeout and fails.
 `expose-to-job-network` does not help these containers:
 
 - Docker actions and `docker://` steps in a job without a job container.
-  `expose-to-job-network` fails the action in this case.
+  Without `enforce: true`, `expose-to-job-network` fails the action in this case.
+  With `enforce: true`, the action ignores the input with a warning.
   Kernel enforcement with `enforce-namespaces: redirect` or `auto` can route them.
   See [Containers](#containers) for CA delivery.
 - Containers that a script starts with `docker run`. On a job without a job

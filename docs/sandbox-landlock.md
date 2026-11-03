@@ -9,7 +9,8 @@ Landlock is an allow-list. Our profiles add deny rules on top of a broad allow. 
 sets `allow_read: /` and denies `~/.ssh`, `~/.aws`, `.env` and `.git/hooks`. Landlock
 cannot remove a path from an allowed subtree. So we add seccomp-notify on top of Landlock.
 
-- Landlock provides a kernel allow-list for selected filesystem rights, including open, execution, creation, removal, rename, and version-dependent truncation.
+- Landlock provides a kernel allow-list for selected filesystem rights.
+  These rights include open, execution, creation, removal, rename, and truncation on newer kernels.
   It does not govern most metadata syscalls.
 - seccomp-notify traps `execve`, `execveat`, and the fixed path-syscall table for opens, creation, removal, rename, links, truncation, and chroot.
   amd64 also includes legacy path syscalls.
@@ -37,7 +38,7 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
                                   ▼
                            target ─► child ─► grandchild    [filter inherited,
                                                              host uid, no caps,
-                                                             dumpable=1]
+                                                             dumpable unless cleared]
 ```
 
 The helper has no filter on itself. So the helper can read `/proc/<pid>/mem` of each
@@ -243,7 +244,7 @@ Chrome sandbox, inside `pmg sandbox exec`.
 Without `network_via_proxy_only`, the Landlock driver supplies no direct network confinement.
 A profile `network.deny_outbound: ["*:*"]` does not create a network namespace here.
 Only traffic that reaches the proxy receives those destination rules.
-Bubblewrap differs because it can translate a deny-all profile to `--unshare-net`.
+Bubblewrap differs because it uses `--unshare-net` for a profile with no `allow_outbound` rule.
 Separate host enforcement can still constrain traffic outside this driver.
 
 The network rules of Landlock (ABI V4) filter TCP ports only. They cannot match a
@@ -308,7 +309,7 @@ For environment-only file logging, set both `APP_LOG_LEVEL=debug` and `APP_LOG_F
 A `--log` option without `--debug` resets the level to info.
 Trace lines begin with `seccomp: allow` or `seccomp: deny`, then a syscall and `pid=`.
 Most name the target with `path=` or `peer=`.
-A deny uses `rule=`, `access=`, or `reason=` for its cause.
+Most denies use `rule=`, `access=`, or `reason=` for their cause.
 The supervisor does not trace a NULL-destination send or stale notification.
 
 `PMG_KEEP_POLICY` only suppresses helper deletion.

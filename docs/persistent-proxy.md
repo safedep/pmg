@@ -243,7 +243,7 @@ pmg proxy start --daemon
 eval "$(pmg proxy env --export)"
 ```
 
-The upstream can be an HTTP, HTTPS or SOCKS proxy. Loopback destinations do
+The upstream can be an HTTP, HTTPS or SOCKS5 proxy. Loopback destinations do
 not use it.
 
 `pmg npm install` starts a new proxy for each command, so it always reads
@@ -333,8 +333,8 @@ them. Another bare name falls back to a file in the working directory. Under
 profile, one of its `policy_templates`, an absolute path, or a path relative
 to the managed config file. A parent in its chain resolves the same way. A
 user profile, a user preset and the working directory are writable by the
-user, so they are not read. The two rule flags add one `host:port` rule each to the resolved
-profile. `--network-allow` also removes an equal deny rule, because deny wins
+user, so PMG does not read them. The two rule flags add one `host:port` rule each to the
+resolved profile. `--network-allow` also removes an equal deny rule, because deny wins
 at equal specificity. A profile inherits its parent's rule lists and cannot
 remove an entry. It can still widen the result with a more specific allow
 rule or `deny_ip_literals: false`. Under `global_lockdown` the daemon
@@ -427,11 +427,11 @@ take a daemon from no policy to `enforce`.
 
    The profile inherits `exec` and holds one allow rule per host and port.
    It sets `deny_ip_literals: true` unless the target already sets that key.
-   It adds a catch-all deny only when its parent has none. The start warning
+   It adds a catch-all deny only when neither the parent nor the target has one. The start warning
    about filesystem, process and environment rules is expected for a profile
    that inherits `exec`. On a GitHub Actions runner it inherits
    `github-actions`, which allows the hosts of the runner. A proposal from a one-shot run inherits the
-   built-in profile of the package manager and does not repeat the registry
+   built-in profile of the package manager. It does not repeat the registry
    hosts that profile already allows. Review every rule. Commit the file.
 
 3. **Enforce.** Start the daemon with `--profile .pmg/profiles/ci.yml
@@ -452,12 +452,14 @@ the command has no data.
 
 ## Fail on violation
 
-`pmg proxy stop` exits `0` by default. `--fail-on-violation` makes it a gate:
+`pmg proxy stop` exits `0` when it stops a running proxy. It exits non-zero
+when no proxy runs, when the daemon crashed, or when the daemon does not exit
+in time. With `--if-running`, it exits `0` when no proxy runs.
+`--fail-on-violation` makes stop a gate:
 
 - It exits non-zero when any package was blocked, or when the network
   policy refused a connection under `enforce`.
-- It fails when the state file is missing or unreadable after shutdown. A
-  daemon that crashed before stop also makes stop fail. The check does not
+- It fails when the state file is missing or unreadable after shutdown. The check does not
   prove that the daemon wrote its final counts. A daemon killed during
   shutdown, before its final write, can report 0 blocked.
 
@@ -582,7 +584,7 @@ listener and record the original destination. The proxy looks at the first
 bytes of each redirected connection. TLS to a registry host is terminated
 with the PMG CA. Every other host is passed through with its real
 certificate. Plain HTTP is served as a proxy request. With `deny_udp` on,
-UDP to an enforced port gets `EPERM`, so a QUIC client falls back to TCP.
+UDP to an enforced port gets `EPERM`. A QUIC client that can use TCP then falls back to TCP.
 The kernel also records which process opened each connection, and the
 [Host Observation event](./proxy-mode.md#how-pmg-matches-a-request) names it.
 
@@ -913,8 +915,9 @@ reaches the registry directly.
 - The proxy decides by name. It drops a redirected TLS connection without
   SNI or with Encrypted ClientHello. A client that connects by IP sends no
   SNI, so the proxy drops its TLS connection. A plain HTTP request without a
-  `Host` header gets a 400. A plain HTTP request with an IP `Host` passes,
-  and the proxy analyzes it only when `proxy.registries` names that IP. A
+  `Host` header gets a 400. A plain HTTP request with an IP `Host` passes
+  unless the network policy refuses it, for example with `deny_ip_literals: true`.
+  The proxy analyzes it only when `proxy.registries` names that IP. A
   registry that clients reach by IP over TLS needs a name. A `skip_destinations`
   entry keeps a host process away from the proxy, but not a container.
 - A passed-through TLS connection is dialed by its server name, not by the
@@ -930,8 +933,9 @@ reaches the registry directly.
   is intended for CI.
 - One proxy per state file. On Unix, a second foreground start that points
   at the same state file is refused while one runs. A second `--daemon`
-  start reports the daemon that already runs and changes nothing, also when
-  it adds `--enforce`. Run `pmg proxy stop` first.
+  start changes nothing, also when it adds `--enforce`. It prints the start
+  message with the address and pid of the daemon that already runs. Run
+  `pmg proxy stop` first.
 - Without `--enforce`, routing depends on the variables, and a process that
   drops or ignores them bypasses the proxy. Use
   [kernel enforcement](#kernel-enforcement-linux) on Linux. For system-wide

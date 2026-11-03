@@ -77,7 +77,7 @@ See [Configuration](config.md) for managed files and overrides.
 `enabled` defaults to `false`. Disabling it retains the stored entries.
 `ttl` defaults to `24h` and counts from storage time, not the last cache hit.
 Use a Go duration with a unit, such as `30m`, `24h`, or `168h`.
-`7d`, `1w`, and a quoted number without a unit are invalid.
+`7d`, `1w`, and a quoted nonzero number without a unit are invalid.
 An unquoted YAML integer represents nanoseconds. A nonpositive TTL disables disk reuse.
 A duration decode error can make PMG use defaults for the whole configuration.
 After an edit, run `pmg setup cache status` and check the reported TTL.

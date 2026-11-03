@@ -19,12 +19,14 @@ It merges the PMG CA with the first readable bundle selected from `SSL_CERT_FILE
 `CURL_CA_BUNDLE`, and known system bundle paths.
 It does not export roots held only in a native keychain or Windows Root store.
 If no readable bundle exists, the generated file contains only the PMG CA.
+The same applies when the bundle or the merged file is larger than 10 MiB.
 A client that replaces its roots with that file can reject other HTTPS connections.
 For corporate roots, supply a full PEM bundle with the public roots and your corporate roots through `SSL_CERT_FILE`
-before starting PMG. A separate `PIP_CERT` or `NODE_EXTRA_CA_CERTS` value is not merged automatically.
+before you start PMG. PMG does not merge a separate `PIP_CERT` or `NODE_EXTRA_CA_CERTS` value.
 
-For proxied Cargo runs, PMG also sets `CARGO_HTTP_CHECK_REVOKE=false`.
-This disables Windows schannel revocation checks for that run's Cargo HTTPS traffic.
+PMG sets `CARGO_HTTP_CHECK_REVOKE=false` for every proxied run, not only for Cargo runs.
+`pmg proxy env` also sets it when the proxy runs without enforcement.
+On Windows, this disables schannel revocation checks for Cargo HTTPS traffic.
 See [Windows Support](windows-support.md).
 
 ## When you need a persistent CA trusted by the OS

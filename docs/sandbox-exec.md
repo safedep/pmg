@@ -1,7 +1,7 @@
 # Sandbox Exec
 
 `pmg sandbox exec` runs any program inside the PMG sandbox. The program keeps its own exit code.
-When stdin and stdout are a terminal, PMG runs the program in a PTY.
+PMG runs the program in a PTY when stdin and stdout are a terminal, PMG runs in the foreground, and `CI` is not `true`.
 Its stderr then reaches the terminal on the stdout stream, so `2>` does not capture it.
 PMG applies credential denies, environment scrubbing, and write restrictions with the limits below.
 
@@ -58,7 +58,7 @@ The macOS keychain helper can supply stored credentials.
 The sandbox blocks common credential files and gh state on every platform.
 It also blocks the git credential-cache socket.
 On Linux, it also blocks the libsecret socket.
-`GH_TOKEN` and `GITHUB_TOKEN` are scrubbed.
+PMG scrubs `GH_TOKEN` and `GITHUB_TOKEN`.
 Enabling Unix sockets alone does not fix SSH because direct TCP and SSH files remain blocked.
 It can expose services such as Docker.
 See
@@ -190,7 +190,7 @@ and raw TCP tools such as `nc`.
 Loopback remains open because the profile enables `allow_network_bind`.
 Remote direct DNS is refused, but a loopback resolver such as `127.0.0.53:53` can still answer and forward queries off-host.
 This remains a DNS exfiltration path.
-On Linux, Landlock does not check `sendmmsg`, which can send UDP to any host or open a TCP connection with Fast Open.
+On Linux, the Landlock driver's supervisor does not trap `sendmmsg`, which can send UDP to any host or open a TCP connection with Fast Open.
 A racing thread can also change a destination after the check.
 See [network lockdown gaps](sandbox-landlock.md#network-lockdown-gaps).
 
@@ -301,6 +301,10 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
 - Bubblewrap cannot confine outbound connections to the proxy, so it refuses the `exec`
   profile. Use a child with `network_via_proxy_only: false`.
   The Bubblewrap path limits below apply to that workaround. See [How the policy reaches the program](#how-the-policy-reaches-the-program).
+- On Landlock, the supervisor denies every trapped syscall of a non-dumpable process, such as
+  ssh-agent. The supervisor cannot read the memory of that process. Bubblewrap does not read
+  process memory. To use Bubblewrap, set `PMG_SANDBOX_DRIVER=bubblewrap` and use a child profile
+  with `network_via_proxy_only: false`. That child loses direct outbound confinement.
 - `git worktree add` and `git worktree remove` are not supported yet. A new worktree lands
   outside the working directory, which the profile does not grant. This is future work.
 - The exec profile grants exec access under `${HOME}`. `pmg sandbox profile lint exec` reports
@@ -310,7 +314,7 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
   made inside the sandbox is refused.
 - Bubblewrap works with mounts, so it denies only paths it can name. It hides credential files
   in the repository up to three levels deep.
-  Landlock and Seatbelt have different [recursive deny limits](sandbox.md#security-model). A
+  Landlock and Seatbelt have different [recursive deny limits](sandbox.md#mandatory-credential-protection). A
   denied file that does not exist yet, such as `~/.codex/hooks.json` before Codex creates it,
   can be created under Bubblewrap when its parent is writable. A denied directory that does
   not exist yet, such as `~/.claude/hooks`, gets an empty read-only placeholder that stays on

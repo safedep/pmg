@@ -26,8 +26,8 @@ import (
 )
 
 // defaultServerReadWriteTimeout is the default timeout for the http.Server's
-// ReadTimeout and WriteTimeout. These deadlines persist on hijacked CONNECT
-// tunnel connections, so this must be large enough for a full bulk install.
+// ReadTimeout and WriteTimeout. net/http clears these deadlines on Hijack(),
+// so they do not limit CONNECT tunnels.
 const defaultServerReadWriteTimeout = 30 * time.Minute
 
 // defaultUpstreamRetries is the number of times an idempotent upstream
@@ -84,13 +84,10 @@ type ProxyConfig struct {
 	ConnectTimeout time.Duration
 
 	// ServerReadWriteTimeout is the timeout applied to the http.Server's
-	// ReadTimeout and WriteTimeout. These deadlines are set on the raw TCP
-	// connection and persist after Hijack(), which means they become the
-	// hard wall-clock limit for CONNECT tunnels (used for non-MITM traffic
-	// like private registries). A bulk "npm install" can easily run for
-	// 15-30 minutes, so this must be significantly larger than
-	// RequestTimeout (which governs individual upstream round-trips for
-	// MITM'd connections).
+	// ReadTimeout and WriteTimeout. net/http clears these deadlines on
+	// Hijack(), so they apply to plain HTTP proxy requests and not to CONNECT
+	// tunnels. RequestTimeout governs individual upstream round-trips for
+	// MITM'd connections.
 	//
 	// If zero, defaults to 30 minutes.
 	ServerReadWriteTimeout time.Duration

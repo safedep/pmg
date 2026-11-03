@@ -54,7 +54,7 @@ An endpoint must be an object such as `- url: https://packages.example.com`, not
 
 Invalid registry entries and invalid `sandbox.network_mode` or
 `proxy.server.network_mode` values block package-manager, proxy, and sandbox profile commands.
-Network modes accept only `audit` or `enforce`.
+Network modes accept `audit` or `enforce`. An empty value means `audit`.
 Package-manager commands, including `pmg npm run`, and `pmg proxy start` refuse to run.
 `pmg sandbox exec` and `pmg sandbox profile` commands refuse too.
 Repair commands such as `pmg config` and `pmg setup` remain usable.
@@ -207,11 +207,11 @@ pmg setup info
 # Config Source: user              <- per-user config in effect
 ```
 
-### Behaviour
+### Behavior
 
 Whenever a global config file is present and only the system account can change it:
 
-- **It is authoritative.** PMG ignores the per-user `config.yml`. The file may be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to a user's values.
+- **It is authoritative.** PMG ignores the per-user `config.yml`. The file may be **partial**. Keys it does not set fall back to the values in the [config template](../config/config.template.yml), not to a user's values.
 - **Profile paths start next to the global file.** A relative `policy_templates` path resolves there.
   A relative `sandbox.policies.<pm>.profile` path tries that directory first.
   Without lockdown, it can fall back to the working directory or a user profile.

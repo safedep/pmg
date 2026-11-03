@@ -10,7 +10,7 @@ The enforcement method depends on the ecosystem.
 | Ecosystem | Enforcement |
 | --- | --- |
 | npm | PMG removes recent versions from registry metadata. |
-| PyPI | PMG removes recent files from JSON Simple API responses. |
+| PyPI | PMG removes all files of recent versions from JSON Simple API responses. |
 | Go modules | PMG blocks recent module `.zip` downloads with HTTP 403. It does not filter module metadata. |
 | Cargo crates | PMG removes recent versions from the sparse index. It also blocks recent `.crate` downloads with HTTP 403. |
 
@@ -66,7 +66,7 @@ These output settings do not disable cooldown enforcement.
 The [persistent proxy](persistent-proxy.md) does not print a per-command install summary.
 The daemon cannot see versions pinned on a command line.
 It never reports a block because a requested version is withheld.
-A withheld npm or PyPI version does not increase its blocked count when older eligible versions remain.
+A withheld npm, PyPI, or Cargo version does not increase its blocked count when older eligible versions remain.
 The daemon records aggregate audit counts and reports counts at stop.
 Restart the daemon after a cooldown configuration change.
 
@@ -129,7 +129,7 @@ Matching:
   stays installable; other recent versions are still held).
 
 PyPI names are matched in their normalized form (lowercase, `_`/`.` → `-`).
-Cargo names use lowercase.
+Cargo names use lowercase. Cargo treats `-` and `_` as the same.
 Go module paths are case-sensitive.
 Use the ecosystem's actual version spelling, including the `v` prefix for Go.
 Version entries match versions, not version ranges.
@@ -162,7 +162,7 @@ Custom registries must use [configured and recognized endpoints](proxy-mode.md#c
 
 PMG needs a publish timestamp to apply cooldown.
 It leaves versions without timestamps eligible.
-This applies to npm metadata without `time`, PyPI files without `upload-time`, and Cargo index entries without `pubtime`.
+This applies to npm metadata without `time`, PyPI versions with no `upload-time` on any file, and Cargo index entries without `pubtime`.
 Go and Cargo downloads also proceed when the publish-time lookup fails.
 PMG does not follow a redirect of an authenticated publish-time lookup.
 Cooldown is then not enforced for that download.
@@ -173,8 +173,9 @@ Malware analysis can still run when cooldown cannot determine the package age.
 PMG filters the [PEP 691 JSON Simple API](https://peps.python.org/pep-0691/).
 [pip 22.2](https://pip.pypa.io/en/stable/news/#v22-2) added support for this format in July 2022.
 PMG reads the optional per-file `upload-time` field added by [PEP 700](https://peps.python.org/pep-0700/) in Simple API version 1.1.
-A JSON response without that field does not provide cooldown protection for those files.
+A version with no `upload-time` on any file stays eligible.
 
 Older pip versions request the HTML Simple API, which carries no publish timestamps. PMG cannot apply cooldown filtering to HTML responses and fails open; the request passes through unchanged and the client receives the full version list. Old pip gets no cooldown protection but does not break.
-The current warning says to upgrade to pip 22.3+.
+PMG logs a warning that says to upgrade to pip 22.3+.
+The terminal shows this warning only with `--debug`.
 pip 22.2 already supports the required JSON format.

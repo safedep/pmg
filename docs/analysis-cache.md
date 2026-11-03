@@ -18,7 +18,8 @@ The optional SQLite cache reuses benign verdicts across processes.
 - **Only clean (`ALLOW`) verdicts are cached.** Suspicious, malicious, and
   tenant-excluded verdicts are never persisted.
 - Each entry expires `ttl` after PMG stores it. A cache hit does not extend it.
-- If PMG cannot use the cache, it uses live analysis and the install continues.
+- If PMG cannot open or read the cache, it uses live analysis.
+  A failed cache write does not stop the install.
   See [Manage](caching.md#manage) for status, clear, and debug output.
 
 ## Configuration

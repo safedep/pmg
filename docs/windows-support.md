@@ -6,7 +6,7 @@ Use `pmg setup install` on Windows to run `npm`, `pip` and the other supported p
 pmg setup install
 ```
 
-**Requires Windows 10 or 11 on x86-64.** The release ships `pmg_Windows_x86_64.zip` and `pmg_Windows_x86_64.msi`. Windows 11 on ARM64 can run the x64 build through [emulation](https://learn.microsoft.com/en-us/windows/arm/apps-on-arm-x86-emulation). Windows 10 on ARM is unsupported.
+**Requires Windows 10 or 11.** The release ships only x86-64 builds, `pmg_Windows_x86_64.zip` and `pmg_Windows_x86_64.msi`. Windows 11 on ARM64 can run the x64 build through [emulation](https://learn.microsoft.com/en-us/windows/arm/apps-on-arm-x86-emulation). Windows 10 on ARM is unsupported.
 
 `pmg setup install` writes one `.cmd` shim for each supported package manager and puts the shim directory first on your user `PATH`. PMG installs no shell alias and no PowerShell profile function on Windows. The shims are the whole interception layer. `cmd.exe`, PowerShell and any program that applies `PATHEXT` find them.
 
@@ -90,7 +90,7 @@ A `PATH` shim does not intercept everything. `pmg setup doctor` reports the stat
 - **Git Bash.** Git Bash does not apply `PATHEXT`, so it never runs a `.cmd` shim and resolves `npm` to Node's own `npm` shell script. Run `pmg npm ...` in Git Bash, or use PowerShell or `cmd.exe`.
 - **Unquoted metacharacters.** The shim forwards your arguments to `cmd.exe`, which reads an unquoted `&`, `|`, `<` or `>` as its own. `npm.cmd` behaves the same way, so PMG changes nothing here. Quote the argument.
 - **Interpreter entry points.** `python -m pip` and `py -m pip` do not invoke a pip shim. Use `pmg pip install ...`, or start a foreground proxy and [import its environment](#foreground-proxy). Starting a proxy alone does not route Python through it.
-- **No sandbox.** Windows has no Landlock or Seatbelt equivalent that fits the current policy model. Keep `sandbox.enabled: false` in Windows fleet configuration. With it enabled, install commands stop with an error. See [sandbox.md](./sandbox.md).
+- **No sandbox.** Windows has no Landlock or Seatbelt equivalent that fits the current policy model. Keep `sandbox.enabled: false` in Windows fleet configuration. With it enabled, every command that can download packages stops with an error. With `sandbox.enforce_always: true`, every command stops. See [sandbox.md](./sandbox.md).
 - **No proxy daemon.** `pmg proxy start --daemon` needs a detached process, a liveness check and a stop path that Windows does not share with Unix. Use a foreground `pmg proxy start` and stop it with Ctrl+C. `pmg proxy stop`, `pmg proxy status` and the `--fail-on-violation` gate do not work on Windows. `pmg proxy stop` can remove the state of a running proxy and return an error. The proxy then continues to run. See [persistent-proxy.md](./persistent-proxy.md#commands).
 - **WSL.** PMG under WSL 2 runs the Linux build. The sandbox works when the WSL kernel meets the Linux driver requirements. It protects package managers inside WSL only. A native Windows toolchain needs the Windows build. WSL 1 has no Linux kernel, so the sandbox does not work there. With the sandbox enabled, PMG stops with an error. Check with `pmg setup doctor`.
 

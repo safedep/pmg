@@ -12,9 +12,12 @@ An unverified malware inference asks for confirmation.
 Paranoid mode turns that inference into a block.
 A declined, failed, or expired confirmation returns HTTP 403.
 The response wait expires after 5 minutes.
-Noninteractive direct mode declines without a prompt.
-Trusted packages, insecure installation, and authenticated tenant exclusions can change these decisions.
-See [trust](trust.md) and [trusted packages](trusted-packages.md).
+PMG does not prompt when stdin or stdout is not a terminal, when it runs as a background job, or when `CI=true`.
+It then declines each confirmation.
+Trusted packages, insecure installation, and tenant exclusions can change these decisions.
+A tenant exclusion is a SafeDep Cloud entry that allows one flagged package version for your tenant.
+PMG applies it only to authenticated queries.
+See [trusted packages](trusted-packages.md) and [How PMG identifies a package](#how-pmg-identifies-a-package).
 
 Without a terminal, PMG supplies `CI=true` only when `CI` is absent.
 An explicit `CI=false` stays unchanged.
@@ -38,7 +41,7 @@ proxy:
 | Key             | Default | Description                                                                                                                        |
 | --------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `install_only`  | `false` | When `true`, known non-download commands such as `npm ls` and `pip list` bypass the proxy. Unknown commands, `npm run`, `npm exec`, `npm ci`, and all `uv` commands still use it. |
-| `skip_commands` | `{npm: []}` | Per-package-manager commands to bypass the proxy. Only applies when `install_only` is `true`.                                      |
+| `skip_commands` | `{}`    | Per-package-manager commands to bypass the proxy. Only applies when `install_only` is `true`.                                      |
 
 ### Per-package-manager skip commands
 
@@ -54,6 +57,7 @@ proxy:
 
 PMG matches the first non-flag argument under the exact package-manager name.
 For example, `pnpm dev` matches `dev`, but `pnpm install dev` does not.
+PMG does not skip flag values. In `pnpm --filter web dev`, the first non-flag argument is `web`.
 `npm run dev` matches `run`.
 An `npm: ["run"]` entry skips every npm script.
 A `pip` entry does not cover `pip3` or `pipx`.
@@ -74,7 +78,9 @@ Its HTTP transport and CONNECT dialer support HTTP, HTTPS, and SOCKS5 proxies.
 The child receives PMG's proxy address instead.
 Loopback destinations bypass the upstream proxy.
 For TLS connections that PMG makes, add private roots to the system trust store, or set `SSL_CERT_FILE` in PMG's environment.
-When `SSL_CERT_FILE` is set, PMG uses only that file, on every OS.
+When `SSL_CERT_FILE` is set on macOS or Windows, PMG uses only that file.
+On Linux, PMG also reads the system certificate directories, such as `/etc/ssl/certs`.
+Set `SSL_CERT_DIR` to replace those directories.
 For an opaque tunnel, the client validates the destination certificate.
 
 ### Removed: disabling proxy interception
@@ -133,7 +139,7 @@ Other bases must retain a standard `/simple/{project}/` or `/pypi/{project}/json
 
 ### How PMG matches a request
 
-PMG intercepts traffic only to the exact origin of an endpoint URL: the scheme, the host, and the port. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com`. An endpoint on port 8443 does not cause PMG to decrypt traffic to port 443. Built-in registries are different: they also cover every subdomain of their host.
+PMG intercepts traffic only to the exact origin of an endpoint URL. The origin is the scheme, the host, and the port. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com`. An endpoint on port 8443 does not cause PMG to decrypt traffic to port 443. Built-in registries are different. They also cover every subdomain of their host.
 
 PMG decides in two steps.
 
@@ -296,6 +302,7 @@ jq -c 'select(.event_type == "proxy_host_observed") | .details' <logs-dir>/*-pmg
 
 `skip_event_logging` disables the default event writer.
 The root `--log <file>` option redirects diagnostics and events to one file instead of the daily directory.
+With `skip_event_logging` on, that file gets diagnostics only.
 See [configuration paths](config.md).
 
 ### Find your current registry settings

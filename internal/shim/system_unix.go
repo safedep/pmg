@@ -127,9 +127,9 @@ func requireRootOwnedPath(path string, info os.FileInfo) error {
 }
 
 // requireSafeParentDir requires a root-owned, non-world-writable immediate
-// parent. Group-writable is allowed on purpose so Debian/Ubuntu's default
-// /usr/local/bin (root:staff 2775) is not rejected; the resulting bypass on
-// group-writable non-sticky dirs is covered in docs/system-install.md
+// parent. Group-writable is allowed on purpose so a root:staff 2775
+// /usr/local/bin, which older Debian releases shipped, is not rejected. The
+// resulting bypass on group-writable non-sticky dirs is covered in docs/system-install.md
 // Limitations.
 func requireSafeParentDir(dir string) error {
 	info, err := os.Stat(dir)

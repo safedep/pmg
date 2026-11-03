@@ -160,6 +160,8 @@ Rules the schema enforces:
   `environment.allow`. Deny rules and profile booleans are rejected.
 - Paths must be anchored at `${CWD}/`, `${HOME}/` or `${TMPDIR}/`, no `..`,
   and must not name sensitive files (`.env`, `.ssh`, ...).
+- Paths must not name `.vscode`, `.github/workflows` or `.git/hooks`.
+- A write path must not name `.git/config`.
 - Binds must be loopback (`localhost`, `127.0.0.1`, `[::1]`).
 - `environment.allow` entries are exact variable names, no globs.
 - `network.allow_outbound` entries are `host:port` rules the proxy reads,
@@ -168,7 +170,7 @@ Rules the schema enforces:
   refused, because a preset must not open the whole network. The rules add
   to the profile's allow list without removing a deny entry.
   PMG drops a preset allow only when one authored deny covers its entire host and port range.
-  For a preset in a profile's `presets:` list, PMG checks only the profile's denies, not `--network-deny` flags.
+  For a preset in a profile's `presets:` list, PMG checks only the profile's denies. It does not check the `--network-deny` flags of `pmg sandbox exec` or `pmg proxy start`.
   The catch-all deny `*:*` drops none,
   because a preset rule is meant to rise above it. A preset adds allowances
   and restricts nothing.
@@ -177,7 +179,8 @@ Rules the schema enforces:
   Use `--debug` or `--log <file>` to see drop warnings.
   Under the `exec` profile every destination is
   already allowed, so a preset rule matters once a profile denies `*:*`.
-  A catch-all deny refuses other destinations only in `--network-mode enforce`.
+  A catch-all deny refuses other destinations only when `sandbox.network_mode` is `enforce`,
+  or with `pmg sandbox exec --network-mode enforce`.
   The default audit mode records matches and allows them.
   Proxy confinement is a separate control.
   A child profile can disable it with `network_via_proxy_only: false`.
@@ -197,7 +200,7 @@ Precedence and residual risks:
   Submodule hooks and config under `.git/modules` are not covered by that top-level protection.
   The `git` preset can make them writable.
   A planted submodule hook or `core.hooksPath` can run outside the sandbox on a later Git command.
-- In a linked worktree, PMG mirrors grants covering the checkout's git directory into validated worktree and common directories.
+- In a linked worktree or a submodule checkout, PMG mirrors grants covering the checkout's git directory into validated worktree and common directories.
   It repeats hooks and config restrictions there and denies writes to pointer files.
   This prevents worktree move and repair operations.
   See [worktrees](sandbox-exec.md#git-worktrees) for details.

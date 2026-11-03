@@ -11,8 +11,8 @@ that we use.
 Filesystem access is default-deny, with driver-specific implicit grants. For filesystem paths,
 deny rules win over allow rules where the driver can express them. An
 environment variable passes unless it matches the deny list. For environment variables, an allow
-wins over a deny. A network connection that matches no rule is allowed. To make a network allow
-list, add `*:*` to `deny_outbound`. The most specific network rule wins. Exec control differs per
+wins over a deny. At the PMG proxy, a connection that matches no rule is allowed. To make a network
+allow list at the proxy, add `*:*` to `deny_outbound`. The most specific network rule wins. Exec control differs per
 driver. PMG ships mandatory denies for credential files (`.env`,
 `.ssh`, `.aws`, `.gcloud` and more). It also denies writes to the project-root directories whose
 contents execute outside the sandbox (`.github/workflows`, `.vscode`). See
@@ -51,7 +51,7 @@ such as `.claude`, `.cursor`, `.devcontainer`, `.idea` and `.husky`.
   The XDG spec treats an empty or relative value as unset, so the package manager also uses the default, and the rule matches its path. For `/`, `$HOME`, a parent of `$HOME` and a glob, PMG expands its rule to the default, but the package manager itself still writes to the value. The sandbox denies those writes, and the warning names the variable.
 - **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. Set `allow_unix_sockets: true` in a profile to open them. See [Unix Sockets](#unix-sockets).
 - **Dangerous syscalls are blocked on Linux**: The kernel refuses nested namespaces, ptrace, `bpf`, `io_uring`, mounts, kernel modules and a few more on both Linux drivers. See [sandbox-landlock.md](sandbox-landlock.md).
-- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Seatbelt and Bubblewrap turn the network off only for a profile that denies all destinations and allows none. Landlock does not confine the network without `network_via_proxy_only`. With `network_via_proxy_only`, Seatbelt and Landlock limit it to the PMG proxy. Bubblewrap refuses that setting. The PMG proxy applies the host and port rules, see [Network rules](#network-rules).
+- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Seatbelt and Bubblewrap turn the network off for a profile with no `allow_outbound` rule. Landlock does not confine the network without `network_via_proxy_only`. With `network_via_proxy_only`, Seatbelt and Landlock send direct traffic only to the PMG proxy. The loopback, DNS and Unix socket settings and the Landlock gaps leave other paths open, see [Platform-Specific Limitations](#platform-specific-limitations). Bubblewrap refuses that setting. The PMG proxy applies the host and port rules, see [Network rules](#network-rules).
 
 </details>
 
@@ -132,11 +132,14 @@ environment:
 Yarn and Bun also need their own variables.
 An install script under any of these profiles can read the permitted npm credentials.
 Python leaf profiles preserve their tool-specific allowances.
+The `uv` and `uvx` profiles allow `UV_*`, so `UV_PUBLISH_TOKEN` passes.
+The `poetry` profile allows `POETRY_*`, so `POETRY_PYPI_TOKEN_PYPI` and `POETRY_HTTP_BASIC_PYPI_PASSWORD` pass.
+An install script under these profiles can read these tokens.
 `pnpx` inherits its environment allowances from `npx`.
 The Go, Cargo, and exec profiles do not add credential environment allowances by default.
 
 Configs written before the profile split may still map npm, yarn, or bun to `npm-restrictive`, pnpm
-to `pnpm-restrictive`, or pip, pip3, pipx, poetry, or uv to `pypi-restrictive`. PMG re-maps these legacy
+to `pnpm-restrictive`, or pip, pip3, pipx, poetry, uv, or uvx to `pypi-restrictive`. PMG re-maps these legacy
 defaults to the per-package-manager leaf profile at load time, unless a custom policy template
 overrides the legacy name, in which case the template wins as before.
 PMG also re-maps the old pnpx-to-npx mapping to the pnpx leaf profile.
@@ -172,8 +175,9 @@ to lift that restriction for pmg.
 - Seatbelt on macOS
 - Linux amd64 or arm64 with user namespaces available for a non-root caller. Landlock always needs
   them. Bubblewrap needs them unless `bwrap` is installed setuid root.
-  A runtime namespace clone failure stops the run and does not trigger driver fallback.
-- On Ubuntu 23.10+, an AppArmor profile granting pmg unprivileged user namespaces. See
+  A user namespace clone failure stops the run and does not trigger driver fallback.
+  On Landlock, PMG retries without the PID, mount and IPC namespaces when the kernel refuses them with `EPERM` or `EINVAL`.
+- On Ubuntu 24.04+, or on 23.10 with the restriction turned on, an AppArmor profile granting pmg unprivileged user namespaces. See
   [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
 
 <details>
@@ -203,7 +207,7 @@ See [Bubblewrap Installation](https://github.com/containers/bubblewrap#installat
   
 See [configuration](./config.md) and [config/config.template.yml](../config/config.template.yml) for the configuration schema.
 Once sandbox is enabled, it covers commands that may download packages.
-Known non-download commands are not sandboxed.
+PMG does not sandbox known non-download commands.
 For npm, this includes `ls`, `uninstall`, `rebuild`, and `pack`, even though some can run package code.
 Unknown subcommands and `npm run dev` remain sandboxed.
 Set `sandbox.enforce_always: true` or add `--sandbox-enforce` to include all commands.
@@ -478,9 +482,10 @@ pmg sandbox project reset --yes
 
 ### Presets
 
-A preset is a named, additive-only bundle of allowances for one workload (git hooks tooling,
+A preset is a named bundle of allowances for one workload (git hooks tooling,
 an Astro/Vite/Next.js dev server, ...). Instead of discovering allowances one denial at a
-time, apply a curated bundle:
+time, apply a curated bundle. A preset can opt out of some mandatory denies. See
+[sandbox-presets.md](sandbox-presets.md).
 
 ```bash
 pmg sandbox preset list
@@ -609,9 +614,11 @@ instead of running with no enforcement. Examples are a `hidepid` proc mount,
 Bubblewrap may not be installed. At runtime the supervisor denies a trapped path or exec
 syscall when it cannot read the memory that holds the path. So a process cannot read a denied
 file by making its own memory unreadable. A non-dumpable process, such as gpg-agent or
-ssh-agent, loses file access on the Landlock driver. See step 3. Run it under the Bubblewrap
-driver. Bubblewrap
-enforces at the mount layer and does not read process memory.
+ssh-agent, loses file access on the Landlock driver. See step 3. To avoid this, set
+`PMG_SANDBOX_DRIVER=bubblewrap`. Bubblewrap enforces at the mount layer and does not read
+process memory. Bubblewrap refuses a profile that sets `network_via_proxy_only`, such as
+`exec`, `go` and `cargo`. For these profiles, use a child profile that sets
+`network_via_proxy_only: false`. That child loses direct outbound confinement.
 
 The user namespace is purely a capability vehicle for the shim. The uid and gid map to
 themselves, so targets see the caller's identity and the same filesystem ownership they

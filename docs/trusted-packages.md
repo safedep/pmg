@@ -68,7 +68,7 @@ Cargo folds names to lowercase and treats `-` and `_` as the same.
 Go module paths remain case-sensitive.
 Use the actual Go version, including its `v` prefix.
 
-PMG ignores an invalid PURL, often with no visible warning.
+PMG ignores an invalid PURL with no visible warning.
 `pmg config get` displays raw values and does not prove that each PURL parsed.
 
 When event logging is enabled, PMG records `install_trusted_allowed` for each trusted artifact.
