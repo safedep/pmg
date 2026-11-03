@@ -22,6 +22,9 @@ suppressions:
   - purl: pkg:golang/buf.build/gen/go/safedep/*
     control: dependency-cooldown
     reason: SafeDep publishes these API SDKs. A new SDK version is not a cooldown risk.
+  - purl: pkg:golang/github.com/safedep/dry
+    control: dependency-cooldown
+    reason: SafeDep publishes dry. A new dry version is not a cooldown risk.
 #  - purl: pkg:golang/example.com/module@v1.2.3
 #    control: vulnerability
 #    reason: Reviewed. The code does not call the affected function.
