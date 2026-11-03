@@ -26,8 +26,8 @@ func newSystemLayout() (systemLayout, error) {
 	}, nil
 }
 
-// validateConfig is a Windows check. A standard user cannot put a file
-// under /etc.
+// validateConfig is a Windows check of the PMG security descriptor. The
+// managed config row of doctor reports the Unix rule.
 func (systemLayout) validateConfig() error { return nil }
 
 func systemInstallPresent() bool { return SystemShimsInstalled() }
@@ -116,7 +116,7 @@ func requirePathSearchableByAll(path string) error {
 }
 
 func requireRootOwnedPath(path string, info os.FileInfo) error {
-	uid, ok := fileOwnerUID(info)
+	uid, ok := platform.FileOwnerUID(info)
 	if !ok {
 		return fmt.Errorf("cannot determine owner of %s", path)
 	}
@@ -141,7 +141,7 @@ func requireSafeParentDir(dir string) error {
 		return fmt.Errorf("directory %s containing pmg executable is writable by others", dir)
 	}
 
-	uid, ok := fileOwnerUID(info)
+	uid, ok := platform.FileOwnerUID(info)
 	if !ok {
 		return fmt.Errorf("cannot determine owner of directory %s", dir)
 	}

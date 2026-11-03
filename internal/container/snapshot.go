@@ -1,0 +1,85 @@
+package container
+
+import (
+	"context"
+	"net/netip"
+	"sync"
+	"time"
+)
+
+const (
+	// listMaxAge is how long a list of containers is trusted for an address
+	// it names. A runtime gives the address of an exited container to the
+	// next one, so an older list can name the wrong container.
+	listMaxAge = 250 * time.Millisecond
+
+	// missMaxAge is how long a list is trusted for an address it does not
+	// name. A container that just started is not in an older list, as when
+	// Compose starts a second container a moment after the first. An address
+	// that no container owns, such as a RUN step of the default builder,
+	// gets the runtime at most one list call per missMaxAge.
+	missMaxAge = 50 * time.Millisecond
+
+	// failureBackoff is how long the runtime is not asked after it failed to
+	// answer, so a hung runtime does not slow every connection.
+	failureBackoff = 10 * time.Second
+)
+
+// snapshot is an Introspector that answers from the last list of running
+// containers and lists again when the list is too old to trust for the
+// address.
+type snapshot struct {
+	runtime Runtime
+	list    func(context.Context) (map[netip.Addr]Container, error)
+	now     func() time.Time
+
+	// mu also makes concurrent lookups share one list call. A caller waits
+	// for at most one list call, because a failed call starts the backoff.
+	mu       sync.Mutex
+	byAddr   map[netip.Addr]Container
+	listedAt time.Time
+	failedAt time.Time
+}
+
+func newSnapshot(runtime Runtime, list func(context.Context) (map[netip.Addr]Container, error)) *snapshot {
+	return &snapshot{runtime: runtime, list: list, now: time.Now}
+}
+
+func (s *snapshot) Runtime() Runtime { return s.runtime }
+
+// ContainerByAddress answers from the list while it is fresh. During the
+// backoff after a failure it reports a miss without an error, because the
+// failure was already reported.
+func (s *snapshot) ContainerByAddress(ctx context.Context, addr netip.Addr) (Container, bool, error) {
+	addr = addr.Unmap()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now()
+	if age := now.Sub(s.listedAt); age < listMaxAge {
+		c, found := s.byAddr[addr]
+		if found || age < missMaxAge {
+			return c, found, nil
+		}
+	}
+	if now.Sub(s.failedAt) < failureBackoff {
+		return Container{}, false, nil
+	}
+
+	// The list call can take up to a second, so both windows start when it
+	// returns. A window that starts before the call can end before the
+	// lookups that waited on mu read the list.
+	// A lookup can wait on mu until its own deadline passes. A list call with
+	// that context fails, and the backoff would hide a runtime that works.
+	if ctx.Err() != nil {
+		return Container{}, false, nil
+	}
+	byAddr, err := s.list(ctx)
+	if err != nil {
+		s.failedAt = s.now()
+		return Container{}, false, err
+	}
+	s.byAddr, s.listedAt = byAddr, s.now()
+	c, found := byAddr[addr]
+	return c, found, nil
+}

@@ -3,8 +3,8 @@ module github.com/safedep/pmg
 go 1.27.3
 
 require (
-	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261031065119-dc85a10c2beb.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261031065119-dc85a10c2beb.2
+	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261102185708-d3b7f26a56c8.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261102185708-d3b7f26a56c8.2
 	github.com/Masterminds/semver v1.5.0
 	github.com/cilium/ebpf v0.22.0
 	github.com/elazarl/goproxy v1.9.2

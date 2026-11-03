@@ -613,6 +613,12 @@
   tier: P0
   guarantee: "Under namespaces mode redirect, a container with the host bundle mounted reaches the registry through the proxy and is blocked on a malicious package."
   labels: [scope, trust, malware, block]
+- id: enforce/scope/namespaces-names-the-container
+  title: "the stop report names a redirected container"
+  category: enforce
+  tier: P1
+  guarantee: "Under namespaces mode redirect, the stop report names the container behind a redirected connection by its name and image, not by its address."
+  labels: [scope, report]
 - id: enforce/scope/namespaces-build-step
   title: "docker build RUN step is redirected"
   category: enforce
@@ -678,6 +684,12 @@
   category: enforce
   tier: P1
   guarantee: "pmg config set --system changes the managed config that the next enforcing daemon reads, and get --system reads it back."
+  labels: [config]
+- id: enforce/config/writable-managed-config-ignored
+  title: "a managed config that another account can change is ignored, with a warning"
+  category: enforce
+  tier: P1
+  guarantee: "pmg ignores a managed config that an account other than root can change, warns on every command, and fails the doctor row. The file applies again when root alone controls it."
   labels: [config]
 - id: enforce/config/sudo-edit-refuses
   title: "sudo config edit without --system refuses"

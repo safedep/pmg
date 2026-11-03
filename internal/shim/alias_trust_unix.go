@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // maxAliasLinks matches the Linux limit on symlinks in one path lookup.
@@ -14,7 +16,7 @@ const maxAliasLinks = 40
 // aliasEntryOwner returns the owner of an entry the walk visits. Tests
 // replace it, because only root can create an entry another user owns.
 var aliasEntryOwner = func(_ string, info os.FileInfo) (uint32, bool) {
-	return fileOwnerUID(info)
+	return platform.FileOwnerUID(info)
 }
 
 // trustedAlias reports whether only the current user or root can change

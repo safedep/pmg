@@ -58,7 +58,7 @@ func hostObservation(ctx *proxy.RequestContext) audit.HostObservation {
 
 // AuditClient maps the origin of a connection to the audit event fields.
 func AuditClient(o proxy.Origin) (audit.ProxyEntryPoint, audit.ProxyClient) {
-	client := audit.ProxyClient{PID: o.PID, Comm: o.Comm, Exe: o.Exe}
+	client := audit.ProxyClient{PID: o.PID, Comm: o.Comm, Exe: o.Exe, Container: o.Container}
 	if o.Address.IsValid() {
 		client.Address = o.Address.String()
 	}

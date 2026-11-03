@@ -7,11 +7,13 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/internal/netenforce"
 )
 
@@ -276,4 +278,33 @@ func (n *namespaceRedirect) firewallWarning() string {
 // detachAll is the error-path cleanup: table and address together.
 func (n *namespaceRedirect) detachAll() error {
 	return errors.Join(n.detach(), n.releaseAddress())
+}
+
+// redetectInterval is how long the daemon waits before it looks for a
+// container runtime again while none answers.
+const redetectInterval = 10 * time.Second
+
+// watchContainerRuntime finds the runtime that names the containers the
+// redirect brings, and gives it to use. It looks in the background, so the
+// start does not wait for a slow runtime. It looks again until a runtime
+// answers, because at boot dockerd can start after the daemon. Until then a
+// report shows a redirected connection by its address.
+func watchContainerRuntime(ctx context.Context, detect func(context.Context) container.Introspector, interval time.Duration, use func(container.Introspector)) {
+	go func() {
+		for waited := false; ; waited = true {
+			if ins := detect(ctx); ins != nil {
+				log.Infof("Namespace redirect: %s names the containers in reports", ins.Runtime())
+				use(ins)
+				return
+			}
+			if !waited {
+				log.Infof("Namespace redirect: no container runtime answers yet, so reports show a container by its address")
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(interval):
+			}
+		}
+	}()
 }

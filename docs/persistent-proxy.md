@@ -282,13 +282,14 @@ advisory`. The profile is the inheritance chain, base first.
 ```text
 Network policy: enforce, 2 denied, 0 would deny
   denied  193.32.204.199:80  rule *:*  /usr/bin/curl pid 4132
-  denied  pastebin.com:443   rule *:*  172.17.0.2 (3)
+  denied  pastebin.com:443   rule *:*  container web (node:22) (3)
 Profile: pypi-restrictive < /etc/pmg/profiles/runner.yml  ports 80,443
 ```
 
 The columns are the action, the destination, the rule, and the program with
-its pid, or the container address. Under `audit` the action reads `would
-deny`. With kernel enforcement the kernel names the program. Without it a
+its pid, or the container. Under `audit` the action reads `would deny`.
+[Names of containers](#names-of-containers) says how the daemon names a
+container. With kernel enforcement the kernel names the program. Without it a
 proxy-aware client has no name. `ports` are the enforced ports.
 
 Under `global_lockdown` a profile and a flag may narrow the policy and may
@@ -440,6 +441,10 @@ starts it again after a crash. The unit writes its state to
 ```bash
 sudo pmg proxy status --state /run/pmg/proxy-state.json
 ```
+
+On a GitHub Actions runner host, the service replaces the `safedep/pmg`
+action. PMG does not support both on one host. See
+[Self-hosted runners](./github-action.md#self-hosted-runners).
 
 ### How it works
 
@@ -638,6 +643,37 @@ listener address. Both have the defaults above.
 
 The host needs Linux 5.13 or later with nf_tables and conntrack. Every
 Docker host has them.
+
+#### Names of containers
+
+The redirect gives the proxy only the address of a container. The daemon
+asks the container runtime which container owns that address. The stop
+report, the job summary and the audit events then name the container, as
+in `container web (node:22)`. The audit events also carry the container ID
+and the image ID.
+
+The daemon looks for Docker at `/var/run/docker.sock` and for Podman at
+`/run/podman/podman.sock`. Then it tries a `unix://` socket in
+`DOCKER_HOST` or `CONTAINER_HOST`. `sudo` drops these variables, so keep
+them with `sudo -E` or set them on the command line, as in
+`sudo DOCKER_HOST=unix:///srv/docker.sock pmg proxy start`. The daemon
+uses only a socket that root owns. A rootless runtime keeps its containers
+off the bridges of the host, so its socket names none. The daemon
+looks when it starts, and again every 10 seconds until a runtime answers.
+When no runtime answers, a row names the address, as in
+`container 172.17.0.2`.
+
+A `RUN` step of `docker build` with a `docker-container` builder, such as the
+builder that `docker/setup-buildx-action` makes, names the builder, as in
+`container buildx_buildkit_builder0 (moby/buildkit:buildx-stable-1)`. The
+step connects with the address of the builder. With the default builder, no
+container owns the address of the step, so a row names the address.
+
+The name is a label, and the network policy does not decide on it. The
+daemon trusts a list of containers for a quarter of a second. A runtime
+gives the address of a stopped container to the next one, so in that time a
+new container can show the name of the old one. A container that changes
+its own address can show the name of another container.
 
 #### Host firewalls
 

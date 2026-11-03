@@ -29,13 +29,23 @@ func RequireTrustedSystemFile(path string) error { return requireTrustedSystemFi
 // It refuses a link or junction.
 func RequireProtected(path string) error { return requireProtected(path) }
 
-// RequireSystemControlled returns nil on Unix.
-// On Windows, Administrators or SYSTEM must own the path.
+// RequireSystemControlled checks that only a system account controls path.
+// On Unix, root must own path and each directory from / down to it.
+// No group or other write is allowed, except on a sticky directory.
+// A link is followed only when root owns it, and its target must pass the same check.
+// On Windows, it checks path alone. Administrators or SYSTEM must own it.
 // No other principal may have write or delete access.
 // It accepts safe inherited entries from an administrator or MDM.
-// The path must not be a link or junction.
+// A Windows path must not be a link or junction.
 // The runtime uses it before it obeys a managed configuration.
 func RequireSystemControlled(path string) error { return requireSystemControlled(path) }
+
+// RequireExclusiveSystemDir refuses a directory in which an account other
+// than the system account can create an entry. RequireSystemControlled
+// accepts a sticky directory that others can write, such as /tmp in a path.
+// A directory that holds a managed file must refuse that too, or another
+// account can create the file between a check and a write.
+func RequireExclusiveSystemDir(path string) error { return requireExclusiveSystemDir(path) }
 
 // RequireNotReparsePoint rejects a symbolic link at path, and a junction on Windows.
 // It accepts a path that does not exist.

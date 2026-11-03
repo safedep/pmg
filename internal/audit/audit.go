@@ -236,6 +236,13 @@ func (obs HostObservation) details(reason string) map[string]any {
 	if obs.Client.Address != "" {
 		d["client_address"] = obs.Client.Address
 	}
+	if c := obs.Client.Container; !c.IsZero() {
+		d["client_container_runtime"] = string(c.Runtime)
+		d["client_container_id"] = c.ID
+		d["client_container_name"] = c.Name
+		d["client_container_image"] = c.Image
+		d["client_container_image_id"] = c.ImageID
+	}
 	return d
 }
 

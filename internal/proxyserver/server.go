@@ -21,6 +21,7 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/internal/cloudsync"
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
@@ -295,6 +296,11 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		// Under auto the attach can turn the mode into ignore, so the
 		// namespace warnings and the resolver follow the mode in effect.
 		resolver.useConntrack(namespaces.active())
+		if namespaces.active() {
+			watchCtx, stopWatch := context.WithCancel(ctx)
+			defer stopWatch()
+			watchContainerRuntime(watchCtx, container.Detect, redetectInterval, resolver.useContainers)
+		}
 		state.Enforce.Namespaces = namespaces.state()
 		state.Enforce.Warnings = append(state.Enforce.Warnings, namespaces.warnings()...)
 	}

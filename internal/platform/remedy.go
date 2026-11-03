@@ -5,6 +5,11 @@ package platform
 // uses takeown then icacls.
 func OwnershipRestoreRemedy(dir string) (help, command string) { return ownershipRestoreRemedy(dir) }
 
+// SystemControlRemedy returns help text for a managed file at path that
+// RequireSystemControlled refuses. Unix names chown and chmod. Windows names
+// the system install, which sets the PMG security descriptor.
+func SystemControlRemedy(path string) string { return systemControlRemedy(path) }
+
 // LeakedConfigDirRemedy returns help text and a one-line fix for a config
 // directory that resolved outside the user's home because an environment
 // variable leaked from another account. Unix names XDG_CONFIG_HOME. Windows

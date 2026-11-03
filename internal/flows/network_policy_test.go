@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/executor"
@@ -27,7 +28,7 @@ func TestNetworkDecisionLogReport(t *testing.T) {
 	assert.True(t, report.Enforced)
 	require.Len(t, report.Denials, 2)
 	assert.Equal(t, "cdn.example:80", report.Denials[0].Destination)
-	assert.Equal(t, "172.17.0.2", report.Denials[0].Client)
+	assert.Equal(t, "container 172.17.0.2", report.Denials[0].Client)
 	assert.Equal(t, "evil.example:443", report.Denials[1].Destination)
 	assert.Equal(t, "/usr/bin/curl", report.Denials[1].Client)
 	assert.Equal(t, 2, report.Denials[1].Count)
@@ -107,4 +108,26 @@ func TestNetworkDecisionLogObservationFoldsThePIDs(t *testing.T) {
 	assert.Equal(t, 2, obs.Destinations[0].Count)
 	assert.Equal(t, "/usr/bin/curl", obs.Destinations[0].Client)
 	assert.Zero(t, obs.Destinations[0].PID)
+}
+
+func TestClientLabel(t *testing.T) {
+	peer := netip.MustParseAddr("172.17.0.2")
+	web := container.Container{Runtime: container.RuntimeDocker, ID: "aaaa", Name: "web", Image: "node:22"}
+	cases := []struct {
+		name   string
+		origin proxy.Origin
+		want   string
+	}{
+		{"host process by executable", proxy.Origin{Comm: "curl", Exe: "/usr/bin/curl"}, "/usr/bin/curl"},
+		{"host process by comm", proxy.Origin{Comm: "curl"}, "curl"},
+		{"named container", proxy.Origin{Address: peer, Container: web, EntryPoint: proxy.EntryPointRedirectedNamespace}, "container web (node:22)"},
+		{"redirected container without a runtime", proxy.Origin{Address: peer, EntryPoint: proxy.EntryPointRedirectedNamespace}, "container 172.17.0.2"},
+		{"network peer that connected to the proxy", proxy.Origin{Address: peer, EntryPoint: proxy.EntryPointExplicit}, "172.17.0.2"},
+		{"nothing known", proxy.Origin{}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, clientLabel(tc.origin))
+		})
+	}
 }

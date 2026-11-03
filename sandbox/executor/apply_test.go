@@ -12,6 +12,7 @@ import (
 
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/platform/platformtest"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
@@ -1185,6 +1186,7 @@ func TestResolvePolicyLockedResolvesTheChainFromManagedLocations(t *testing.T) {
 			writeFiles(t, managedDir, map[string]string{"config.yml": fmt.Sprintf(managedConfig, tc.profile)})
 
 			t.Setenv("PMG_CONFIG_DIR", userDir)
+			platformtest.TrustCurrentUser(t)
 			t.Cleanup(config.SetManagedConfigDirForTest(managedDir))
 			cfg := config.Get()
 			if !cfg.IsManaged() {

@@ -62,6 +62,9 @@ func executeSetupInfo() error {
 		}
 	}
 	configEntries["Config Source"] = configSource
+	if warning := cfg.ManagedConfigWarning(); warning != "" {
+		configEntries["Managed Config"] = warning
+	}
 	configEntries["Proxy Install Only"] = strconv.FormatBool(cfg.Config.Proxy.InstallOnly)
 	ui.PrintInfoSection("Configuration", configEntries)
 
