@@ -22,7 +22,7 @@ exec sh -c 'docker run --rm --name pmg-label-probe -v "$(cat bundle.path)":/pmg-
 
 exec sh -c 'pmg proxy stop --state "$ENFORCE_STATE" 2>&1'
 stdout 'would deny +pastebin\.com:443 +rule pastebin\.com:443 +container pmg-label-probe \(curlimages/curl:8\.11\.1\)'
-! stdout 'rule pastebin\.com:443 +172\.'
+! stdout 'rule pastebin\.com:443 +container 172\.'
 
 -- deny.yml --
 name: deny-pastebin

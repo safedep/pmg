@@ -87,6 +87,40 @@ func TestSnapshotListsAgainWhenTheListIsOld(t *testing.T) {
 	}
 }
 
+func TestSnapshotTrustsAMissForLessTimeThanAHit(t *testing.T) {
+	db := Container{Runtime: RuntimeDocker, ID: "bbbb", Name: "db"}
+	dbAddr := netip.MustParseAddr("172.17.0.3")
+	cases := []struct {
+		name      string
+		addr      netip.Addr
+		after     time.Duration
+		wantFound bool
+		wantCalls int
+	}{
+		{"a hit reuses the list after missMaxAge", webAddr, missMaxAge, true, 1},
+		{"a miss reuses a list younger than missMaxAge", dbAddr, missMaxAge - time.Millisecond, false, 1},
+		{"a miss lists again after missMaxAge and finds a new container", dbAddr, missMaxAge, true, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := time.Unix(1000, 0)
+			l := &fakeLister{byAddr: map[netip.Addr]Container{webAddr: web}}
+			s := newTestSnapshot(l, &clock)
+			ctx := context.Background()
+
+			_, _, err := s.ContainerByAddress(ctx, webAddr)
+			require.NoError(t, err)
+
+			l.byAddr = map[netip.Addr]Container{webAddr: web, dbAddr: db}
+			clock = clock.Add(tc.after)
+			_, found, err := s.ContainerByAddress(ctx, tc.addr)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantFound, found)
+			assert.Equal(t, tc.wantCalls, l.calls)
+		})
+	}
+}
+
 func TestSnapshotBacksOffAfterAFailure(t *testing.T) {
 	clock := time.Unix(1000, 0)
 	l := &fakeLister{err: errors.New("engine hung")}

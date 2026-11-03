@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/netip"
+	"strings"
 	"sync"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,20 +99,69 @@ func TestProxyFlow_HostObservationDedup(t *testing.T) {
 	})
 }
 
-// Two programs that reach one host are two clients. The dedup rule keeps
-// them apart, so neither event is attributed to the other program.
+// Two clients that reach one host stay two events. The dedup rule keeps them
+// apart, so neither event is attributed to the other client. Two containers
+// can share one address in turn, so the container ID keeps them apart.
 func TestProxyFlow_HostObservationDedupSeparatesClients(t *testing.T) {
-	t.Cleanup(config.Reload)
-	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
-	config.Reload()
+	addr := netip.MustParseAddr("172.17.0.2")
+	web := container.Container{Runtime: container.RuntimeDocker, ID: "aaaa", Name: "web", Image: "node:22", ImageID: "sha256:1111"}
+	db := container.Container{Runtime: container.RuntimeDocker, ID: "bbbb", Name: "db", Image: "postgres:16", ImageID: "sha256:2222"}
 
+	cases := []struct {
+		name    string
+		origins []proxy.Origin
+		client  func(*controltowerv1.PmgProxyClient) string
+		want    []string
+	}{
+		{
+			name: "two programs",
+			origins: []proxy.Origin{
+				{PID: 1, Comm: "client", Exe: "/usr/bin/curl"},
+				{PID: 2, Comm: "client", Exe: "/usr/bin/node"},
+			},
+			client: func(c *controltowerv1.PmgProxyClient) string { return c.GetExecutable() },
+			want:   []string{"/usr/bin/curl", "/usr/bin/node"},
+		},
+		{
+			name: "two containers on one address",
+			origins: []proxy.Origin{
+				{Address: addr, Container: web},
+				{Address: addr, Container: db},
+			},
+			client: func(c *controltowerv1.PmgProxyClient) string {
+				ct := c.GetContainer()
+				return strings.Join([]string{ct.GetRuntime().String(), ct.GetId(), ct.GetName(), ct.GetImage(), ct.GetImageId()}, " ")
+			},
+			want: []string{
+				"PMG_CONTAINER_RUNTIME_DOCKER aaaa web node:22 sha256:1111",
+				"PMG_CONTAINER_RUNTIME_DOCKER bbbb db postgres:16 sha256:2222",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Cleanup(config.Reload)
+			t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+			config.Reload()
+			assertDedupSeparatesClients(t, tc.origins, tc.client, tc.want)
+		})
+	}
+}
+
+func assertDedupSeparatesClients(t *testing.T, origins []proxy.Origin, client func(*controltowerv1.PmgProxyClient) string, want []string) {
 	const host = "registry.example.com"
-	exes := []string{"/usr/bin/curl", "/usr/bin/node"}
-	resolver := &RotatingClients{Exes: exes}
+	resolver := &RotatingClients{Origins: origins}
+	clientsOf := func(events []*servicev1.ToolEvent) []string {
+		got := make([]string, 0, len(events))
+		for _, event := range events {
+			got = append(got, client(event.GetPmgEvent().GetHostObservation().GetClient()))
+		}
+		return got
+	}
 
 	RunCases(t, []TestCase{
 		{
-			Name:    "observations by two programs stay two events",
+			Name:    "observations by two clients stay two events",
 			Options: []Option{WithTransparent(resolver)},
 			Config: func(rc *config.RuntimeConfig) {
 				rc.Config.Cloud.Enabled = true
@@ -125,8 +176,8 @@ func TestProxyFlow_HostObservationDedupSeparatesClients(t *testing.T) {
 			},
 			Exec: func(h *Harness) ExecResult {
 				// Each tunnel is a new connection, and the resolver names the
-				// next program for it. Four tunnels are two per program.
-				for range 2 * len(exes) {
+				// next client for it. Four tunnels are two per client.
+				for range 2 * len(origins) {
 					openTunnel(h, host)
 				}
 				return ExecResult{}
@@ -135,18 +186,18 @@ func TestProxyFlow_HostObservationDedupSeparatesClients(t *testing.T) {
 				walPath := config.Get().CloudSyncDBPath()
 
 				first := drainCloudWAL(t, walPath)
-				require.Len(t, first, len(exes), "one event per program")
-				assert.ElementsMatch(t, exes, clientExes(first))
+				require.Len(t, first, len(origins), "one event per client")
+				assert.ElementsMatch(t, want, clientsOf(first))
 				for _, event := range first {
 					assertHostObservation(t, event, host, "CONNECT")
 					assert.Nil(t, event.GetDedupContext())
 				}
 
-				expireDedupWindows(t, walPath, len(exes))
+				expireDedupWindows(t, walPath, len(origins))
 
 				carriers := drainCloudWAL(t, walPath)
-				require.Len(t, carriers, len(exes), "one carrier per program")
-				assert.ElementsMatch(t, exes, clientExes(carriers))
+				require.Len(t, carriers, len(origins), "one carrier per client")
+				assert.ElementsMatch(t, want, clientsOf(carriers))
 				for _, event := range carriers {
 					require.NotNil(t, event.GetDedupContext())
 					assert.EqualValues(t, 1, event.GetDedupContext().GetRepeatCount())
@@ -168,29 +219,21 @@ func openTunnel(h *Harness, host string) {
 	h.RawClient().CloseIdleConnections()
 }
 
-// RotatingClients names a different program for each connection, the way
+// RotatingClients names a different client for each connection, the way
 // the kernel record does for a client of the proxy itself. It returns no
 // destination, so the client stays an explicit one.
 type RotatingClients struct {
-	Exes []string
-	mu   sync.Mutex
-	n    int
+	Origins []proxy.Origin
+	mu      sync.Mutex
+	n       int
 }
 
 func (r *RotatingClients) OriginalDestination(_, _ netip.AddrPort) (proxy.Origin, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	exe := r.Exes[r.n%len(r.Exes)]
+	o := r.Origins[r.n%len(r.Origins)]
 	r.n++
-	return proxy.Origin{PID: uint32(r.n), Comm: "client", Exe: exe}, true
-}
-
-func clientExes(events []*servicev1.ToolEvent) []string {
-	exes := make([]string, 0, len(events))
-	for _, event := range events {
-		exes = append(exes, event.GetPmgEvent().GetHostObservation().GetClient().GetExecutable())
-	}
-	return exes
+	return o, true
 }
 
 // drainCloudWAL syncs the WAL against an in-process transport. The sweep reads

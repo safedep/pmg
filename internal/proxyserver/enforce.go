@@ -346,7 +346,7 @@ func (r *destinationResolver) containerOf(c net.Conn) container.Container {
 	defer cancel()
 	named, _, err := (*ins).ContainerByAddress(ctx, peer.Addr())
 	if err != nil {
-		log.Debugf("enforce: name the container of %s: %v", peer.Addr(), err)
+		log.Warnf("enforce: name the container of %s: %v", peer.Addr(), err)
 		return container.Container{}
 	}
 	return named

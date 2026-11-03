@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/safedep/pmg/internal/container"
 	"github.com/stretchr/testify/assert"
@@ -71,4 +73,47 @@ func TestDestinationResolverWithoutARuntimeNamesNoContainer(t *testing.T) {
 
 	r.useContainers(nil)
 	assert.True(t, r.containerOf(connFrom(t, "172.17.0.2:40000")).IsZero())
+}
+
+func TestWatchContainerRuntimeLooksAgainUntilARuntimeAnswers(t *testing.T) {
+	ins := &fakeIntrospector{}
+	var calls atomic.Int32
+	detect := func(context.Context) container.Introspector {
+		if calls.Add(1) < 3 {
+			return nil
+		}
+		return ins
+	}
+	used := make(chan container.Introspector, 1)
+
+	watchContainerRuntime(t.Context(), detect, time.Millisecond, func(found container.Introspector) { used <- found })
+
+	select {
+	case found := <-used:
+		assert.Same(t, ins, found)
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "the watch never gave the runtime to use")
+	}
+	assert.Never(t, func() bool { return calls.Load() > 3 }, 50*time.Millisecond, 5*time.Millisecond,
+		"the watch kept looking after a runtime answered")
+}
+
+func TestWatchContainerRuntimeStopsWithItsContext(t *testing.T) {
+	var calls atomic.Int32
+	detect := func(context.Context) container.Introspector {
+		calls.Add(1)
+		return nil
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+
+	watchContainerRuntime(ctx, detect, time.Millisecond, func(container.Introspector) {
+		assert.Fail(t, "no runtime answers, so nothing is used")
+	})
+	require.Eventually(t, func() bool { return calls.Load() > 1 }, 5*time.Second, time.Millisecond)
+	cancel()
+
+	// One look can be in flight when the context ends.
+	stopped := calls.Load() + 1
+	assert.Never(t, func() bool { return calls.Load() > stopped }, 50*time.Millisecond, 5*time.Millisecond,
+		"the watch kept looking after its context ended")
 }

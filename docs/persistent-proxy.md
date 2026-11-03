@@ -657,12 +657,15 @@ The daemon looks for Docker at `/var/run/docker.sock` and for Podman at
 `DOCKER_HOST` or `CONTAINER_HOST`. `sudo` drops these variables, so keep
 them with `sudo -E` or set them on the command line, as in
 `sudo DOCKER_HOST=unix:///srv/docker.sock pmg proxy start`. The daemon
-looks once, when it starts. Start the runtime
-before `pmg proxy start`, or restart the daemon after the runtime starts. A
-`RUN` step of `docker build` names the builder, such as
-`container buildx_buildkit_builder0 (moby/buildkit:buildx-stable-1)`,
-because the step connects with the address of the builder. When no runtime
-answers, a row names the address, as in `container 172.17.0.2`.
+looks when it starts, and again every 10 seconds until a runtime answers.
+When no runtime answers, a row names the address, as in
+`container 172.17.0.2`.
+
+A `RUN` step of `docker build` with a `docker-container` builder, such as the
+builder that `docker/setup-buildx-action` makes, names the builder, as in
+`container buildx_buildkit_builder0 (moby/buildkit:buildx-stable-1)`. The
+step connects with the address of the builder. With the default builder, no
+container owns the address of the step, so a row names the address.
 
 The name is a label, and the network policy does not decide on it. The
 daemon trusts a list of containers for a quarter of a second. A runtime

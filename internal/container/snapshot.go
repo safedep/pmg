@@ -8,13 +8,17 @@ import (
 )
 
 const (
-	// listMaxAge is how long a list of containers is trusted, for a hit and
-	// for a miss. A runtime gives the address of an exited container to the
-	// next one, so an older list can name the wrong container. A container
-	// that just started is not in an older list. The proxy asks on each new
-	// connection from a container, so the runtime gets at most one list call
-	// per listMaxAge.
+	// listMaxAge is how long a list of containers is trusted for an address
+	// it names. A runtime gives the address of an exited container to the
+	// next one, so an older list can name the wrong container.
 	listMaxAge = 250 * time.Millisecond
+
+	// missMaxAge is how long a list is trusted for an address it does not
+	// name. A container that just started is not in an older list, as when
+	// Compose starts a second container a moment after the first. An address
+	// that no container owns, such as a RUN step of the default builder,
+	// gets the runtime at most one list call per missMaxAge.
+	missMaxAge = 50 * time.Millisecond
 
 	// failureBackoff is how long the runtime is not asked after it failed to
 	// answer, so a hung runtime does not slow every connection.
@@ -22,7 +26,8 @@ const (
 )
 
 // snapshot is an Introspector that answers from the last list of running
-// containers and lists again when the list is too old to trust.
+// containers and lists again when the list is too old to trust for the
+// address.
 type snapshot struct {
 	runtime Runtime
 	list    func(context.Context) (map[netip.Addr]Container, error)
@@ -51,9 +56,11 @@ func (s *snapshot) ContainerByAddress(ctx context.Context, addr netip.Addr) (Con
 	defer s.mu.Unlock()
 
 	now := s.now()
-	if now.Sub(s.listedAt) < listMaxAge {
+	if age := now.Sub(s.listedAt); age < listMaxAge {
 		c, found := s.byAddr[addr]
-		return c, found, nil
+		if found || age < missMaxAge {
+			return c, found, nil
+		}
 	}
 	if now.Sub(s.failedAt) < failureBackoff {
 		return Container{}, false, nil
