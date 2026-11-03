@@ -62,8 +62,11 @@ func TestLoadTimeOfTenThousandRules(t *testing.T) {
 
 	require.Equal(t, recordv1.ApplyState_APPLY_STATE_APPLIED, st.State)
 	assert.Equal(t, loadTimeRules, st.BlockEntries+st.TrustEntries)
-	assert.Lessf(t, elapsed, loadTimeLimit, "the load of %d package rules took %s", loadTimeRules, elapsed)
 	t.Logf("the load of %d package rules took %s", loadTimeRules, elapsed)
+	if raceEnabled {
+		t.Skip("the race detector makes the load many times slower, so the limit does not apply")
+	}
+	assert.Lessf(t, elapsed, loadTimeLimit, "the load of %d package rules took %s", loadTimeRules, elapsed)
 }
 
 // BenchmarkLoad measures the load of a cache with 10,000 package rules
