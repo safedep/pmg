@@ -81,12 +81,19 @@ func (l *NetworkDecisionLog) Record(d proxy.NetworkDecision) {
 	}
 }
 
+// clientLabel names the client in a report. A connection that the bridge
+// redirect brought comes from a container, and a bare address there reads
+// like a remote host, so the label says it is a container.
 func clientLabel(o proxy.Origin) string {
 	switch {
 	case o.Exe != "":
 		return o.Exe
 	case o.Comm != "":
 		return o.Comm
+	case !o.Container.IsZero():
+		return o.Container.Label()
+	case o.EntryPoint == proxy.EntryPointRedirectedNamespace && o.Address.IsValid():
+		return "container " + o.Address.String()
 	case o.Address.IsValid():
 		return o.Address.String()
 	}

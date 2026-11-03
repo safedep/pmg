@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+
+	"github.com/safedep/pmg/internal/container"
 )
 
 // EntryPoint says how a connection reached the proxy. A host process has
@@ -29,14 +31,16 @@ const (
 // Origin is where a client wanted to connect and who the client is, as far
 // as the proxy can tell. Dst is the destination of a redirected connection.
 // PID, Comm and Exe name a host process the kernel saw. Address is the peer
-// when the peer is not the host itself. The proxy logs the origin and takes
-// the port from Dst. It never decides on the client.
+// when the peer is not the host itself. Container is the container that owns
+// the peer address, when a container runtime named it. The proxy logs the
+// origin and takes the port from Dst. It never decides on the client.
 type Origin struct {
 	Dst        netip.AddrPort
 	PID        uint32
 	Comm       string
 	Exe        string
 	Address    netip.Addr
+	Container  container.Container
 	EntryPoint EntryPoint
 }
 
@@ -57,6 +61,12 @@ func (o Origin) String() string {
 	}
 	if o.Exe != "" {
 		parts = append(parts, "exe="+o.Exe)
+	}
+	if !o.Container.IsZero() {
+		parts = append(parts, "container="+o.Container.Ref())
+		if o.Container.Image != "" {
+			parts = append(parts, "image="+o.Container.Image)
+		}
 	}
 	if len(parts) == 0 {
 		return string(o.EntryPoint)

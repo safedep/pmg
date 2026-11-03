@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
@@ -865,6 +866,50 @@ func TestTranslateHostObservationDetails(t *testing.T) {
 				assert.False(t, obs.GetClient().HasPid(), "a container names no process")
 				assert.False(t, obs.GetClient().HasComm())
 				assert.False(t, obs.GetClient().HasExecutable())
+				assert.False(t, obs.GetClient().HasContainer(), "no runtime named the container")
+			},
+		},
+		"a named container carries the container": {
+			seen: HostObservation{Hostname: "cdn.example.com", Method: "CONNECT", Port: 443, EntryPoint: ProxyEntryPointRedirectedNamespace, Client: ProxyClient{
+				Address:   "172.17.0.2",
+				Container: container.Container{Runtime: container.RuntimeDocker, ID: "aaaa", Name: "web", Image: "node:22", ImageID: "sha256:1111"},
+			}},
+			check: func(t *testing.T, obs *controltowerv1.PmgHostObservation) {
+				require.True(t, obs.HasClient())
+				assert.Equal(t, "172.17.0.2", obs.GetClient().GetAddress())
+				require.True(t, obs.GetClient().HasContainer())
+				c := obs.GetClient().GetContainer()
+				assert.Equal(t, controltowerv1.PmgContainerRuntime_PMG_CONTAINER_RUNTIME_DOCKER, c.GetRuntime())
+				assert.Equal(t, "aaaa", c.GetId())
+				assert.Equal(t, "web", c.GetName())
+				assert.Equal(t, "node:22", c.GetImage())
+				assert.Equal(t, "sha256:1111", c.GetImageId())
+			},
+		},
+		"a container field the runtime did not report stays unset": {
+			seen: HostObservation{Hostname: "cdn.example.com", Method: "CONNECT", EntryPoint: ProxyEntryPointRedirectedNamespace, Client: ProxyClient{
+				Address:   "172.17.0.2",
+				Container: container.Container{Runtime: container.RuntimePodman, ID: "bbbb"},
+			}},
+			check: func(t *testing.T, obs *controltowerv1.PmgHostObservation) {
+				c := obs.GetClient().GetContainer()
+				assert.Equal(t, controltowerv1.PmgContainerRuntime_PMG_CONTAINER_RUNTIME_PODMAN, c.GetRuntime())
+				assert.Equal(t, "bbbb", c.GetId())
+				assert.False(t, c.HasName())
+				assert.False(t, c.HasImage())
+				assert.False(t, c.HasImageId())
+			},
+		},
+		"a container value over its bound is clipped": {
+			seen: HostObservation{Hostname: "cdn.example.com", Method: "CONNECT", EntryPoint: ProxyEntryPointRedirectedNamespace, Client: ProxyClient{
+				Address:   "172.17.0.2",
+				Container: container.Container{Runtime: container.RuntimeDocker, ID: "aaaa", Name: strings.Repeat("n", 300), Image: strings.Repeat("i", 1100)},
+			}},
+			check: func(t *testing.T, obs *controltowerv1.PmgHostObservation) {
+				c := obs.GetClient().GetContainer()
+				assert.Len(t, c.GetName(), maxContainerName)
+				assert.Len(t, c.GetImage(), maxContainerImage)
+				assert.Equal(t, "aaaa", c.GetId())
 			},
 		},
 		"a host process carries its identity": {

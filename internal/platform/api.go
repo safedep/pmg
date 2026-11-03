@@ -3,6 +3,8 @@
 // shim or cmd.
 package platform
 
+import "os"
+
 // Dirs are the base directories of one account, in the convention of the OS.
 type Dirs struct {
 	Config string
@@ -56,3 +58,7 @@ func ParentProcessName() (string, error) { return parentProcessName() }
 // reap it. Linux reads the state from /proc. A read or parse failure, and
 // every other platform, reports false.
 func IsZombieProcess(pid int) bool { return isZombieProcess(pid) }
+
+// FileOwnerUID returns the uid that owns info. ok is false where the OS has
+// no uid, as on Windows.
+func FileOwnerUID(info os.FileInfo) (uid uint32, ok bool) { return fileOwnerUID(info) }
