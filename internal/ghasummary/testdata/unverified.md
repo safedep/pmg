@@ -4,5 +4,5 @@
 
 | Packages blocked | Network mode | Network profile | Destinations observed |
 |---|---|---|---|
-| unknown | off | `none` | 2 |
+| unknown | audit | `none` | 2 |
 
