@@ -72,7 +72,7 @@ func newGoRegistryInterceptor(
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
-		cooldownHandler:        newGoCooldownHandler(statsCollector, execContext.GoProxyUpstreamOrigin),
+		cooldownHandler:        withCooldownPolicy(newGoCooldownHandler(statsCollector, execContext.GoProxyUpstreamOrigin), execContext.Policy),
 		now:                    time.Now,
 		zipVerdicts:            map[string]zipVerdict{},
 	}
@@ -101,7 +101,7 @@ func (i *GoRegistryInterceptor) handleMetadataRequest(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	if !pmgconfig.Get().Config.DependencyCooldown.Enabled {
+	if !i.policy().Cooldown.Enabled {
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
@@ -137,7 +137,7 @@ func (i *GoRegistryInterceptor) handleArtifact(
 	return resp, nil
 }
 
-// handleZipDownload runs dependency cooldown, then trusted/insecure
+// handleZipDownload runs the block entries, dependency cooldown, then trusted/insecure
 // fast-allow, then malware analysis. memoize is false only when the outcome is
 // a fail-open allow after an analyzer error, so a retried request gets another
 // chance to be analyzed.
@@ -146,7 +146,12 @@ func (i *GoRegistryInterceptor) handleZipDownload(
 	match *registryMatch,
 	name, version string,
 ) (*proxy.InterceptorResponse, bool, error) {
-	cooldown := pmgconfig.Get().Config.DependencyCooldown
+	// A block entry needs no publish time and no verdict, so it runs first.
+	if resp, ok := i.policyBlock(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version); ok {
+		return resp, true, nil
+	}
+
+	cooldown := i.policy().Cooldown
 	if cooldown.Enabled {
 		if resp, handled := i.cooldownHandler.CheckZipDownload(ctx, match.Endpoint.BasePath, name, version, cooldown.Days); handled {
 			return resp, true, nil

@@ -8,9 +8,11 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/policy/match"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/proxy"
 	gobreaker "github.com/sony/gobreaker/v2"
 	"golang.org/x/sync/singleflight"
@@ -52,6 +54,98 @@ func newAnalyzerCircuitBreakerWithTimeout(name string, cooldown time.Duration) *
 			log.Infof("Circuit breaker %s: %s -> %s", name, from, to)
 		},
 	})
+}
+
+// policy returns the policy that applies to this request.
+func (b *baseRegistryInterceptor) policy() *cloudpolicy.Policy {
+	return currentPolicy(b.execContext.Policy)
+}
+
+// policyBlock blocks the artifact when a block entry of the cloud policy or of
+// blocked_packages matches it. A block entry needs no network and no
+// verdict, so it runs before every other step. It wins over every trust
+// entry, over trusted_packages and over --insecure-installation. pmg checks
+// the index for each request and keeps no rule result in a cache, so a block
+// that arrives later applies to a package that pmg screened before.
+func (b *baseRegistryInterceptor) policyBlock(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	name, version string,
+) (*proxy.InterceptorResponse, bool) {
+	m, ok := b.policy().Block(ecosystem, name, version)
+	if !ok {
+		return nil, false
+	}
+
+	log.Warnf("[%s] Blocking %s/%s@%s by package rule %s", ctx.RequestID, ecosystem.String(), name, version, m.Rule.ID)
+
+	rule := &proxy.PolicyRuleBlock{
+		RuleID: m.Rule.ID,
+		Reason: m.Rule.Reason,
+		Cloud:  m.Cloud(),
+		File:   m.Rule.Origin.Path,
+	}
+	if m.Applied != nil {
+		rule.Revision = m.Applied.Revision
+		rule.DefaultPolicyRevision = m.Applied.DefaultPolicyRevision
+	}
+	blockCtx := &proxy.BlockContext{
+		Ecosystem:      ecosystem,
+		PackageName:    name,
+		PackageVersion: version,
+		PolicyRule:     rule,
+	}
+
+	audit.LogRuleBlocked(&packagev1.PackageVersion{
+		Package: &packagev1.Package{Ecosystem: ecosystem, Name: name},
+		Version: version,
+	}, m.Rule.ID, m.Rule.Reason, m.Citation)
+
+	if b.statsCollector != nil {
+		b.statsCollector.RecordRuleBlocked(blockCtx)
+	}
+
+	return &proxy.InterceptorResponse{
+		Action:       proxy.ActionBlock,
+		BlockCode:    http.StatusForbidden,
+		BlockReason:  proxy.BlockReasonPolicyRule,
+		BlockContext: blockCtx,
+	}, true
+}
+
+// trustedByPolicy allows a malware verdict that is not verified when a cloud
+// trust entry with scope MALWARE matches. It runs only after pmg has the
+// verdict, so a trust entry never skips the query. It also waives a verdict
+// that paranoid turned into a block. No trust entry waives verified malware.
+func (b *baseRegistryInterceptor) trustedByPolicy(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	name, version string,
+	result *analyzer.PackageVersionAnalysisResult,
+) (*proxy.InterceptorResponse, bool) {
+	if !result.IsMalware || result.IsVerified {
+		return nil, false
+	}
+	if result.Action != analyzer.ActionConfirm && result.Action != analyzer.ActionBlock {
+		return nil, false
+	}
+
+	m, ok := b.policy().TrustMalware(ecosystem, name, version)
+	if !ok {
+		return nil, false
+	}
+
+	log.Warnf("[%s] Allowing flagged package %s/%s@%s by trust entry %s of the cloud policy",
+		ctx.RequestID, ecosystem.String(), name, version, m.Rule.ID)
+
+	audit.LogRuleTrusted(result.PackageVersion, m.Rule.ID, match.ScopeMalware.String(), m.Citation)
+	audit.LogInstallAllowed(result.PackageVersion, 1)
+
+	if b.statsCollector != nil {
+		b.statsCollector.RecordAllowed(result)
+	}
+
+	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, true
 }
 
 // fastAllow short-circuits the request when no security control should run for
@@ -167,6 +261,10 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 	packageVersion string,
 	result *analyzer.PackageVersionAnalysisResult,
 ) (*proxy.InterceptorResponse, error) {
+	if resp, ok := b.trustedByPolicy(ctx, ecosystem, packageName, packageVersion, result); ok {
+		return resp, nil
+	}
+
 	switch result.Action {
 	case analyzer.ActionBlock:
 		log.Warnf("[%s] Blocking malicious package %s@%s", ctx.RequestID, packageName, packageVersion)

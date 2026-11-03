@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/netpolicy"
 )
 
@@ -81,6 +82,10 @@ type ReportData struct {
 	BlockedPackages   []*analyzer.PackageVersionAnalysisResult
 	ConfirmedPackages []*analyzer.PackageVersionAnalysisResult
 
+	// Packages that a block entry of the cloud policy or of blocked_packages
+	// blocked (proxy mode only)
+	RuleBlockedPackages []*proxy.BlockContext
+
 	// Packages blocked by the dependency cooldown policy (proxy mode only)
 	CooldownBlockedPackages []models.CooldownBlock
 
@@ -131,7 +136,7 @@ func (r *ReportData) Finalize() {
 
 // HasIssues returns true if any packages were blocked or required confirmation
 func (r *ReportData) HasIssues() bool {
-	return r.BlockedCount > 0 || r.ConfirmedCount > 0 || len(r.CooldownBlockedPackages) > 0
+	return r.BlockedCount > 0 || r.ConfirmedCount > 0 || len(r.CooldownBlockedPackages) > 0 || len(r.RuleBlockedPackages) > 0
 }
 
 // WasSuccessful returns true if execution completed without blocks or errors
@@ -173,14 +178,33 @@ func printMalwareBlockSection(data *ReportData) {
 	fmt.Println()
 }
 
-// reportSilent shows output only when the install was blocked: silent mode
-// hides PMG except for errors and malicious package detection. Cooldown-only
-// blocks stay hidden, matching the documented silent contract.
-func reportSilent(data *ReportData) {
-	if data.Outcome != OutcomeBlocked || len(data.BlockedPackages) == 0 {
+// PolicyRuleBlockedHeadline is the headline printed when a block entry of the
+// cloud policy or of blocked_packages blocked a package.
+const PolicyRuleBlockedHeadline = "Package blocked by a package rule"
+
+func printRuleBlockSection(data *ReportData) {
+	if len(data.RuleBlockedPackages) == 0 {
 		return
 	}
 
+	fmt.Println()
+	fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red(PolicyRuleBlockedHeadline))
+	for _, block := range data.RuleBlockedPackages {
+		fmt.Println(PolicyRuleBlockMessage(block))
+	}
+	fmt.Println()
+}
+
+// reportSilent shows output only when the install was blocked: silent mode
+// hides PMG except for errors, malicious package detection and package rule
+// blocks. Cooldown-only blocks stay hidden, matching the documented silent
+// contract.
+func reportSilent(data *ReportData) {
+	if data.Outcome != OutcomeBlocked || (len(data.BlockedPackages) == 0 && len(data.RuleBlockedPackages) == 0) {
+		return
+	}
+
+	printRuleBlockSection(data)
 	printMalwareBlockSection(data)
 	printAdvisoryMessage(data.AdvisoryMessage)
 }
@@ -227,6 +251,7 @@ func reportNormal(data *ReportData) {
 
 	switch data.Outcome {
 	case OutcomeBlocked:
+		printRuleBlockSection(data)
 		printMalwareBlockSection(data)
 
 		if len(data.CooldownBlockedPackages) > 0 {
@@ -244,7 +269,7 @@ func reportNormal(data *ReportData) {
 			fmt.Println()
 		}
 
-		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.CooldownBlockedPackages) > 0
+		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.RuleBlockedPackages) == 0 && len(data.CooldownBlockedPackages) > 0
 		if onlyCooldown {
 			icon = Colors.Yellow("⊘")
 			message = fmt.Sprintf("PMG: %s analyzed, %s blocked by cooldown",
@@ -321,6 +346,14 @@ func reportVerbose(data *ReportData) {
 	}
 
 	// Show blocked/confirmed package details in verbose mode
+	if len(data.RuleBlockedPackages) > 0 {
+		fmt.Println()
+		fmt.Println(Colors.Red("  Blocked by a package rule:"))
+		for _, block := range data.RuleBlockedPackages {
+			fmt.Println(PolicyRuleBlockMessage(block))
+		}
+	}
+
 	if len(data.BlockedPackages) > 0 {
 		fmt.Println()
 		fmt.Println(Colors.Red("  Blocked packages:"))
@@ -556,9 +589,12 @@ func printOutcomeLine(data *ReportData) {
 	case OutcomeBlocked:
 		hasMalware := len(data.BlockedPackages) > 0
 		hasCooldown := len(data.CooldownBlockedPackages) > 0
+		hasRule := len(data.RuleBlockedPackages) > 0
 		switch {
 		case hasMalware && hasCooldown:
 			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — malicious package detected + cooldown policy"))
+		case hasRule && !hasMalware:
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — package rule"))
 		case hasCooldown:
 			fmt.Printf("  %s %s\n", Colors.Yellow("⊘"), Colors.Yellow("Installation blocked — dependency cooldown policy"))
 		default:

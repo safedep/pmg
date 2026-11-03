@@ -7,14 +7,44 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	"github.com/Masterminds/semver"
 	"github.com/safedep/dry/api/pb"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/policy/match"
 	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/internal/models"
 	"github.com/safedep/pmg/proxy"
 )
+
+// cooldownPolicy gives a cooldown handler the policy that applies to a
+// request: the cooldown window comes from the interceptor, and the trust
+// entries with scope COOLDOWN from this policy.
+type cooldownPolicy struct {
+	source cloudpolicy.Source
+}
+
+func (c cooldownPolicy) current() *cloudpolicy.Policy {
+	return currentPolicy(c.source)
+}
+
+// policySetter is a cooldown handler that takes the policy source of its
+// interceptor.
+type policySetter interface {
+	setPolicySource(cloudpolicy.Source)
+}
+
+func (c *cooldownPolicy) setPolicySource(src cloudpolicy.Source) {
+	c.source = src
+}
+
+// withCooldownPolicy sets the policy source of a cooldown handler.
+func withCooldownPolicy[H policySetter](h H, src cloudpolicy.Source) H {
+	h.setPolicySource(src)
+	return h
+}
 
 // cooldownPackageVersion builds the PackageVersion used in cooldown audit
 // events and stats.
@@ -112,6 +142,7 @@ func cooldownCheckDownload(
 	name, version string,
 	cooldownDays int,
 	statsCollector *AnalysisStatsCollector,
+	policy *cloudpolicy.Policy,
 	publishTime func() (time.Time, bool),
 ) (*proxy.InterceptorResponse, bool) {
 	skip := pmgconfig.CooldownSkip(ecosystem, name)
@@ -135,6 +166,11 @@ func cooldownCheckDownload(
 		return nil, false
 	}
 
+	if trust, ok := policy.TrustCooldown(ecosystem, name, version); ok {
+		auditCooldownSkips(ctx.RequestID, ecosystem, name, cooldownExemptions{ruleTrusted: map[string]cloudpolicy.RuleMatch{version: trust}})
+		return nil, false
+	}
+
 	log.Infof("[%s] Cooldown: blocking %s@%s published %d day(s) ago (%d day cooldown, %d remaining)",
 		ctx.RequestID, name, version, daysAgo, cooldownDays, daysLeft)
 
@@ -142,7 +178,8 @@ func cooldownCheckDownload(
 		statsCollector.RecordCooldownBlocked(name, version, published, daysAgo, daysLeft, cooldownDays)
 	}
 
-	audit.LogDependencyCooldown(cooldownPackageVersion(ecosystem, name, version), published, cooldownDays, daysAgo, daysLeft)
+	audit.LogDependencyCooldown(cooldownPackageVersion(ecosystem, name, version), published, cooldownDays, daysAgo, daysLeft,
+		policy.CooldownCitation())
 
 	return &proxy.InterceptorResponse{
 		Action:      proxy.ActionBlock,
@@ -160,24 +197,28 @@ func cooldownCheckDownload(
 }
 
 // cooldownExemptions describes the in-window versions that survive cooldown
-// stripping and why. all is the full exempt set; skipListed is the subset
-// attributable to dependency_cooldown.skip and is the only set that produces an
-// audit event — trusted versions surface as install_trusted_allowed via the
-// proxy fast-allow gate at download time.
+// stripping and why. all is the full exempt set. skipListed is the subset
+// attributable to dependency_cooldown.skip, and ruleTrusted is the subset
+// that a cloud trust entry with scope COOLDOWN exempts. Only these two sets
+// produce an audit event. trusted versions surface as install_trusted_allowed
+// via the proxy fast-allow gate at download time.
 type cooldownExemptions struct {
-	all        map[string]bool
-	skipListed []string
+	all         map[string]bool
+	skipListed  []string
+	ruleTrusted map[string]cloudpolicy.RuleMatch
 }
 
 // cooldownExemptVersions classifies the versions that must survive stripping
 // even though they fall within the cooldown window: those trusted via
-// trusted_packages or on the dependency_cooldown.skip list. Only in-window
+// trusted_packages, on the dependency_cooldown.skip list, or exempt by a cloud
+// trust entry with scope COOLDOWN. The cloud check runs for each version, so
+// a trust entry with a vers range exempts only the versions in it. Only in-window
 // versions are examined, bounding the per-version trusted lookup to recent
 // releases rather than the full (potentially large) version history. A version
 // that is both trusted and skip-listed is attributed to trusted, mirroring the
 // download-path precedence where the fast-allow gate wins.
-func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo, dates map[string]time.Time, cooldownDays int) cooldownExemptions {
-	exempt := cooldownExemptions{all: make(map[string]bool)}
+func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo, policy *cloudpolicy.Policy, dates map[string]time.Time, cooldownDays int) cooldownExemptions {
+	exempt := cooldownExemptions{all: make(map[string]bool), ruleTrusted: make(map[string]cloudpolicy.RuleMatch)}
 	for v, publishDate := range dates {
 		if within, _, _ := cooldownIsWithinWindow(publishDate, cooldownDays); !within {
 			continue
@@ -193,19 +234,29 @@ func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmg
 		case skip.ExemptsVersion(v):
 			exempt.all[v] = true
 			exempt.skipListed = append(exempt.skipListed, v)
+		default:
+			if trust, ok := policy.TrustCooldown(ecosystem, name, v); ok {
+				exempt.all[v] = true
+				exempt.ruleTrusted[v] = trust
+			}
 		}
 	}
 	return exempt
 }
 
 // auditCooldownSkips emits one dependency_cooldown_skipped audit event per
-// version that the skip list exempted from an active cooldown window. It is
-// called from the metadata modifier, where publish dates are known, so the
-// event only fires for versions a live cooldown would otherwise have stripped.
+// version that the skip list exempted from an active cooldown window, and one
+// rule_trusted event per version that a cloud trust entry exempted. It is
+// called where publish dates are known, so the event only fires for versions
+// a live cooldown would otherwise have stripped.
 func auditCooldownSkips(requestID string, ecosystem packagev1.Ecosystem, name string, exempt cooldownExemptions) {
 	for _, version := range exempt.skipListed {
 		log.Infof("[%s] Cooldown: %s@%s exempt by %s", requestID, name, version, audit.CooldownSkipReason)
 		audit.LogCooldownSkipped(cooldownPackageVersion(ecosystem, name, version))
+	}
+	for version, trust := range exempt.ruleTrusted {
+		log.Infof("[%s] Cooldown: %s@%s exempt by rule %s", requestID, name, version, trust.Rule.ID)
+		audit.LogRuleTrusted(cooldownPackageVersion(ecosystem, name, version), trust.Rule.ID, match.ScopeCooldown.String(), trust.Citation)
 	}
 }
 
@@ -245,14 +296,14 @@ func cooldownOldestVersion(dates map[string]time.Time) (string, time.Time) {
 // eligible versions to fall back to, but may still fail when a dependency
 // requires exactly a stripped version (a transitive exact pin), so the report
 // can surface the withheld set if the install fails.
-func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packagev1.Ecosystem, packageName string, pinnedVersion string, dates map[string]time.Time, stripped []string, remaining int, cooldownDays int) {
+func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packagev1.Ecosystem, packageName string, pinnedVersion string, dates map[string]time.Time, stripped []string, remaining int, cooldownDays int, citation *recordv1.DecisionCitation) {
 	if statsCollector == nil || len(stripped) == 0 {
 		return
 	}
 
 	logCooldown := func(version string, publishDate time.Time, daysAgo, daysLeft int) {
 		statsCollector.RecordCooldownBlocked(packageName, version, publishDate, daysAgo, daysLeft, cooldownDays)
-		audit.LogDependencyCooldown(cooldownPackageVersion(ecosystem, packageName, version), publishDate, cooldownDays, daysAgo, daysLeft)
+		audit.LogDependencyCooldown(cooldownPackageVersion(ecosystem, packageName, version), publishDate, cooldownDays, daysAgo, daysLeft, citation)
 	}
 
 	if remaining == 0 {

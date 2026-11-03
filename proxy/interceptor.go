@@ -56,6 +56,7 @@ const (
 	BlockReasonConfirmationFailed
 	BlockReasonDependencyCooldown
 	BlockReasonNetworkPolicy
+	BlockReasonPolicyRule
 )
 
 // BlockContext carries the structured facts of a block decision so a
@@ -78,6 +79,25 @@ type BlockContext struct {
 	// For BlockReasonNetworkPolicy: the denied host:port and the rule.
 	Destination string
 	Rule        string
+
+	// For BlockReasonPolicyRule: the block entry that matched.
+	PolicyRule *PolicyRuleBlock
+}
+
+// PolicyRuleBlock is a block entry of the cloud policy of the tenant or of
+// blocked_packages that blocked a request.
+type PolicyRuleBlock struct {
+	RuleID string
+	Reason string
+
+	// Cloud is true for a rule of the tenant policy. Revision and
+	// DefaultPolicyRevision name that policy.
+	Cloud                 bool
+	Revision              uint64
+	DefaultPolicyRevision uint64
+
+	// File is the config file of a rule of blocked_packages.
+	File string
 }
 
 // InterceptorResponse defines how the proxy should handle the request

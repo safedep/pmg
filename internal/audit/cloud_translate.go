@@ -24,6 +24,10 @@ func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.Pmg
 		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_SKIPPED)}
 	case EventTypeInstallTrustedAllowed:
 		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_TRUSTED)}
+	case EventTypeRuleBlocked:
+		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_RULE_BLOCKED)}
+	case EventTypeRuleTrusted:
+		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_RULE_TRUSTED)}
 	case EventTypeInstallInsecureBypass:
 		// PmgInsecureBypass is a session-level aggregate (package manager + total bypassed count),
 		// not a per-package event. It is emitted as part of EventTypeSessionComplete when
@@ -68,6 +72,9 @@ func newPackageDecisionEvent(event AuditEvent, action controltowerv1.PmgPackageA
 	}
 	decision.SetIsMalware(event.IsMalware)
 	decision.SetIsVerified(event.IsVerified)
+	if event.Citation != nil {
+		decision.SetCitation(event.Citation)
+	}
 
 	e := &controltowerv1.PmgEvent{}
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION)
@@ -304,6 +311,9 @@ func newCooldownBlockedEvent(event AuditEvent) *controltowerv1.PmgEvent {
 	cooldown.SetDaysSincePublish(uint32(event.DaysAgo))
 	cooldown.SetDaysRemaining(uint32(event.DaysLeft))
 	decision.SetCooldown(cooldown)
+	if event.Citation != nil {
+		decision.SetCitation(event.Citation)
+	}
 
 	e := &controltowerv1.PmgEvent{}
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION)

@@ -72,12 +72,17 @@ func logIgnoredEnv(key string) {
 // the flags are final, so a flag on a key that the cloud set can fail. It
 // resolves the cloud login only when cloud.policy applies.
 func (r *Runtime) LoadAtStart(cfg *config.RuntimeConfig) *Status {
-	r.baseline = cfg.Config.DependencyCooldown
-
 	tenant := ""
 	if cfg.CloudPolicyEnabled() {
 		tenant = loginTenant()
 	}
+	return r.LoadAtStartForTenant(cfg, tenant)
+}
+
+// LoadAtStartForTenant is LoadAtStart for a caller that knows the tenant of
+// the login, or "" for no login. It does not touch the keychain.
+func (r *Runtime) LoadAtStartForTenant(cfg *config.RuntimeConfig, tenant string) *Status {
+	r.baseline = cfg.Config.DependencyCooldown
 
 	st := Load(cfg, tenant)
 	Apply(cfg, &cfg.Config, st)

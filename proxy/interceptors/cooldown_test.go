@@ -31,7 +31,7 @@ func TestCooldownExemptVersions(t *testing.T) {
 	}
 	skip := cooldownSkipForTest(t, "pkg:npm/pkg@1.0.0", "pkg:npm/pkg@3.0.0", "pkg:npm/pkg@4.0.0")
 
-	exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, dates, 5)
+	exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, nil, dates, 5)
 
 	assert.ElementsMatch(t, []string{"1.0.0", "2.0.0", "3.0.0"}, keysOf(exempt.all))
 	// Only the in-window, skip-listed, non-trusted version is audited.
@@ -48,12 +48,12 @@ func TestCooldownExemptVersions_NoActiveWindow(t *testing.T) {
 	dates := map[string]time.Time{"1.0.0": now.Add(-100 * day)}
 	skip := cooldownSkipForTest(t, "pkg:npm/pkg@1.0.0")
 
-	oldVersion := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, dates, 5)
+	oldVersion := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, nil, dates, 5)
 	assert.Empty(t, oldVersion.skipListed)
 	assert.Empty(t, oldVersion.all)
 
 	freshDates := map[string]time.Time{"1.0.0": now.Add(-1 * day)}
-	zeroDay := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, freshDates, 0)
+	zeroDay := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, nil, freshDates, 0)
 	assert.Empty(t, zeroDay.skipListed)
 	assert.Empty(t, zeroDay.all)
 }
@@ -71,7 +71,7 @@ func TestCooldownExemptVersions_SkipAll(t *testing.T) {
 	}
 	skip := pmgconfig.CooldownSkipInfo{SkipAll: true}
 
-	exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, dates, 5)
+	exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, nil, dates, 5)
 	assert.ElementsMatch(t, []string{"1.0.0", "2.0.0"}, keysOf(exempt.all))
 	assert.Empty(t, exempt.skipListed, "whole-package skip must not emit per-version events")
 }
@@ -402,7 +402,7 @@ func TestRecordCooldownStats(t *testing.T) {
 				ecosystem = packagev1.Ecosystem_ECOSYSTEM_NPM
 			}
 			collector := NewAnalysisStatsCollector()
-			recordCooldownStats(collector, ecosystem, "pkg", tt.pinnedVersion, tt.dates, tt.stripped, tt.remaining, 5)
+			recordCooldownStats(collector, ecosystem, "pkg", tt.pinnedVersion, tt.dates, tt.stripped, tt.remaining, 5, nil)
 
 			var blocked []string
 			for _, b := range collector.GetCooldownBlocks() {
@@ -423,7 +423,7 @@ func TestRecordCooldownStats(t *testing.T) {
 
 func TestRecordCooldownStats_NilCollector(t *testing.T) {
 	assert.NotPanics(t, func() {
-		recordCooldownStats(nil, packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", "", nil, []string{"1.0.0"}, 0, 5)
+		recordCooldownStats(nil, packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", "", nil, []string{"1.0.0"}, 0, 5, nil)
 	})
 }
 

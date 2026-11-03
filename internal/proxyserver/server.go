@@ -432,7 +432,7 @@ func buildInterceptors(
 		cache,
 		statsCollector,
 		confirmationChan,
-		interceptors.InterceptorContext{},
+		interceptors.InterceptorContext{Policy: cloudpolicy.Global()},
 		registries,
 	)
 	if err != nil {

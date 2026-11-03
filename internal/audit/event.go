@@ -4,6 +4,7 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/sandbox"
 )
@@ -63,6 +64,8 @@ const (
 	EventTypeNetworkObservation    EventType = "network_observation"
 	EventTypeDependencyCooldown    EventType = "dependency_cooldown"
 	EventTypeCooldownSkipped       EventType = "dependency_cooldown_skipped"
+	EventTypeRuleBlocked           EventType = "rule_blocked"
+	EventTypeRuleTrusted           EventType = "rule_trusted"
 	EventTypeSandboxOverride       EventType = "sandbox_override"
 	EventTypeSandboxViolation      EventType = "sandbox_violation"
 	EventTypeError                 EventType = "error"
@@ -101,6 +104,14 @@ type AuditEvent struct {
 	HostObservation HostObservation
 	NetworkDecision NetworkDecision
 	Reason          string
+
+	// Citation names the cloud policy that made the decision: the revision
+	// and the rule or the field. It is nil for a decision of the tool
+	// baseline or of a local rule.
+	Citation *recordv1.DecisionCitation
+
+	// Package rule context, for EventTypeRuleBlocked and EventTypeRuleTrusted
+	RuleID string
 
 	// Cooldown context
 	PublishDate  time.Time

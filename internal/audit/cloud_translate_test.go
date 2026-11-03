@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
@@ -953,4 +954,65 @@ func TestNetworkDecisionDetails(t *testing.T) {
 	assert.Equal(t, "*:*", details["rule"])
 	assert.Equal(t, uint16(443), details["port"])
 	assert.NotContains(t, details, "method")
+}
+
+func TestTranslatePolicyDecisions(t *testing.T) {
+	ruleCitation := recordv1.DecisionCitation_builder{Revision: 48, DefaultPolicyRevision: 12, Digest: "sha256:ab", RuleId: "r_9c1"}.Build()
+	fieldCitation := recordv1.DecisionCitation_builder{
+		Revision: 48, DefaultPolicyRevision: 12, Digest: "sha256:ab",
+		Path: "package_admission.cooldown.min_age", Layer: recordv1.Layer_LAYER_OVERRIDE, OverrideId: "ov_1",
+	}.Build()
+
+	tests := []struct {
+		name         string
+		event        AuditEvent
+		wantAction   controltowerv1.PmgPackageAction
+		wantCitation *recordv1.DecisionCitation
+	}{
+		{
+			name:         "a cloud block entry",
+			event:        AuditEvent{Type: EventTypeRuleBlocked, RuleID: "r_9c1", Citation: ruleCitation},
+			wantAction:   controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_RULE_BLOCKED,
+			wantCitation: ruleCitation,
+		},
+		{
+			name:       "a local block entry has no citation",
+			event:      AuditEvent{Type: EventTypeRuleBlocked, RuleID: "local:3f9a1c0b2e7d"},
+			wantAction: controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_RULE_BLOCKED,
+		},
+		{
+			name:         "a cloud trust entry",
+			event:        AuditEvent{Type: EventTypeRuleTrusted, RuleID: "r_9c1", Citation: ruleCitation},
+			wantAction:   controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_RULE_TRUSTED,
+			wantCitation: ruleCitation,
+		},
+		{
+			name:         "a cooldown that the cloud set",
+			event:        AuditEvent{Type: EventTypeDependencyCooldown, Citation: fieldCitation},
+			wantAction:   controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED,
+			wantCitation: fieldCitation,
+		},
+		{
+			name:       "a cooldown of the tool baseline has no citation",
+			event:      AuditEvent{Type: EventTypeDependencyCooldown},
+			wantAction: controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.event.PackageVersion = testPackageVersion("evil", "1.2.4", "npm")
+
+			results := testSink.translateToPmgEvents(tt.event)
+
+			require.Len(t, results, 1)
+			decision := results[0].GetPackageDecision()
+			assert.Equal(t, tt.wantAction, decision.GetAction())
+			if tt.wantCitation == nil {
+				assert.False(t, decision.HasCitation())
+				return
+			}
+			assert.True(t, proto.Equal(tt.wantCitation, decision.GetCitation()))
+		})
+	}
 }

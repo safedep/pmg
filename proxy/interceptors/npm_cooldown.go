@@ -24,6 +24,7 @@ var npmMetadataTimeSkipKeys = map[string]bool{
 // It strips recently-published versions from metadata responses so npm's
 // resolver naturally falls back to the latest eligible version.
 type npmCooldownHandler struct {
+	cooldownPolicy
 	statsCollector *AnalysisStatsCollector
 }
 
@@ -38,6 +39,7 @@ func newNpmCooldownHandler(statsCollector *AnalysisStatsCollector) *npmCooldownH
 // a response modifier that strips versions within the cooldown window. Skip-list
 // semantics are handled here so callers do not need to consult the config.
 func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
+	policy := h.current()
 	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, packageName)
 	if skip.SkipAll {
 		// Whole package is on the cooldown skip list: pass metadata through
@@ -63,14 +65,14 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 
 		log.Debugf("[%s] Cooldown: parsed %d publish dates for %s", ctx.RequestID, len(dates), packageName)
 
-		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, skip, dates, cooldownDays)
+		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, skip, policy, dates, cooldownDays)
 		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, exempt)
 		strippedBody, stripped, remaining := h.stripCooldownVersions(body, dates, cooldownDays, exempt.all)
 		if len(stripped) > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, len(stripped), packageName, cooldownDays, remaining)
 
-			recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, pinnedVersion, dates, stripped, remaining, cooldownDays)
+			recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, pinnedVersion, dates, stripped, remaining, cooldownDays, policy.CooldownCitation())
 
 			// Prevent npm from caching the modified response. Without this,
 			// npm would serve the stripped metadata from cache even after the
