@@ -160,3 +160,47 @@ func TestBlockedPackagesOfTheWrongTypeFailClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestBlockedPackagesFailClosedWhenAnotherFieldCannotLoad(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name:    "a block list keeps its blocks",
+			yaml:    "event_log_retention_days: [1]\nblocked_packages:\n  - purl: pkg:npm/evil\n",
+			wantErr: true,
+		},
+		{
+			name: "no block list loads the defaults",
+			yaml: "event_log_retention_days: [1]\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalConfig := globalConfig
+			t.Cleanup(func() {
+				globalConfig = originalConfig
+				configLoadErr = nil
+			})
+
+			configDir := t.TempDir()
+			t.Setenv(pmgConfigDirEnvKey, configDir)
+			require.NoError(t, os.WriteFile(filepath.Join(configDir, pmgConfigFileName), []byte(tt.yaml), 0o644))
+
+			initConfig()
+
+			err := LoadError()
+			if !tt.wantErr {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err, "a config that cannot load must not drop the blocks that it sets")
+			var blockedErr *BlockedPackagesError
+			assert.ErrorAs(t, err, &blockedErr)
+			assert.Contains(t, err.Error(), "event_log_retention_days")
+		})
+	}
+}

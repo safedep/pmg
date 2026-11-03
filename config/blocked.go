@@ -121,6 +121,6 @@ func NewInvalidBlockedPackagesError(err error) error {
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.InvalidBlockedPackages).
 		WithHumanError(fmt.Sprintf("invalid blocked_packages configuration: %v", detail)).
-		WithHelp("Fix the blocked_packages entries in your PMG configuration file, then retry.").
+		WithHelp("Fix the blocked_packages entries, or the field that the error names, in your PMG configuration file, then retry.").
 		Wrap(err)
 }

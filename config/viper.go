@@ -44,6 +44,9 @@ func loadViperConfig() error {
 		if keyErr := v.UnmarshalKey("blocked_packages", &entries); keyErr != nil {
 			return &BlockedPackagesError{err: keyErr}
 		}
+		if len(entries) > 0 {
+			return &BlockedPackagesError{err: fmt.Errorf("the config sets blocked_packages and cannot load: %w", err)}
+		}
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 	globalConfig.viper = v
