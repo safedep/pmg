@@ -4,6 +4,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/platform/platformtest"
 	"github.com/stretchr/testify/assert"
@@ -98,4 +99,21 @@ func TestCurrentUserHomeDirRejectsEmptyPasswdHome(t *testing.T) {
 		return
 	}
 	assert.NotEmpty(t, home)
+}
+
+func TestManagedConfigLoadRemedies(t *testing.T) {
+	path := "/etc/safedep/pmg/config.yml"
+
+	invalid, ok := usefulerror.AsUsefulError(invalidManagedConfigError(path, assert.AnError))
+	assert.True(t, ok)
+	assert.Contains(t, invalid.Help(), "Fix the YAML")
+	assert.Contains(t, invalid.Help(), "PMG_* environment variable")
+
+	unreadable, ok := usefulerror.AsUsefulError(unreadableManagedConfigError(path, assert.AnError))
+	assert.True(t, ok)
+	readCommand := "chmod o+r"
+	if runtime.GOOS == "windows" {
+		readCommand = "icacls"
+	}
+	assert.Contains(t, unreadable.Help(), readCommand)
 }

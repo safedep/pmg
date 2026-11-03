@@ -17,6 +17,10 @@ func systemControlRemedy(path string) string {
 		"Or delete the file and run `pmg setup install --system` from a terminal started as administrator", path)
 }
 
+func readAccessRemedy(path string) string {
+	return fmt.Sprintf("Let every account read '%s' and each folder above it, for example: icacls \"%s\" /grant *S-1-5-32-545:R", path, path)
+}
+
 func leakedConfigDirRemedy(dir string) (help, fix string) {
 	return fmt.Sprintf(
 			"pmg resolved its config directory to %s, outside your profile: APPDATA points at another account. Fix the environment, e.g. set APPDATA=%%USERPROFILE%%\\AppData\\Roaming",

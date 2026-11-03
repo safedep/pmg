@@ -1226,7 +1226,7 @@ func invalidManagedConfigError(path string, err error) error {
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.InvalidArgument).
 		WithHumanError(fmt.Sprintf("PMG cannot load the managed config %s, so it uses the defaults", path)).
-		WithHelp(fmt.Sprintf("Fix the YAML in '%s', then run pmg setup doctor again", path)).
+		WithHelp(fmt.Sprintf("Fix the YAML in '%s', or a PMG_* environment variable that sets a key of it, then run pmg setup doctor again", path)).
 		Wrap(err)
 }
 
@@ -1234,7 +1234,7 @@ func unreadableManagedConfigError(path string, err error) error {
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.PermissionDenied).
 		WithHumanError(fmt.Sprintf("PMG cannot read the managed config %s, so it does not apply for this account", path)).
-		WithHelp(fmt.Sprintf("Let every account read '%s' and search each directory above it, for example: chmod o+r on the file and chmod o+x on each directory", path)).
+		WithHelp(platform.ReadAccessRemedy(path)).
 		Wrap(err)
 }
 
