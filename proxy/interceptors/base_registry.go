@@ -261,10 +261,34 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 	packageVersion string,
 	result *analyzer.PackageVersionAnalysisResult,
 ) (*proxy.InterceptorResponse, error) {
-	if resp, ok := b.trustedByPolicy(ctx, ecosystem, packageName, packageVersion, result); ok {
-		return resp, nil
-	}
+	resp, _, err := b.handleVerdict(ctx, ecosystem, packageName, packageVersion, result)
+	return resp, err
+}
 
+// handleVerdict is handleAnalysisResult that also reports whether a package
+// rule decided the outcome. A caller that reuses an outcome must not reuse
+// one that a rule decided, because the policy can change at any time.
+func (b *baseRegistryInterceptor) handleVerdict(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	packageName string,
+	packageVersion string,
+	result *analyzer.PackageVersionAnalysisResult,
+) (*proxy.InterceptorResponse, bool, error) {
+	if resp, ok := b.trustedByPolicy(ctx, ecosystem, packageName, packageVersion, result); ok {
+		return resp, true, nil
+	}
+	resp, err := b.verdictResponse(ctx, ecosystem, packageName, packageVersion, result)
+	return resp, false, err
+}
+
+func (b *baseRegistryInterceptor) verdictResponse(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	packageName string,
+	packageVersion string,
+	result *analyzer.PackageVersionAnalysisResult,
+) (*proxy.InterceptorResponse, error) {
 	switch result.Action {
 	case analyzer.ActionBlock:
 		log.Warnf("[%s] Blocking malicious package %s@%s", ctx.RequestID, packageName, packageVersion)

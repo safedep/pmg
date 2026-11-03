@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	corev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/core/v1"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
@@ -399,7 +398,7 @@ func TestCloudPolicy_ALaterBlockAppliesToAScreenedPackage(t *testing.T) {
 				assert.False(t, res.Blocked())
 				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("evil", "1.2.4"))
 
-				src.current.Store(blockingPolicy(t))
+				src.current.Store(loadedPolicy(t))
 				again := h.Npm().Install("evil", "1.2.4")
 				assert.True(t, again.Blocked(), "pmg keeps no rule result in the verdict cache")
 			},
@@ -407,14 +406,73 @@ func TestCloudPolicy_ALaterBlockAppliesToAScreenedPackage(t *testing.T) {
 	})
 }
 
-// blockingPolicy loads the policy of the case that the runner wrote, through
-// the real loader.
-func blockingPolicy(t *testing.T) *cloudpolicy.Policy {
+// loadedPolicy loads the policy of the case that the runner wrote, through
+// the real loader, as the proxy daemon does after a fetch.
+func loadedPolicy(t *testing.T) *cloudpolicy.Policy {
 	t.Helper()
 	rt := &cloudpolicy.Runtime{}
 	rt.LoadAtStartForTenant(config.Get(), "")
 	rt.Publish(config.Get())
-	_, blocked := rt.Current().Block(packagev1.Ecosystem_ECOSYSTEM_NPM, "evil", "1.2.4")
-	require.True(t, blocked)
+	require.NotNil(t, rt.Current().Applied())
 	return rt.Current()
+}
+
+// The Go interceptor reuses a zip verdict for a minute, because go retries a
+// failed zip in the same command. A package rule must not ride on that reuse.
+func TestCloudPolicy_GoZipReuseKeepsNoRuleResult(t *testing.T) {
+	addModule := func(h *Harness, v Verdict) {
+		h.Registry.AddGoModule(GoModule{Path: "example.com/m",
+			Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+		h.Analyzer.SetGo("example.com/m", "v1.0.0", v)
+	}
+
+	blockSrc := &switchSource{}
+	trustSrc := &switchSource{}
+	RunCases(t, []TestCase{
+		{
+			Name:    "a block that arrives within the reuse window blocks the same zip",
+			Policy:  cpt.Policy(cpt.Block("r_go", "pkg:golang/example.com/m", "", "incident")),
+			Options: []Option{WithPolicy(blockSrc)},
+			Setup: func(h *Harness) {
+				addModule(h, Clean())
+				blockSrc.current.Store(cloudpolicy.FromConfig(config.Get()))
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Go().DownloadZip("example.com/m", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+
+				blockSrc.current.Store(loadedPolicy(t))
+				again := h.Go().DownloadZip("example.com/m", "v1.0.0")
+				assert.True(t, again.Blocked, "the block applies inside the reuse window")
+			},
+		},
+		{
+			Name:    "a trust allow is not reused after the trust entry goes",
+			Policy:  cpt.Policy(cpt.Trust("r_fp", "pkg:golang/example.com/m", "", inAMonth(), scopeMalware)),
+			Options: []Option{WithPolicy(trustSrc)},
+			Setup: func(h *Harness) {
+				addModule(h, Suspicious())
+				h.Confirm.AutoDeny()
+				trustSrc.current.Store(loadedPolicy(t))
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Go().DownloadZip("example.com/m", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Empty(t, h.Confirm.Prompts())
+
+				trustSrc.current.Store(cloudpolicy.FromConfig(config.Get()))
+				again := h.Go().DownloadZip("example.com/m", "v1.0.0")
+				assert.True(t, again.Blocked, "with no trust entry the suspicious verdict prompts again")
+				assert.Len(t, h.Confirm.Prompts(), 1)
+			},
+		},
+	})
 }

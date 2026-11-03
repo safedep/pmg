@@ -121,6 +121,12 @@ func (i *GoRegistryInterceptor) handleArtifact(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	// A package rule decides at each request, so a block that arrives
+	// within the reuse window applies at once.
+	if resp, ok := i.policyBlock(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version); ok {
+		return resp, nil
+	}
+
 	key := goModuleVersionKey(name, version)
 	if resp := i.recentZipVerdict(key); resp != nil {
 		log.Debugf("[%s] Reusing verdict for repeated zip request: %s", ctx.RequestID, key)
@@ -137,22 +143,21 @@ func (i *GoRegistryInterceptor) handleArtifact(
 	return resp, nil
 }
 
-// handleZipDownload runs the block entries, dependency cooldown, then trusted/insecure
-// fast-allow, then malware analysis. memoize is false only when the outcome is
-// a fail-open allow after an analyzer error, so a retried request gets another
-// chance to be analyzed.
+// handleZipDownload runs dependency cooldown, then trusted/insecure
+// fast-allow, then malware analysis. memoize is false when the outcome is a
+// fail-open allow after an analyzer error, so a retried request gets another
+// chance to be analyzed. It is also false when a package rule decided the
+// outcome, because pmg keeps no rule result.
 func (i *GoRegistryInterceptor) handleZipDownload(
 	ctx *proxy.RequestContext,
 	match *registryMatch,
 	name, version string,
 ) (*proxy.InterceptorResponse, bool, error) {
-	// A block entry needs no publish time and no verdict, so it runs first.
-	if resp, ok := i.policyBlock(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version); ok {
-		return resp, true, nil
-	}
-
-	cooldown := i.policy().Cooldown
+	policy := i.policy()
+	cooldown := policy.Cooldown
+	var cooldownTrusted bool
 	if cooldown.Enabled {
+		_, cooldownTrusted = policy.TrustCooldown(packagev1.Ecosystem_ECOSYSTEM_GO, name, version)
 		if resp, handled := i.cooldownHandler.CheckZipDownload(ctx, match.Endpoint.BasePath, name, version, cooldown.Days); handled {
 			return resp, true, nil
 		}
@@ -168,8 +173,8 @@ func (i *GoRegistryInterceptor) handleZipDownload(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, false, nil
 	}
 
-	resp, err := i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, result)
-	return resp, err == nil, err
+	resp, ruleDecided, err := i.handleVerdict(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, result)
+	return resp, err == nil && !ruleDecided && !cooldownTrusted, err
 }
 
 func (i *GoRegistryInterceptor) recentZipVerdict(key string) *proxy.InterceptorResponse {
