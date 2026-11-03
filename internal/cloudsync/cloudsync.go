@@ -70,11 +70,6 @@ type Result struct {
 	CheckInErr error
 }
 
-// PolicyChanged reports whether the fetch committed a new policy.
-func (r *Result) PolicyChanged() bool {
-	return r.Policy != nil && r.Policy.Status == configsync.FetchModified
-}
-
 // steps are the cloud calls of a sync. A test replaces them.
 type steps struct {
 	resolveCredentials func() (*cloud.Credentials, func() error, error)

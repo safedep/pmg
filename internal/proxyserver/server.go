@@ -564,10 +564,7 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 					}
 					continue
 				}
-				if res.PolicyChanged() {
-					st := policy.Reload(cfg)
-					log.Infof("Periodic cloud sync: cloud policy state %s, revision %d", st.State, res.Policy.Revision)
-				}
+				reloadIfCacheMoved(cfg, policy, res)
 				if res.EventsErr != nil {
 					log.Warnf("periodic cloud sync failed: %v", res.EventsErr)
 					continue
@@ -585,6 +582,29 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 		<-done
 		return total
 	}
+}
+
+// reloadIfCacheMoved reloads the policy when the cache holds another policy
+// than the one that the daemon applies. Another pmg process, such as pmg
+// cloud sync or a background child, can commit a new policy. The next fetch
+// of the daemon then sends the digest of that cache and gets NOT_MODIFIED,
+// so the status of the fetch alone never shows the change. It reports
+// whether it reloaded.
+func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime, res *cloudsync.Result) bool {
+	if res == nil || res.Policy == nil {
+		return false
+	}
+	applied := ""
+	if a := policy.Current().Applied(); a != nil {
+		applied = a.Digest
+	}
+	if res.Policy.Digest == applied {
+		return false
+	}
+
+	st := policy.Reload(cfg)
+	log.Infof("Periodic cloud sync: cloud policy state %s, revision %d", st.State, res.Policy.Revision)
+	return true
 }
 
 // listenAddr resolves the proxy's bind address from config (host) and the
