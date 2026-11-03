@@ -1,6 +1,6 @@
 //go:build windows
 
-package shim
+package platform
 
 import "os"
 

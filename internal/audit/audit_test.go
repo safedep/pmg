@@ -8,6 +8,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
@@ -391,6 +392,32 @@ func TestLogProxyHostObservedCarriesTheClient(t *testing.T) {
 	assert.Equal(t, "r1", e.Details["request_id"])
 }
 
+func TestLogProxyHostObservedCarriesTheContainer(t *testing.T) {
+	s := &mockSink{}
+	setGlobal(newAuditor(s))
+	defer resetGlobal()
+
+	LogProxyHostObserved(HostObservation{
+		Hostname:   "cdn.example.com",
+		Method:     "CONNECT",
+		EntryPoint: ProxyEntryPointRedirectedNamespace,
+		Client: ProxyClient{
+			Address:   "172.17.0.2",
+			Container: container.Container{Runtime: container.RuntimeDocker, ID: "aaaa", Name: "web", Image: "node:22", ImageID: "sha256:1111"},
+		},
+	}, "audit_logger_interceptor", nil)
+
+	events := s.getEvents()
+	require.Len(t, events, 1)
+	d := events[0].Details
+	assert.Equal(t, "172.17.0.2", d["client_address"])
+	assert.Equal(t, "docker", d["client_container_runtime"])
+	assert.Equal(t, "aaaa", d["client_container_id"])
+	assert.Equal(t, "web", d["client_container_name"])
+	assert.Equal(t, "node:22", d["client_container_image"])
+	assert.Equal(t, "sha256:1111", d["client_container_image_id"])
+}
+
 func TestLogProxyHostObservedLeavesUnknownFieldsOut(t *testing.T) {
 	s := &mockSink{}
 	setGlobal(newAuditor(s))
@@ -400,7 +427,7 @@ func TestLogProxyHostObservedLeavesUnknownFieldsOut(t *testing.T) {
 
 	events := s.getEvents()
 	require.Len(t, events, 1)
-	for _, key := range []string{"port", "entry_point", "client_pid", "client_comm", "client_exe", "client_address"} {
+	for _, key := range []string{"port", "entry_point", "client_pid", "client_comm", "client_exe", "client_address", "client_container_id"} {
 		assert.NotContains(t, events[0].Details, key)
 	}
 }

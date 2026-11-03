@@ -4,6 +4,7 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/sandbox"
 )
@@ -133,10 +134,11 @@ const (
 // unknown. A host process has a PID, a Comm and an Exe. A client in another
 // network namespace has an Address.
 type ProxyClient struct {
-	PID     uint32
-	Comm    string
-	Exe     string
-	Address string
+	PID       uint32
+	Comm      string
+	Exe       string
+	Address   string
+	Container container.Container
 }
 
 // IsZero reports whether nothing about the client is known.

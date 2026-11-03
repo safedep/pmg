@@ -1,6 +1,6 @@
 //go:build unix
 
-package shim
+package platform
 
 import (
 	"os"
