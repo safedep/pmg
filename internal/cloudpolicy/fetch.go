@@ -15,18 +15,8 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 )
 
-// FetchInterval is the pacing of the policy fetch, the cadence of the daemon
-// in M2. Most replies are NOT_MODIFIED and carry no policy.
-const FetchInterval = 5 * time.Minute
-
 // ToolName is the tool name that the fetch and the check-in send.
 const ToolName = "pmg"
-
-// FetchDue reports whether the policy pacing passed since the last fetch
-// attempt.
-func FetchDue(cfg *config.RuntimeConfig) bool {
-	return audit.SyncCooldownElapsed(cfg.CloudPolicyLastRunPath(), FetchInterval)
-}
 
 // Fetch fetches the resolved policy of this endpoint into the cache of pmg.
 // The caller holds cloud-sync.lock, so no other pmg process writes the cache

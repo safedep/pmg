@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -24,11 +25,11 @@ var syncTimeout time.Duration
 func newSyncCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Sync pending audit events to SafeDep Cloud",
+		Short: "Fetch the cloud policy and sync pending audit events to SafeDep Cloud",
 		RunE:  runSync,
 	}
 
-	cmd.Flags().DurationVar(&syncTimeout, "timeout", 15*time.Minute, "Maximum time to spend syncing events")
+	cmd.Flags().DurationVar(&syncTimeout, "timeout", 15*time.Minute, "Maximum time to spend on the sync")
 
 	return cmd
 }
@@ -43,16 +44,48 @@ func runSync(cmd *cobra.Command, args []string) error {
 			WithHelp("Set 'cloud.enabled: true' in PMG config to enable cloud sync"))
 	}
 
-	synced, err := audit.DrainToCloud(cmd.Context(), cfg, manualSyncLockTimeout, syncTimeout)
+	// The policy fetch runs first, so a user or IT can force a fetch.
+	res, err := cloudsync.Run(cmd.Context(), cfg, cloudsync.Plan{
+		Policy:      cloudsync.StepForce,
+		Events:      cloudsync.StepForce,
+		LockTimeout: manualSyncLockTimeout,
+		Timeout:     syncTimeout,
+	})
 	if err != nil {
 		ui.ErrorExit(syncFailureError(err))
 	}
 
-	ui.Successf("Synced %d events to SafeDep Cloud", synced)
+	if res.PolicyRan && res.PolicyErr == nil {
+		ui.Successf("Fetched the cloud policy: revision %d (%s)", res.Policy.Revision, res.Policy.Status)
+	}
+	if res.EventsErr == nil {
+		ui.Successf("Synced %d events to SafeDep Cloud", res.Synced)
+	}
+
+	if res.PolicyErr != nil {
+		ui.ErrorExit(policyFetchFailureError(res.PolicyErr))
+	}
+	if res.EventsErr != nil {
+		ui.ErrorExit(syncFailureError(res.EventsErr))
+	}
 	return nil
 }
 
-// syncFailureError maps a DrainToCloud failure to a user-facing error. Errors
+// policyFetchFailureError maps a failed policy fetch to a user-facing error.
+// pmg keeps the last policy that it applied.
+func policyFetchFailureError(err error) error {
+	if usefulErr, ok := usefulerror.AsUsefulError(err); ok {
+		return withCredentialGuidance(usefulErr, err)
+	}
+	return usefulerror.NewUsefulError().
+		Wrap(err).
+		WithCode(errcodes.Network).
+		WithHumanError("Failed to fetch the cloud policy. pmg keeps the last policy that it applied").
+		WithHelp("Check your network connectivity and ensure SafeDep Cloud is reachable").
+		WithAdditionalHelp("Run 'pmg setup doctor' to see the policy that pmg applies")
+}
+
+// syncFailureError maps a failed sync to a user-facing error. Errors
 // the backend already classified (entitlements, quota — via gRPC status and
 // usefulerror converters) pass through so the real cause is shown, except
 // auth failures which get credential setup guidance; the network-flavored

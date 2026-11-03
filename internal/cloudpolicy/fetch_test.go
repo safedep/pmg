@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/dry/cloud/configsync"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudpolicy/cloudpolicytest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,11 +186,11 @@ func TestFetchKeepsTheLastValidCapability(t *testing.T) {
 
 func TestFetchRecordsEachAttempt(t *testing.T) {
 	cfg := newTestConfig(t)
-	assert.True(t, FetchDue(cfg), "pmg fetches when it never fetched")
+	assert.True(t, audit.PolicyFetchDue(cfg), "pmg fetches when it never fetched")
 
 	server := &stubServer{err: status.Error(codes.Unavailable, "try later")}
 	_, err := fetchAndRecord(context.Background(), cfg, testCredentials(t), server.factory)
 	require.Error(t, err)
 
-	assert.False(t, FetchDue(cfg), "a failed fetch waits for the policy pacing too")
+	assert.False(t, audit.PolicyFetchDue(cfg), "a failed fetch waits for the policy pacing too")
 }

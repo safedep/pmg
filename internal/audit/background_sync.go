@@ -3,6 +3,7 @@ package audit
 import (
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
@@ -42,8 +43,27 @@ type detachedSpawner func(name string, args ...string) error
 
 var spawnDetached detachedSpawner = spawnDetachedExec
 
+// PolicyFetchInterval is the pacing of the cloud policy fetch, the cadence of
+// the daemon in M2. Most replies are NOT_MODIFIED and carry no policy.
+const PolicyFetchInterval = 5 * time.Minute
+
+// PolicyFetchDue reports whether the policy fetch is due: cloud.policy applies
+// and the policy pacing passed since the last attempt.
+func PolicyFetchDue(cfg *config.RuntimeConfig) bool {
+	return cfg.CloudPolicyEnabled() && SyncCooldownElapsed(cfg.CloudPolicyLastRunPath(), PolicyFetchInterval)
+}
+
+// EventSyncDue reports whether the event drain is due: auto_sync is on and
+// its pacing passed since the last attempt.
+func EventSyncDue(cfg *config.RuntimeConfig) bool {
+	return cfg.Config.Cloud.Enabled && cfg.Config.Cloud.AutoSync.Enabled &&
+		SyncCooldownElapsed(cfg.CloudSyncLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval)
+}
+
 // MaybeSpawnBackgroundSync forks a detached `pmg cloud sync-background` child
-// when auto-sync is enabled and the cooldown has elapsed. The call returns as
+// when cloud.enabled is on and one of two paces passed: the event pacing of
+// auto_sync, or the policy pacing of cloud.policy. The policy fetch runs also
+// when auto_sync is off. The call returns as
 // soon as `cmd.Start()` finishes (~milliseconds), so it must only be called
 // after audit.Close() has released the parent's SQLite handle on the WAL.
 //
@@ -57,7 +77,7 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	if isBackgroundSyncChild || backgroundSyncSuppressed {
 		return
 	}
-	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {
+	if !cfg.Config.Cloud.Enabled {
 		return
 	}
 	// The cooldown file lives in the config directory. Without one, its path
@@ -66,8 +86,8 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 		return
 	}
 
-	if !SyncCooldownElapsed(cfg.CloudSyncLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval) {
-		log.Debugf("Auto-sync cooldown not elapsed; skipping spawn")
+	if !EventSyncDue(cfg) && !PolicyFetchDue(cfg) {
+		log.Debugf("Auto-sync and policy pacing not elapsed; skipping spawn")
 		return
 	}
 
