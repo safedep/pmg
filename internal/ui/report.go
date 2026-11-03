@@ -241,7 +241,9 @@ func reportNormal(data *ReportData) {
 		return
 	}
 
-	if data.TotalAnalyzed == 0 {
+	// A package rule blocks with no analysis, so a run can block and
+	// analyze nothing.
+	if data.TotalAnalyzed == 0 && len(data.RuleBlockedPackages) == 0 {
 		// No packages analyzed (e.g., npm install with no new packages)
 		return
 	}

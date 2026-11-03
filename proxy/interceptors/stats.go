@@ -155,7 +155,6 @@ func (c *AnalysisStatsCollector) RecordRuleBlocked(block *proxy.BlockContext) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.stats.TotalAnalyzed++
 	c.stats.BlockedCount++
 	c.ruleBlocks = append(c.ruleBlocks, block)
 }

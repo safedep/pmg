@@ -342,7 +342,6 @@ func TestReportNormalNetworkPolicyQuietWithoutDenials(t *testing.T) {
 
 func ruleBlockedData() *ReportData {
 	data := NewReportData()
-	data.TotalAnalyzed = 1
 	data.BlockedCount = 1
 	data.Outcome = OutcomeBlocked
 	data.RuleBlockedPackages = []*proxy.BlockContext{{
