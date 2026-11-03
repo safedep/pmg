@@ -50,6 +50,11 @@ type Plan struct {
 
 	// Timeout bounds the steps after the lock.
 	Timeout time.Duration
+
+	// AfterPolicy runs after the policy step and before the check-in. The
+	// proxy daemon reloads the cache there, so the check-in never reports a
+	// revision that the daemon does not yet enforce.
+	AfterPolicy func()
 }
 
 // Result is what a sync did.
@@ -170,6 +175,9 @@ func (s steps) run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*
 	if runPolicy {
 		res.PolicyRan = true
 		res.Policy, res.PolicyErr = s.fetchPolicy(runCtx, cfg, creds)
+	}
+	if plan.AfterPolicy != nil {
+		plan.AfterPolicy()
 	}
 
 	client, err := s.newEventClient(cfg, creds)

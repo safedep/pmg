@@ -561,6 +561,7 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 					Events:      events,
 					LockTimeout: cloudSyncTickLockWait,
 					Timeout:     cloudSyncTickTimeout,
+					AfterPolicy: func() { reloadIfCacheMoved(cfg, policy) },
 				})
 				reloadIfCacheMoved(cfg, policy)
 				if err != nil {

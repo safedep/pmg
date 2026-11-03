@@ -249,3 +249,17 @@ func TestRunReportsAClientThatDoesNotStart(t *testing.T) {
 	require.Error(t, res.CheckInErr, "the check-in did not run")
 	assert.Contains(t, res.CheckInErr.Error(), "wal is locked")
 }
+
+func TestRunCallsAfterPolicyBeforeTheCheckIn(t *testing.T) {
+	cfg := newSyncConfig(t)
+	rec := &recorder{}
+
+	_, err := rec.steps(t).run(context.Background(), cfg, Plan{
+		Policy:      StepForce,
+		Events:      StepForce,
+		AfterPolicy: func() { rec.order = append(rec.order, "after-policy") },
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"policy", "after-policy", "events", "check-in"}, rec.order)
+}
