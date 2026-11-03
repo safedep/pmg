@@ -313,9 +313,9 @@ the proxy daemon, so it turns off kernel enforcement. Tune behavior via inputs (
 ### Kernel Enforcement (Linux)
 
 A step can ignore `HTTP_PROXY`. With kernel enforcement, PMG attaches eBPF
-programs that make the Linux kernel route every eligible process through the
-proxy. A step cannot bypass it with `env -i`, `sudo`, or an HTTP client of
-its own. Enforcement needs passwordless `sudo` on the runner host, which
+programs that make the Linux kernel route TCP connections to ports 80 and 443,
+and to the registry ports, through the proxy. On these ports a step cannot
+bypass it with `env -i`, `sudo`, or an HTTP client of its own. Enforcement needs passwordless `sudo` on the runner host, which
 GitHub-hosted Ubuntu runners have. The `enforce` input is `auto` by default.
 The action enforces on a GitHub-hosted runner, and runs the proxy without
 enforcement on a self-hosted runner, in a job container, or without `sudo`.
@@ -384,10 +384,10 @@ rm "$(command -v pmg)"
 
 ## Trust and Security
 
-PMG builds are reproducible and signed.
+PMG publishes build provenance for its release archives and npm packages.
 
 - **Attestations**: GitHub and npm attestations guarantee artifact integrity.
-- **Verification**: You can cryptographically prove the binary matches the source code.
+- **Verification**: You can verify that a release archive was built by the release workflow from a specific commit.
 - See [Trusting PMG](docs/trust.md) for verification steps.
 
 ## User Guide
@@ -396,8 +396,7 @@ PMG builds are reproducible and signed.
 - [Trusted Packages Configuration](docs/trusted-packages.md)
 - [Dependency Cooldown](docs/dependency-cooldown.md)
 - [Caching](docs/caching.md)
-- [Analysis Cache](docs/analysis-cache.md)
-- [Proxy Mode Architecture](docs/proxy-mode.md)
+- [Proxy Mode](docs/proxy-mode.md)
 - [Persistent Proxy Server](docs/persistent-proxy.md)
 - [Kernel Enforcement (Linux)](docs/persistent-proxy.md#kernel-enforcement-linux)
 - [Certificate Authority](docs/cert.md)

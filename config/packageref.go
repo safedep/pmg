@@ -44,8 +44,9 @@ func (r purlRef) allVersions() bool {
 
 // packageIdentity folds a package version for a local comparison. crates.io
 // names are case-insensitive and the cargo interceptor sends them in lower
-// case. dry has no Cargo rule, so pmg keeps its own lower-case fold, and a
-// canonical-case PURL (pkg:cargo/Inflector) still matches.
+// case. dry's Cargo rule folds case and treats - and _ as the same, so a
+// canonical-case PURL (pkg:cargo/Inflector) matches. The lower-case fold here
+// predates that rule.
 func packageIdentity(ecosystem packagev1.Ecosystem, name, version string) pb.PackageVersion {
 	if ecosystem == packagev1.Ecosystem_ECOSYSTEM_CARGO {
 		name = strings.ToLower(name)

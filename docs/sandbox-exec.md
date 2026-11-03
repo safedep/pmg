@@ -1,8 +1,11 @@
 # Sandbox Exec
 
-`pmg sandbox exec` runs any program inside the PMG sandbox. The program keeps its own stdin,
-stdout, stderr and exit code. PMG blocks credential files, scrubs credential environment
-variables, protects agent hook configuration and contains writes to the repository.
+`pmg sandbox exec` runs any program inside the PMG sandbox. The program keeps its own exit code.
+On the Landlock driver, a program that a signal kills makes pmg exit with code 255.
+A signal that also reaches pmg, such as Ctrl+C without a PTY, stops pmg itself.
+PMG runs the program in a PTY when stdin and stdout are a terminal, PMG runs in the foreground, and `CI` is not `true`.
+Its stderr then reaches the terminal on the stdout stream, so `2>` does not capture it.
+PMG applies credential denies, environment scrubbing, and write restrictions with the limits below.
 
 > `pmg sandbox exec` is experimental. SafeDep improves and hardens it actively, so its behavior
 > and defaults can change between releases.
@@ -25,22 +28,44 @@ The built-in `exec` profile is deliberately broad on read and exec. A coding age
 toolchain and runs whatever the repository needs, so a narrow allow list only produces false
 denials. The value is in the deny rules:
 
-- Credential files are denied for read and write, anywhere in the repository and the home
-  directory. The mandatory deny list in the sandbox source names them.
-- `git add` and `git commit` work. Git hooks and the repository config are read-only.
+- The mandatory credential list covers `.env`, `.ssh`, `.aws`, and the other [listed paths, with their driver limits](sandbox.md#mandatory-credential-protection).
+  Other token files, including `~/.npmrc`, `~/.pypirc`, and `~/.cargo/credentials.toml`, remain readable unless a child profile denies them.
+- Unsigned `git add` and `git commit` can work.
+  `.git/hooks` is denied for read and write, so Git cannot execute those hooks inside the sandbox.
+  `.git/config` is read-only.
+  Submodule hooks and config under `.git/modules` stay writable.
+  A `core.hooksPath` inside the writable checkout stays writable.
+  A planted hook can run on a later unsandboxed commit.
+  GPG and SSH signed commits fail when their credential directories or agent sockets are blocked.
 - Credential environment variables are scrubbed, model API keys included.
 - Writes land only in the repository, temp directories, tool caches and the state directories the
-  presets add. System directories are read-only.
-- Agent hook configuration is read-only. A hook runs an arbitrary command on every tool call, so a
-  write there is code execution and a way to unhook an agent security layer such as
-  [Gryph](https://github.com/safedep/gryph).
+  presets add, plus the Gryph event database. System directories are read-only.
+- The user hook files that `pmg sandbox profile show exec` lists have write denies.
+  Claude Code's project settings and hooks also have denies.
+  Other project hook files remain writable under the checkout grant.
+  Examples include `.cursor/hooks.json`, `.codex/hooks.json`, and `.codex/config.toml`.
+  The Codex preset also leaves `~/.codex/config.toml` writable, including inline hooks.
+  The Claude preset leaves `~/.claude.json` writable. The MCP server entries in that file run commands on the next Claude Code start.
+  The preset also leaves `~/.claude/plugins` writable. An installed plugin can carry hooks.
+  A hook write can install future command execution or disable a security layer such as [Gryph](https://github.com/safedep/gryph).
 
-Every outbound connection goes through a PMG proxy, and the `exec` profile allows every
-destination, because an agent needs its model API and the registries of every tool it runs. A
-child profile or the network flags narrow it. See [Network](#network).
+PMG routes proxy-aware clients through its proxy.
+The `exec` profile allows every proxy destination so an agent can reach model APIs and package registries.
+A child profile or the network flags can narrow these proxy rules.
+Direct network restrictions have limits, including open loopback connections.
+See [Network](#network).
 
 Unix sockets are blocked. An agent cannot reach the SSH agent or the Docker daemon, so `git push`
-over SSH fails. Use an HTTPS remote, or a custom profile that sets `allow_unix_sockets: true`. See
+over SSH fails.
+Use an HTTPS remote with a credential source the sandbox permits.
+The macOS keychain helper can supply stored credentials.
+The sandbox blocks common credential files and gh state on every platform.
+It also blocks the git credential-cache socket.
+On Linux, it also blocks the libsecret socket.
+PMG scrubs `GH_TOKEN` and `GITHUB_TOKEN`.
+Enabling Unix sockets alone does not fix SSH because direct TCP and SSH files remain blocked.
+It can expose services such as Docker.
+See
 [Unix Sockets](sandbox.md#unix-sockets).
 
 Show the full profile with `pmg sandbox profile show exec`.
@@ -48,8 +73,10 @@ Show the full profile with `pmg sandbox profile show exec`.
 ## Agent presets
 
 A preset adds the footprint of one agent: its state directory, its own API key and the hosts it
-reaches. Deny rules win over a preset allow, so the hook configuration stays read-only. The
-catch-all deny `*:*` is the one exception. A preset host rule beats it.
+reaches.
+Read the [preset precedence limits](sandbox-presets.md).
+Preset network rules can beat a catch-all deny and some partially overlapping port-specific denies.
+Hook protection is limited to the explicit paths above.
 
 The presets are `claude`, `codex` and `pi`. Each one grants the agent's state directory,
 re-allows the agent's own API key, and allows the agent's own hosts: its model API, its sign-in,
@@ -59,13 +86,19 @@ profile that denies `*:*`, which `pmg sandbox profile propose` writes. The prese
 agent's hosts. The profile keeps the hosts the repository needs. Read a preset with
 `pmg sandbox preset show claude`.
 
-Apply a preset for one run, or save it for the current repository:
+Apply a preset for one run, or save it for the current repository.
+Save it only when you accept those allowances for every later sandboxed workload, including package install scripts.
 
 ```bash
 pmg sandbox exec --sandbox-allow preset=claude -- claude
 pmg sandbox allow preset=claude && pmg sandbox exec -- claude
-pmg sandbox exec --sandbox-profile agent.yml --network-mode enforce --sandbox-allow preset=claude -- claude
+pmg sandbox exec --sandbox-profile agent --network-mode enforce --sandbox-allow preset=claude -- claude
 ```
+
+Use `pmg sandbox project reset` to remove saved allowances.
+To customize a preset, give the copy a new name under `<config-dir>/sandbox/presets/` and use `preset=<new-name>`.
+A same-name copy is shadowed by the built-in.
+See [preset authoring](sandbox-presets.md#creating-your-own-preset).
 
 Each preset file states the residual risk of each allowance. Read it with
 `pmg sandbox preset show claude`. The accepted trade-off is the same as `NPM_TOKEN` in the npm
@@ -75,18 +108,42 @@ not need the key at all.
 ## When something is denied
 
 The program sees a plain permission error. Run `pmg sandbox explain --last` after the run to see
-what was denied and the `pmg sandbox allow` command that opts out of it. Saved allowances live in
+what was recorded and a suggested allowance command.
+Review that suggestion before applying it. Saved allowances live in
 the per-repository overlay. See [sandbox.md](./sandbox.md#project-overlays).
 
 A tool that must edit its own settings file while sandboxed needs an exact-match opt-out:
 
 ```bash
-pmg sandbox allow write=$HOME/.claude/settings.json
+pmg sandbox exec --sandbox-allow "write=$HOME/.claude/settings.json" -- claude
 ```
+
+The saved form, `pmg sandbox allow write=...`, permits every later sandboxed workload here to rewrite the agent's hooks.
+It does not require `--force` for this settings file.
+Prefer the one-run opt-out.
+
+The exec cache grants can include PMG's violation JSON and persistent analysis database.
+A sandboxed process can forge reports or alter later cached verdicts when disk analysis caching is enabled.
+`pmg setup cache clear` clears disk analysis verdicts in the current identity's cache.
+Clearing verdicts does not authenticate violation reports or stop a live writer.
+See [Manage](caching.md#manage).
+
+Default PMG configuration and sandbox directories have explicit write denies.
+These denies do not follow `PMG_CONFIG_DIR` or, on Linux, `XDG_CONFIG_HOME`.
+Keep relocated policy state outside all writable grants, or add explicit write denies for it.
+A config directory under the checkout or temp grant can let the child change later profiles and overlays.
 
 ## Custom profiles
 
-A custom profile must list the `exec` workload:
+A custom profile must apply to `exec` through inheritance or `package_managers`.
+Create a discoverable user profile before running it.
+
+```sh
+pmg sandbox profile init exec-tight --from exec --package-manager exec
+```
+
+Edit `<config-dir>/sandbox/profiles/exec-tight.yml` to add the following rules.
+The default exec denies protect that user profile directory.
 
 ```yaml
 name: exec-tight
@@ -112,9 +169,15 @@ sandbox:
       profile: exec-tight
 ```
 
-`pmg sandbox exec` fails when the exec policy is missing or disabled. It never runs a program
+`pmg sandbox exec` fails when the exec policy is missing or disabled unless `--sandbox-profile` selects a profile. It never runs a program
 without a sandbox. It turns the sandbox on for the run even when `sandbox.enabled` is false in the
 config file.
+
+Under [managed lockdown](config.md#lockdown), user presets and overlays do not apply.
+PMG refuses runtime profile and sandbox-allow overrides and saved allowance commands.
+An administrator must create the profile file and map `sandbox.policies.exec` to it.
+The value can be a `sandbox.policy_templates` name, an absolute path, or a path next to the global config file.
+A template value is a file path, not inline profile YAML.
 
 ## Network
 
@@ -125,14 +188,22 @@ terminate TLS. It reads no traffic. It decides each destination by host and port
 
 The program gets the proxy through `HTTP_PROXY`, `HTTPS_PROXY`, their lower-case forms and
 `NODE_USE_ENV_PROXY=1`. The `exec` profile also sets `network_via_proxy_only`, so the sandbox
-driver refuses every outbound connection that does not go to the proxy. A program that ignores
-the proxy variables fails to connect instead of going around the policy. That is every client
-that does not speak HTTP through a proxy: database clients such as `psql` and `mysql`, `ssh` and
-git over ssh, raw TCP tools such as `nc`, and any program that resolves a name itself, because
-direct DNS is refused too. Before this key, every outbound connection worked under `exec`. A
-child profile that sets `network_via_proxy_only: false` restores that, with the proxy by
-environment only. Loopback stays open, so a dev server the agent starts is reachable without the
-proxy.
+driver restricts direct outbound connections.
+Clients that ignore the proxy generally fail on their direct remote connection.
+Examples include database clients such as `psql` and `mysql`, `ssh` and git over ssh,
+and raw TCP tools such as `nc`.
+Loopback remains open because the profile enables `allow_network_bind`.
+Remote direct DNS is refused, but a loopback resolver such as `127.0.0.53:53` can still answer and forward queries off-host.
+This remains a DNS exfiltration path.
+On Linux, the Landlock driver's supervisor does not trap `sendmmsg`, which can send UDP to any host or open a TCP connection with Fast Open.
+A racing thread can also change a destination after the check.
+See [network lockdown gaps](sandbox-landlock.md#network-lockdown-gaps).
+
+Node's built-in environment proxy support depends on the release line.
+For built-in `fetch`, use Node 22.21+ in the 22 line or Node 24.0+.
+For `node:http` and `node:https`, use Node 22.21+ in the 22 line or Node 24.5+.
+Other clients can use their own proxy implementation independently.
+See [Node network configuration](https://nodejs.org/learn/http/enterprise-network-configuration).
 
 ```bash
 pmg sandbox exec --network-mode enforce --network-deny '*:*' \
@@ -147,7 +218,7 @@ pmg sandbox exec --network-mode enforce --network-deny '*:*' \
 
 The rule flags add one `host:port` rule each to the resolved profile. `--network-allow` also
 removes an equal deny rule. The matcher treats a flag rule like a profile rule, so the more
-specific rule wins. A preset rule that a flag deny covers is dropped, and a saved allow does not
+specific rule wins. A runtime or saved preset rule that a flag deny other than `*:*` covers is dropped, and a saved allow does not
 remove a flag deny. Under `audit`, the default, the proxy records a match on a deny rule
 and lets the connection through. Under `enforce` the proxy refuses the connection with a 403 that
 names the destination and the rule. Under `global_lockdown`, pmg refuses `--network-allow`,
@@ -164,37 +235,41 @@ row each. Stdout holds only the program's output:
 ```
 
 Under `--verbose` the report also names the one-run override, `--sandbox-allow
-net-connect=<host>:<port>`, and every run ends with one dim line that counts the observed
-destinations and names the proposal command:
+net-connect=<host>:<port>`, and a run with an observed destination and event-log run ID ends with a dim proposal line.
 
 ```text
   Network: 4 destination(s) observed. Propose a profile with: pmg sandbox profile propose --run 3f9c2a1b7d4e
 ```
 
-Every run writes a `network_observation` event, so a run in `audit` builds the allow list. Run
-the agent once, then `pmg sandbox profile propose --last --new agent.yml`. The profile inherits
+A run that observes a destination writes a `network_observation` event when event logging is enabled.
+Run the agent once, then `pmg sandbox profile propose --last --new agent`.
+The bare name writes into the user profile directory.
+A path such as `agent.yml` writes into the checkout, where the sandboxed program can edit it and weaken its next run. The profile inherits
 `exec`, has one allow rule per destination, `deny_ip_literals: true` and the catch-all deny. Run
-the agent under it with `--sandbox-profile agent.yml --network-mode enforce`. A refused
+the agent under it with `--sandbox-profile agent --network-mode enforce`. A refused
 destination shows in `pmg sandbox explain --last`, and `pmg sandbox allow net-connect=<host>:<port>`
 keeps it for the repository.
 
 ### How the policy reaches the program
 
 Landlock and Seatbelt apply `network_via_proxy_only`. Bubblewrap does not, and refuses the `exec`
-profile, so `pmg sandbox exec` needs one of the other two drivers. `pmg sandbox doctor` says
-which in the `Exec network path` row.
+profile.
+For Bubblewrap, create a child profile with `network_via_proxy_only: false`.
+That workaround loses direct outbound confinement. `pmg sandbox doctor` shows in its
+`Exec network path` row whether the selected driver can run the `exec` profile.
 
 The `exec` profile sets `allow_network_bind`, so the drivers keep loopback open and `NO_PROXY`
-sends it around the proxy. A local service the program reaches is outside the policy. Direct DNS
-is refused under confinement. A client behind a proxy does not resolve names itself, so this is
-invisible to an HTTP client. A tool that resolves a name and then connects direct fails on the
-resolve.
+sends it around the proxy.
+Local services are outside the proxy network policy.
+A local resolver can also forward DNS queries off-host.
+A tool that resolves locally and then connects remotely can fail at the connect instead of the lookup.
 
 A child profile may set `network_via_proxy_only: false`. The program then gets the proxy by
 environment only, a program that ignores the variables goes around the policy, and the report
 under `enforce` says so.
 
-A proxy connection has a wall-clock limit of 24 hours. A long agent session keeps its model API
+A plain HTTP request through the proxy has a limit of 24 hours. A CONNECT tunnel has no time
+limit. A long agent session keeps its model API
 connection. A program that pins the model API by address needs an exact address rule when the
 profile sets `deny_ip_literals`.
 
@@ -202,7 +277,9 @@ profile sets `deny_ip_literals`.
 
 PMG strips its own shim directories from the child's `PATH`. An `npm install` the agent runs
 inside `pmg sandbox exec` reaches the real npm, not the PMG proxy. Malware analysis and dependency
-cooldown do not apply to it. The sandbox still applies.
+cooldown do not apply on that direct path. The sandbox still applies.
+PMG does not remove shell aliases installed by setup.
+A child shell that loads those aliases can still resolve npm to `pmg npm` inside the sandbox.
 
 A future version may keep the shim on `PATH` and instead disable the PMG-in-PMG guard with an
 environment variable, so an `npm install` inside `pmg sandbox exec` keeps malware analysis and
@@ -225,10 +302,17 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
 
 - Windows is not supported. The sandbox drivers are macOS Seatbelt and Linux Landlock or
   Bubblewrap. On Linux, only amd64 and arm64 are supported.
-- Under Bubblewrap, a script without a `#!` line fails with "exec format error". Add a `#!`
+- On Linux, Landlock and Bubblewrap both use raw execution, so a script without a `#!` line fails with "exec format error". Add a `#!`
   line, or run it with its interpreter, as in `pmg sandbox exec -- sh ./script`.
 - Bubblewrap cannot confine outbound connections to the proxy, so it refuses the `exec`
-  profile. See [How the policy reaches the program](#how-the-policy-reaches-the-program).
+  profile. Use a child with `network_via_proxy_only: false`.
+  The Bubblewrap path limits below apply to that workaround. See [How the policy reaches the program](#how-the-policy-reaches-the-program).
+- On Landlock, when a non-root user runs pmg, the supervisor cannot read the memory of a
+  non-dumpable process. The supervisor then denies the trapped exec and file syscalls of that
+  process. Under network lockdown, it also denies `connect`, `sendmsg`, and a `sendto` that names a
+  destination. ssh-agent makes itself non-dumpable. Bubblewrap does not read
+  process memory. To use Bubblewrap, set `PMG_SANDBOX_DRIVER=bubblewrap` and use a child profile
+  with `network_via_proxy_only: false`. That child loses direct outbound confinement.
 - `git worktree add` and `git worktree remove` are not supported yet. A new worktree lands
   outside the working directory, which the profile does not grant. This is future work.
 - The exec profile grants exec access under `${HOME}`. `pmg sandbox profile lint exec` reports
@@ -237,7 +321,8 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
   inode. Landlock and Bubblewrap check names, so a read through that name succeeds. A hard link
   made inside the sandbox is refused.
 - Bubblewrap works with mounts, so it denies only paths it can name. It hides credential files
-  in the repository up to three levels deep. Landlock and Seatbelt deny them at any depth. A
+  in the repository up to three levels deep.
+  Landlock and Seatbelt have different [recursive deny limits](sandbox.md#mandatory-credential-protection). A
   denied file that does not exist yet, such as `~/.codex/hooks.json` before Codex creates it,
   can be created under Bubblewrap when its parent is writable. A denied directory that does
   not exist yet, such as `~/.claude/hooks`, gets an empty read-only placeholder that stays on
