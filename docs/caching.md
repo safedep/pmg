@@ -1,8 +1,13 @@
 # Caching
 
-PMG can cache package analysis results across runs to reduce repeat-install
-latency. Persistent caching is opt-in and disabled by default.
-Every proxy also has an in-memory cache for its own lifetime.
+PMG analyzes package artifacts that a package manager downloads through its proxy.
+An install served entirely from the package manager's local cache triggers no analysis.
+Trusted packages also skip analysis. See [Proxy Mode](proxy-mode.md).
+
+PMG keeps analysis results in memory for one command.
+The persistent proxy keeps them for the lifetime of the daemon.
+The optional disk cache reuses benign verdicts across processes.
+The disk cache is opt-in and disabled by default.
 
 ## Storage
 
@@ -37,9 +42,13 @@ Only benign verdicts are cached on disk, and each entry expires after a TTL.
 PMG never persists malicious, suspicious, or tenant-excluded verdicts.
 A disk-cache hit skips the backend query for that package version.
 If the backend flags it later, PMG can allow the old cached verdict until it expires.
-See [Analysis Cache](analysis-cache.md#security-trade-off) for this trade-off.
+Keep the cache off or choose a short TTL when fresh verdicts matter most.
 
+The cache is independent of dependency cooldown.
+Cooldown decides which versions are eligible to install.
+The cache remembers verdicts for versions that PMG already analyzed.
 A short TTL limits reuse from disk. Keep it below `dependency_cooldown.days`.
+The defaults are `24h` and 2 days.
 This is guidance, not a guarantee of fresh analysis when cooldown ends.
 For npm and PyPI, lockfile and direct-artifact installs can bypass metadata cooldown.
 Go and Cargo also check cooldown on downloaded artifacts before the cache lookup.

@@ -396,7 +396,6 @@ PMG builds are reproducible and signed.
 - [Trusted Packages Configuration](docs/trusted-packages.md)
 - [Dependency Cooldown](docs/dependency-cooldown.md)
 - [Caching](docs/caching.md)
-- [Analysis Cache](docs/analysis-cache.md)
 - [Proxy Mode Architecture](docs/proxy-mode.md)
 - [Persistent Proxy Server](docs/persistent-proxy.md)
 - [Kernel Enforcement (Linux)](docs/persistent-proxy.md#kernel-enforcement-linux)
