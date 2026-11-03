@@ -905,7 +905,11 @@ func loadConfig() error {
 	// The defaults do not hold the policy of a managed config. Report it as
 	// ignored, so each command warns and pmg setup doctor fails.
 	if globalConfig.IsManaged() {
-		globalConfig.managedConfigErr = invalidManagedConfigError(globalConfig.ConfigFilePath(), err)
+		path := globalConfig.ConfigFilePath()
+		globalConfig.managedConfigErr = invalidManagedConfigError(path, err)
+		if errors.Is(err, fs.ErrPermission) {
+			globalConfig.managedConfigErr = unreadableManagedConfigError(path, err)
+		}
 	}
 	log.Warnf("Failed to load config, using defaults: %v", err)
 	return nil

@@ -51,13 +51,18 @@ func TestCheckManagedConfigResult(t *testing.T) {
 		wantStatus doctor.CheckStatus
 		wantText   string
 		wantFix    string
+		skipAsRoot bool
 	}{
 		{name: "only the system account can change it", fileMode: 0o644, wantStatus: doctor.StatusPass, wantText: "Only the system account can change the managed config"},
 		{name: "the group may write it", fileMode: 0o664, wantStatus: doctor.StatusFail, wantText: "config.yml lets its group write it", wantFix: "sudo chmod go-w"},
 		{name: "the YAML does not load", content: "global_lockdown: [true\n", fileMode: 0o644, wantStatus: doctor.StatusFail, wantText: "Managed config ignored: failed to read config file", wantFix: "Fix the YAML"},
+		{name: "the account cannot read it", fileMode: 0o000, wantStatus: doctor.StatusFail, wantText: "permission denied", wantFix: "Let every account read", skipAsRoot: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.skipAsRoot && os.Geteuid() == 0 {
+				t.Skip("root reads a file with no read bits")
+			}
 			dir := filepath.Join(t.TempDir(), "safedep", "pmg")
 			require.NoError(t, os.MkdirAll(dir, 0o755))
 			require.NoError(t, os.Chmod(filepath.Dir(dir), 0o755))
