@@ -88,8 +88,6 @@ func BenchmarkLoad(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		st := Load(cfg, testTenant)
-		if st.BlockEntries+st.TrustEntries != loadTimeRules {
-			b.Fatalf("loaded %d rules, want %d", st.BlockEntries+st.TrustEntries, loadTimeRules)
-		}
+		require.Equal(b, loadTimeRules, st.BlockEntries+st.TrustEntries)
 	}
 }
