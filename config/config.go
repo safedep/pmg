@@ -902,6 +902,11 @@ func loadConfig() error {
 		return NewInvalidNetworkModeError(modeErr)
 	}
 
+	// The defaults do not hold the policy of a managed config. Report it as
+	// ignored, so each command warns and pmg setup doctor fails.
+	if globalConfig.IsManaged() {
+		globalConfig.managedConfigErr = invalidManagedConfigError(globalConfig.ConfigFilePath(), err)
+	}
 	log.Warnf("Failed to load config, using defaults: %v", err)
 	return nil
 }
@@ -1215,6 +1220,14 @@ func untrustedManagedConfigError(path string, err error) error {
 // unreadableManagedConfigError tells the user that this account cannot read
 // the managed config. Another account may still control it, so the fix is
 // read access, not a change of owner.
+func invalidManagedConfigError(path string, err error) error {
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.InvalidArgument).
+		WithHumanError(fmt.Sprintf("PMG cannot load the managed config %s, so it uses the defaults", path)).
+		WithHelp(fmt.Sprintf("Fix the YAML in '%s', then run pmg setup doctor again", path)).
+		Wrap(err)
+}
+
 func unreadableManagedConfigError(path string, err error) error {
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.PermissionDenied).
