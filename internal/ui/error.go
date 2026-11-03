@@ -34,7 +34,7 @@ func ErrorExitWithCode(err error, code int) {
 		printMinimalError(usefulErr.Code(), usefulErr.HumanError(), hint)
 	}
 
-	os.Exit(code)
+	exit(code)
 }
 
 // Error output goes to stderr so the wrapped package manager's stdout passes

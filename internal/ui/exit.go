@@ -72,7 +72,7 @@ func ExitFromCommandError(err error) {
 		if d.notice {
 			fmt.Fprintln(os.Stderr, Colors.Dim(d.message))
 		}
-		os.Exit(d.code)
+		exit(d.code)
 	}
 
 	var ec exitCoder

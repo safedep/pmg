@@ -68,7 +68,7 @@ func BlockNoExit(config *BlockConfig) error {
 	return blockWithExit(config, false)
 }
 
-func blockWithExit(config *BlockConfig, exit bool) error {
+func blockWithExit(config *BlockConfig, exitAfter bool) error {
 	StopSpinner()
 
 	// We show the block message only in normal mode to avoid repeating information
@@ -83,8 +83,8 @@ func blockWithExit(config *BlockConfig, exit bool) error {
 		}
 	}
 
-	if exit {
-		os.Exit(1)
+	if exitAfter {
+		exit(1)
 	}
 
 	return nil
@@ -190,7 +190,7 @@ func Fatalf(msg string, args ...interface{}) {
 	ClearStatus()
 
 	fmt.Fprintln(os.Stderr, Colors.Red(fmt.Sprintf(msg, args...)))
-	os.Exit(1)
+	exit(1)
 }
 
 func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalysisResult) {
