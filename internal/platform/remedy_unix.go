@@ -19,6 +19,10 @@ func systemControlRemedy(path string) string {
 		"For the path that the error names, run `sudo chown root <path>` and `sudo chmod go-w <path>`", ShellQuote(path))
 }
 
+func readAccessRemedy(path string) string {
+	return fmt.Sprintf("Let every account read '%s' and search each directory above it, for example: chmod go+r on the file and chmod go+x on each directory", path)
+}
+
 func leakedConfigDirRemedy(dir string) (help, fix string) {
 	return fmt.Sprintf(
 			"pmg resolved its config directory to %s, outside your home: HOME or XDG_CONFIG_HOME leaked from another account (e.g. sudo -u). Fix the environment, e.g. export XDG_CONFIG_HOME=\"$HOME/.config\"",

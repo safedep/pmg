@@ -308,6 +308,7 @@ Environment variables and CLI flags cannot change this switch.
 If a trusted path's file is unreadable or its YAML cannot be parsed, PMG treats it as locked
 and uses the compiled-in fallback. A file that parses but cannot decode uses the compiled-in fallback and retains only the
 lockdown state that the YAML boolean selected.
+In these cases each command prints a warning, and `pmg setup doctor` fails with the reason.
 A path that fails the ownership or reachability check is ignored instead, as described above.
 Invalid decoded registries and network modes fail closed.
 `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` can relocate user state but cannot replace a managed file.

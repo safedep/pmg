@@ -10,6 +10,10 @@ func OwnershipRestoreRemedy(dir string) (help, command string) { return ownershi
 // the system install, which sets the PMG security descriptor.
 func SystemControlRemedy(path string) string { return systemControlRemedy(path) }
 
+// ReadAccessRemedy returns help text for a managed file at path that the
+// account cannot read. Unix names chmod. Windows names icacls.
+func ReadAccessRemedy(path string) string { return readAccessRemedy(path) }
+
 // LeakedConfigDirRemedy returns help text and a one-line fix for a config
 // directory that resolved outside the user's home because an environment
 // variable leaked from another account. Unix names XDG_CONFIG_HOME. Windows

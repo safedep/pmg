@@ -4,9 +4,11 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/platform/platformtest"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // platformRemedy returns the command and the variable the remedy names on
@@ -98,4 +100,21 @@ func TestCurrentUserHomeDirRejectsEmptyPasswdHome(t *testing.T) {
 		return
 	}
 	assert.NotEmpty(t, home)
+}
+
+func TestManagedConfigLoadRemedies(t *testing.T) {
+	path := "/etc/safedep/pmg/config.yml"
+
+	invalid, ok := usefulerror.AsUsefulError(invalidManagedConfigError(path, assert.AnError))
+	require.True(t, ok)
+	assert.Contains(t, invalid.Help(), "Fix the YAML")
+	assert.Contains(t, invalid.Help(), "PMG_* environment variable")
+
+	unreadable, ok := usefulerror.AsUsefulError(unreadableManagedConfigError(path, assert.AnError))
+	require.True(t, ok)
+	readCommand := "chmod go+r"
+	if runtime.GOOS == "windows" {
+		readCommand = "icacls"
+	}
+	assert.Contains(t, unreadable.Help(), readCommand)
 }
