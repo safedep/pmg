@@ -3,8 +3,16 @@ package proxye2e
 import (
 	"testing"
 
+	specv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/spec/v1"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/cloudpolicy"
+	"github.com/safedep/pmg/internal/cloudpolicy/cloudpolicytest"
+	"github.com/stretchr/testify/require"
 )
+
+// policyEndpointID is the endpoint id of a case with a cloud policy. The
+// cache header names the machine id that pmg derives from it.
+const policyEndpointID = "proxye2e-endpoint"
 
 // TestCase is one end-to-end scenario. Config mutates the global PMG config for
 // the case; Setup registers fixtures and verdicts; Exec drives traffic; Assert
@@ -16,9 +24,16 @@ type TestCase struct {
 	// the transparent listener a redirected client needs.
 	Options []Option
 	Config  func(rc *config.RuntimeConfig)
-	Setup   func(h *Harness)
-	Exec    func(h *Harness) ExecResult
-	Assert  func(t *testing.T, h *Harness, result ExecResult)
+
+	// Policy is the resolved policy of the tenant, with no header. The runner
+	// writes it as the policy cache and loads it through the real loader of
+	// cloudpolicy, with cloud.enabled and cloud.policy on. Config runs after,
+	// so a case can turn cloud.policy off again.
+	Policy *specv1.ResolvedPolicy
+
+	Setup  func(h *Harness)
+	Exec   func(h *Harness) ExecResult
+	Assert func(t *testing.T, h *Harness, result ExecResult)
 }
 
 // RunCases runs each case serially. Serial execution is required because the
@@ -27,9 +42,14 @@ type TestCase struct {
 func RunCases(t *testing.T, cases []TestCase) {
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			applyConfig(t, tc.Config)
+			opts := []Option{WithPinnedVersions(tc.PinnedVersions)}
+			if tc.Policy != nil {
+				opts = append(opts, WithPolicy(loadPolicy(t, tc.Policy, tc.Config)))
+			} else {
+				applyConfig(t, tc.Config)
+			}
 
-			h := New(t, append([]Option{WithPinnedVersions(tc.PinnedVersions)}, tc.Options...)...)
+			h := New(t, append(opts, tc.Options...)...)
 			defer h.Close()
 
 			if tc.Setup != nil {
@@ -48,6 +68,42 @@ func RunCases(t *testing.T, cases []TestCase) {
 	}
 }
 
+// loadPolicy gives the case a config folder of its own, writes policy as its
+// policy cache, and loads it as the root command of pmg does.
+func loadPolicy(t *testing.T, policy *specv1.ResolvedPolicy, override func(rc *config.RuntimeConfig)) cloudpolicy.Source {
+	t.Helper()
+
+	// Cleanups run last in first out: the config reloads after the
+	// environment is back.
+	t.Cleanup(config.Reload)
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	config.Reload()
+
+	applyConfig(t, func(rc *config.RuntimeConfig) {
+		rc.Config.Cloud.Enabled = true
+		rc.Config.Cloud.Policy = true
+		rc.Config.Cloud.EndpointID = policyEndpointID
+		if override != nil {
+			override(rc)
+		}
+	})
+
+	cfg := config.Get()
+	machineID, err := cloudpolicytest.MachineID(policyEndpointID)
+	require.NoError(t, err)
+	require.NoError(t, cloudpolicytest.Write(cfg.CloudPolicyCacheDir(), policy, cloudpolicytest.Header{
+		Tenant:                "proxye2e.acme.safedep.io",
+		MachineID:             machineID,
+		Revision:              48,
+		DefaultPolicyRevision: 12,
+	}))
+
+	rt := &cloudpolicy.Runtime{}
+	rt.LoadAtStartForTenant(cfg, "")
+	rt.Publish(cfg)
+	return rt
+}
+
 // applyConfig resets the security-relevant config fields to a known hermetic
 // baseline, applies the case override, then restores the original on cleanup so
 // a developer's on-disk config never leaks into a case.
@@ -64,6 +120,9 @@ func applyConfig(t *testing.T, override func(rc *config.RuntimeConfig)) {
 	rc.Config.DependencyCooldown = config.DependencyCooldownConfig{}
 	rc.Config.AdvisoryMessage = ""
 	rc.Config.Proxy.Registries = nil
+	rc.Config.BlockedPackages = nil
+	rc.Config.Cloud.Enabled = false
+	rc.Config.Cloud.Policy = false
 
 	if override != nil {
 		override(rc)

@@ -17,6 +17,8 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/internal/models"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy"
@@ -35,6 +37,7 @@ type Harness struct {
 	Registry *Registry
 	Analyzer *AnalyzerRecorder
 	Confirm  *ConfirmController
+	Audit    *AuditRecorder
 
 	stats    *interceptors.AnalysisStatsCollector
 	proxy    proxy.ProxyServer
@@ -59,6 +62,7 @@ type options struct {
 	network        *netpolicy.Policy
 	networkEnforce bool
 	noInterceptors bool
+	policy         cloudpolicy.Source
 }
 
 type Option func(*options)
@@ -89,6 +93,12 @@ func WithTransparent(resolver proxy.OriginalDestinationResolver) Option {
 // listens for containers.
 func WithRedirectOnlyListener(ip string) Option {
 	return func(o *options) { o.redirectOnlyIP = ip }
+}
+
+// WithPolicy gives the interceptors a policy source, as the proxy flow gives
+// them the policy of the process.
+func WithPolicy(src cloudpolicy.Source) Option {
+	return func(o *options) { o.policy = src }
 }
 
 // WithoutInterceptors builds the exec proxy. See flows.NetworkProxy.
@@ -163,6 +173,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 			// The cargo interceptor's out-of-band publish-time fetches go to
 			// the plain-HTTP mock index instead of the real registries.
 			CargoUpstreamOrigin: registry.cargoBaseURL(),
+			Policy:              o.policy,
 		},
 		config.Get().Config.Proxy.Registries,
 	)
@@ -176,11 +187,15 @@ func New(t *testing.T, opts ...Option) *Harness {
 	)
 	require.NoError(t, err)
 
+	auditRec := &AuditRecorder{}
+	t.Cleanup(audit.UseSinksForTest(auditRec))
+
 	h := &Harness{
 		t:        t,
 		Registry: registry,
 		Analyzer: rec,
 		Confirm:  confirm,
+		Audit:    auditRec,
 		stats:    stats,
 		confChan: confChan,
 	}
@@ -274,6 +289,8 @@ func (h *Harness) BlockedPackages() []*analyzer.PackageVersionAnalysisResult {
 }
 
 func (h *Harness) CooldownBlocks() []models.CooldownBlock { return h.stats.GetCooldownBlocks() }
+
+func (h *Harness) RuleBlocks() []*proxy.BlockContext { return h.stats.GetRuleBlocks() }
 
 func (h *Harness) CooldownWithheld() []models.CooldownWithheld {
 	return h.stats.GetCooldownWithheld()
