@@ -230,3 +230,22 @@ type staticIdentity struct{}
 func (staticIdentity) Resolve() (*controltowerv1.EndpointIdentity, error) {
 	return controltowerv1.EndpointIdentity_builder{Identifier: "test", MachineId: "test"}.Build(), nil
 }
+
+func TestRunReportsAClientThatDoesNotStart(t *testing.T) {
+	cfg := newSyncConfig(t)
+	cfg.Config.Cloud.AutoSync.Enabled = false
+	rec := &recorder{}
+	s := rec.steps(t)
+	s.newEventClient = func(*config.RuntimeConfig, *cloud.Credentials) (eventClient, error) {
+		return nil, errors.New("wal is locked")
+	}
+
+	res, err := s.run(context.Background(), cfg, Plan{Policy: StepForce, Events: StepDue})
+
+	require.NoError(t, err)
+	assert.True(t, res.PolicyRan)
+	assert.NoError(t, res.PolicyErr)
+	assert.False(t, res.EventsRan)
+	require.Error(t, res.CheckInErr, "the check-in did not run")
+	assert.Contains(t, res.CheckInErr.Error(), "wal is locked")
+}

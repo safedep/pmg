@@ -66,7 +66,8 @@ type Result struct {
 	Synced    int
 	EventsErr error
 
-	// CheckInErr is the error of the check-in.
+	// CheckInErr is the error of the check-in, or the error that kept pmg
+	// from sending it.
 	CheckInErr error
 }
 
@@ -173,11 +174,14 @@ func (s steps) run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*
 
 	client, err := s.newEventClient(cfg, creds)
 	if err != nil {
+		err = fmt.Errorf("init cloud sync client: %w", err)
+		log.Warnf("cloud sync: %v", err)
 		if runEvents {
 			recordEventAttempt(cfg)
 			res.EventsRan = true
-			res.EventsErr = fmt.Errorf("init cloud sync client: %w", err)
+			res.EventsErr = err
 		}
+		res.CheckInErr = err
 		return res, nil
 	}
 	defer func() {
