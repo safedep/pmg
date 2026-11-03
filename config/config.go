@@ -141,16 +141,14 @@ type AnalysisCacheConfig struct {
 // MalysisCacheConfig configures a persistent, cross-run cache of package
 // malware-analysis verdicts produced by the Malysis analyzer.
 //
-// By default PMG keeps an in-memory analysis cache that lives only for the
-// duration of a single invocation, so every install re-screens the whole
-// resolved graph against the analysis backend. When Enabled, clean (ALLOW)
-// verdicts are additionally persisted on disk and reused across runs, which
-// makes repeat installs of an unchanged graph fast.
+// By default PMG keeps an in-memory analysis cache for one command. The
+// persistent proxy keeps it until the daemon stops, with no TTL. When Enabled,
+// clean (ALLOW) verdicts are also persisted on disk and reused across runs.
 //
 // Security trade-off: a version that was clean when first screened but is later
 // flagged as malicious is served from cache (and thus allowed) until its entry
-// expires; TTL bounds that exposure window. Only ALLOW verdicts are cached —
-// suspicious, malicious, and tenant-excluded verdicts are always re-evaluated.
+// expires. TTL bounds that exposure window for the disk cache. Only ALLOW
+// verdicts go to disk. Suspicious, malicious, and tenant-excluded verdicts do not.
 // Disabled by default.
 type MalysisCacheConfig struct {
 	Enabled bool `mapstructure:"enabled"`
@@ -346,9 +344,9 @@ type DependencyCooldownConfig struct {
 	Days    int  `mapstructure:"days"`
 
 	// Skip is a per-control skip list of packages exempt from the cooldown
-	// window. Unlike the top-level trusted_packages (which waives every PMG
-	// control — malware analysis, cooldown, and any future controls — and is
-	// already honored here), an entry on this list waives ONLY the cooldown
+	// window. Unlike the top-level trusted_packages (which waives malware
+	// analysis and cooldown, and is already honored here), an entry on this
+	// list waives ONLY the cooldown
 	// wait, never malware analysis, so a fast-tracked package is still
 	// scanned. Intended for first-party / internal packages that must be
 	// installed immediately on release.

@@ -540,8 +540,9 @@ func forwardEnv(env *testscript.Env, keys ...string) {
 }
 
 // appArmorRestrictsUserns reports whether AppArmor confines unprivileged
-// user namespaces, as Ubuntu 23.10 and later do. That profile refuses host
-// unix socket connects, whatever the sandbox profile allows.
+// user namespaces, as Ubuntu 24.04 and later do by default. The AppArmor
+// userns profile refuses host unix socket connects, whatever the sandbox
+// profile allows.
 func appArmorRestrictsUserns() bool {
 	enabled, err := os.ReadFile("/sys/module/apparmor/parameters/enabled")
 	if err != nil || strings.TrimSpace(string(enabled)) != "Y" {

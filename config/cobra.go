@@ -62,7 +62,7 @@ var configFlagSpecs = []flagSpec{
 		},
 	},
 	{
-		name: "sandbox-enforce", usage: "Apply sandbox to all commands, not just install commands (requires --sandbox)", managed: true,
+		name: "sandbox-enforce", usage: "Apply sandbox to all commands, including known non-download commands (requires --sandbox)", managed: true,
 		keys: []string{"sandbox.enforce_always"},
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Sandbox.EnforceAlways, name, globalConfig.Config.Sandbox.EnforceAlways, usage)

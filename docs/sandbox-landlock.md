@@ -9,8 +9,12 @@ Landlock is an allow-list. Our profiles add deny rules on top of a broad allow. 
 sets `allow_read: /` and denies `~/.ssh`, `~/.aws`, `.env` and `.git/hooks`. Landlock
 cannot remove a path from an allowed subtree. So we add seccomp-notify on top of Landlock.
 
-- Landlock is the kernel allow-list. It is fast and it applies to most syscalls.
-- seccomp-notify traps `openat`, `openat2`, `execve` and `execveat`. The supervisor reads
+- Landlock provides a kernel allow-list for selected filesystem rights.
+  These rights include open, execution, creation, removal, rename, and truncation on newer kernels.
+  It does not govern most metadata syscalls.
+- seccomp-notify traps `execve`, `execveat`, and the fixed path-syscall table for opens, creation, removal, rename, links, truncation, and chroot.
+  amd64 also includes legacy path syscalls.
+  See `seccompPathSyscalls` in `landlock_seccomp_path_linux.go`. The supervisor reads
   the path argument from the memory of the trapped process. It matches the path against
   the deny list. It replies `EACCES` or `CONTINUE`. Under network lockdown
   (`network_via_proxy_only`) the filter also traps `connect`, `sendto` and `sendmsg`.
@@ -22,10 +26,10 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
    pmg main ──fork+exec──► pmg __landlock_sandbox_exec      [helper, unfiltered]
                                   │ runs supervisor loop
                                   │
-                          clone(CLONE_NEWUSER, uid=host→host)
+                          clone(CLONE_NEWUSER, uid=caller→caller, root→65533)
                                   │
                                   ▼
-                           pmg __landlock_shim              [single-threaded,
+                           pmg __landlock_shim              [locked exec thread,
                             ├ apply Landlock (sets NNP)      non-root uid,
                             ├ install seccomp                no caps;
                             ├ send notify_fd via SCM_RIGHTS  a root caller
@@ -33,12 +37,14 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
                                   │
                                   ▼
                            target ─► child ─► grandchild    [filter inherited,
-                                                             host uid, no caps,
-                                                             dumpable=1]
+                                                             caller uid (65533
+                                                             for root), no caps,
+                                                             dumpable unless cleared]
 ```
 
-The helper has no filter on itself. So the helper can read `/proc/<pid>/mem` of each
-descendant to resolve `openat` paths.
+The helper has no seccomp filter. Its own syscalls never wait for the supervisor.
+The helper reads `/proc/<pid>/mem` of a descendant to read the path or the socket address of a trapped syscall.
+For a non-root caller, this works only for a dumpable descendant.
 
 ### Code layout
 
@@ -50,8 +56,22 @@ descendant to resolve `openat` paths.
 | `sandbox/platform/landlock_translator_linux.go` | Translates the PMG policy to `landlockExecPolicy` |
 | `sandbox/platform/landlock_helper_linux.go` | Helper. Forks the shim and runs the supervisor |
 | `sandbox/platform/landlock_shim_linux.go` | Shim. Applies Landlock, installs seccomp, calls execve |
-| `sandbox/platform/landlock_seccomp_linux.go` | BPF, supervisor loop, deny matchers, memory reads |
+| `sandbox/platform/landlock_seccomp_linux.go` | Supervisor loop, exec and network handlers, open and exec deny matchers, memory reads |
+| `sandbox/platform/seccomp_filter_linux.go` | Shared BPF filter and installation |
+| `sandbox/platform/landlock_seccomp_path_linux.go` | Path syscall table, path resolution, move and write-target checks |
+| `sandbox/platform/landlock_seccomp_arch_*.go` | Architecture-specific path and denied syscalls |
 | `sandbox/platform/landlock_abi_linux.go` | Kernel ABI probe |
+
+For real-kernel tests, use Linux with Landlock and permitted user namespaces.
+Normal test runs skip these cases unless enabled.
+
+```sh
+PMG_LANDLOCK_E2E=1 go test -count=1 ./sandbox/platform
+```
+
+The e2e tests build and run `<repo>/bin/pmg`.
+Name that path in the per-PMG [AppArmor profile](sandbox.md#apparmor-blocks-the-landlock-driver-ubuntu-2310) when host policy blocks namespaces.
+Disabling the AppArmor user-namespace restriction globally, as CI does, is not required.
 
 ## Key decisions
 
@@ -83,30 +103,29 @@ taken. A read failure stops the run. A guess could equal the real overflow id.
 An earlier design mapped `0 → host_uid`. That design gave uid 0 and all capabilities to the
 full target tree. That was not necessary. The helper created the user namespace, so the
 kernel grants it `CAP_SYS_PTRACE` over the namespace. With the same uid on both sides, the
-helper opens `/proc/<pid>/mem` for each descendant, independent of the dumpable flag.
+helper can open the memory of a dumpable descendant. A task that sets
+`PR_SET_DUMPABLE=0` is not dumpable. A task that executes a binary it cannot read is also not
+dumpable, unless `fs.suid_dumpable` is 1. For a
+non-root caller, the kernel then gives its `/proc/<pid>/mem` to root with mode 0600, and
+the helper has no `CAP_DAC_OVERRIDE`. The memory open fails, and the supervisor denies the
+trapped syscall.
 
 ### The shim applies Landlock and seccomp, Landlock first
 
-An earlier version installed seccomp in the helper and then ran `landlock.RestrictPaths` in
-the helper. `BestEffort()` probes the kernel with `openat`. Each probe trapped through the
-supervisor in the same process. The Go garbage collector stops the world and needs each
-thread at a safepoint. A thread that the kernel holds inside `seccomp_do_user_notification`
-cannot get to a safepoint. The helper hung after a small number of notifications.
-
-Now the shim applies both Landlock and seccomp. The shim is a new Go process that has only
-one thread at that point. There is no garbage collector pressure during setup. The helper
-stays unfiltered. Landlock runs first. Landlock opens each rule path when it builds the
-ruleset. If seccomp ran first, the supervisor would deny the shim's own opens against the
-deny list.
+`RestrictPaths` opens each rule path with `openat(O_PATH)` to build the Landlock ruleset.
+Landlock runs first. If seccomp ran first, the supervisor would deny the shim's own opens
+against the deny list. The shim then installs the filter on its locked exec thread. The Go
+process already has runtime threads. The helper runs the supervisor in a separate,
+unfiltered process.
 
 ### The filter does not use `TSYNC`
 
-`SECCOMP_FILTER_FLAG_TSYNC` applies the filter to each thread in the thread group. The Go
-runtime threads (garbage collector, sysmon, netpoll) call `openat` often. Each of these
-calls would trap and cause the same deadlock as the unsandboxed-helper version. Without
-`TSYNC` the filter applies only to the thread that installs it. Descendants inherit the
-filter through `clone()` and `execve()`. So we get the same coverage and we do not filter
-the Go runtime threads.
+`SECCOMP_FILTER_FLAG_TSYNC` applies the filter to each thread in the thread group.
+The filter applies only to the locked thread that calls `execve`.
+The target and its descendants inherit it.
+`TSYNC` would also filter the shim's other Go runtime threads.
+A supervisor in the same filtered process could deadlock the garbage collector (see
+"Go-specific details").
 
 ### `Stop()` wakes the supervisor with an eventfd
 
@@ -146,7 +165,8 @@ profiles, only the seccomp supervisor enforces the deny rules for those paths. T
 supervisor emulates the path resolution of the kernel and replies inside a TOCTOU window.
 Treat these denies as a strong default and not as a hard barrier.
 
-The supervisor traps each syscall that names a path. It matches the canonical path against
+The supervisor traps the fixed table of calls that open, create, remove, rename, link, or truncate a path, plus chroot.
+It does not trap metadata calls such as chmod, chown, utimensat, xattr, stat, statx, faccessat, readlink, or inotify watch creation. It matches the canonical path against
 the deny list. These edge cases shaped the rules:
 
 - The supervisor denies a rename or hard-link source that is above a deny entry. A move of
@@ -166,16 +186,38 @@ the deny list. These edge cases shaped the rules:
   it never judges a recycled pid on the state of a different process.
 - Deny entries match in lexical form and in canonical form. So `~/.ssh` still matches when
   it is a symlink into a dotfiles checkout.
-- A deny glob (`${CWD}/.env.*`, `**/.ssh`) stays a pattern. It covers a file that a process
-  creates after setup. A `**/<name>` entry matches the name at each depth, as the Seatbelt
-  regex does.
+- Deny-read and deny-write patterns without `**`, `**/<name>` patterns, and a bare
+  `<dir>/**` (which becomes a deny on `<dir>`) keep coverage of later files.
+  `**/<name>` matches the name and its descendants at every depth.
+  Seatbelt's equivalent regex matches only the name itself.
+- A based globstar with a suffix, such as `${HOME}/**/id_rsa`, expands once at setup.
+  It does not cover matching files created later.
+  The walk uses a literal suffix comparison.
+  `${HOME}/**/*.pem` therefore treats `*.pem` as literal text and can yield no denies without warning.
+  The walk stops at 5 levels or after 1000 matches.
+  A missing base returns the whole base directory and can create a broader deny.
+- Every deny-exec glob expands at setup.
+  Do not assume it covers a later binary.
+
+Allow globs also expand during setup.
+More than 100 matches can widen an allow to its parent directory.
+The shim skips a missing rule path.
+A later directory needs an existing ancestor grant to receive access.
+A bare `base/**` grants the directory inode without a walk and includes later descendants.
+
+Implicit rules grant read-file and execution access to system executable and library directories, read access to `/proc`, access to standard devices, and write access to `os.TempDir()`.
+`TMPDIR` can therefore widen a narrow profile's writable area.
+PTY-enabled policies also grant PTY paths.
+Final deny masking can remove an implicit grant.
+Inspect the rendered result before relying on a narrow profile.
 
 ### The filter kills foreign-ABI syscalls
 
 Syscall numbers differ for each ABI. An `int 0x80` or x32 call could reach `openat` under a
 number that the filter does not trap. The filter checks `seccomp_data.arch` and, on amd64,
 the x32 bit. The filter returns `SECCOMP_RET_KILL_PROCESS`. The kernel does the kill. The
-process ends with `SIGKILL` and the supervisor records no violation.
+process ends with `SIGSYS`. When the killed process is the target, pmg exits with code 255.
+The supervisor records no violation.
 
 ### The filter denies kernel attack surface before the traps
 
@@ -189,20 +231,34 @@ driver installs the same filter without the traps (see `seccomp_filter_linux.go`
 - `socket(AF_UNIX)` gets `EACCES` unless the profile sets `allow_unix_sockets`. So does a
   `socketpair` that is not a stream or seqpacket pair. A datagram pair can reach any
   datagram socket with `sendto`, and the kernel makes a `SOCK_RAW` pair a datagram pair.
-  Node, libuv and Python use a stream pair for child stdio.
+  Node and libuv use a stream pair for child stdio.
+  Python uses pipes, which this rule does not affect.
 - A fixed list gets `EPERM`: ptrace and other cross-process memory access, `bpf`,
   `perf_event_open`, `userfaultfd`, the keyring, `io_uring`, kernel modules and `kexec`,
   mount and the new mount API, `setns`, swap, reboot, clock changes, `syslog`, quotas and
   `open_by_handle_at`.
+  The list also includes `acct`, `lookup_dcookie`, `fanotify_init`, and `vhangup`.
+  amd64 adds `iopl`, `ioperm`, and `uselib`.
+  See `seccompDeniedSyscalls` for the complete architecture-specific list.
 
 These denies stop `strace`, `gdb`, rootless containers and nested sandboxes, such as the
 Chrome sandbox, inside `pmg sandbox exec`.
 
 ### Network lockdown (`network_via_proxy_only`)
 
-The network rules of Landlock (ABI V4) filter TCP ports only. They cannot match a
-destination address. They do not cover UDP. `BindTCP` needs fixed ports, so the dynamic
-loopback binds behind `allow_network_bind` cannot be expressed. `network_via_proxy_only` is
+Without `network_via_proxy_only`, the Landlock driver supplies no direct network confinement.
+A profile `network.deny_outbound: ["*:*"]` does not create a network namespace here.
+Only traffic that reaches the proxy receives those destination rules.
+Bubblewrap differs because it uses `--unshare-net` for a profile with no `allow_outbound` rule.
+Separate host enforcement can still constrain traffic outside this driver.
+
+The network rules of Landlock filter ports only. They cannot match a destination address.
+ABI 4 adds TCP port rules. ABI 10 adds UDP port rules.
+A port rule cannot confine a bind to loopback.
+Allowing a connection to a port permits it on every host.
+This cannot express arbitrary loopback-only connects required by `allow_network_bind`.
+PMG selects at most ABI 5 and does not use the port rules.
+`network_via_proxy_only` is
 a host-and-port contract. So the seccomp supervisor enforces it. The filter traps
 `connect(2)`, `sendto(2)` and `sendmsg(2)` when the resolved policy has lockdown on. The
 supervisor reads the `sockaddr` from `/proc/<pid>/mem` and applies the same matrix as
@@ -211,11 +267,13 @@ Seatbelt:
 - Loopback to the PMG proxy port. Allow.
 - Any loopback port. Allow when the profile sets `allow_network_bind`.
 - Port 53 (TCP or UDP). Allow when the profile sets `allow_direct_dns`.
-- Each other non-loopback destination. Deny with `ECONNREFUSED` and a `network_deny`
-  audit event. `pmg sandbox violations` shows it as a `network_connect` violation.
+- Every other destination, including other loopback ports. Deny with `ECONNREFUSED` and a `network_deny`
+  audit event. `pmg sandbox violations list` shows it as a `network_connect` violation.
 
 A `sendto` or `sendmsg` with a NULL destination address goes to a connected peer. That peer
-passed the connect check. The supervisor lets these calls continue without inspection.
+normally passed the connect check. The supervisor lets these calls continue without
+inspection. A TCP Fast Open send through the untrapped `sendmmsg` can connect a socket
+without the connect check.
 
 Only `AF_INET` and `AF_INET6` go through the matrix. The supervisor allows `AF_NETLINK`,
 which `getaddrinfo` uses to list interfaces. An `AF_UNIX` connect reaches the supervisor
@@ -242,9 +300,27 @@ the shim passes the descriptor with `sendmmsg(2)`, which is outside the trap set
 
 ### Debugging: `PMG_SECCOMP_TRACE`
 
-Set `PMG_SECCOMP_TRACE=1` to log each intercepted syscall decision at debug level. The log
-line has the form `seccomp: allow|deny <syscall> pid=... path|peer=... reason=...`. Use it
-with `APP_LOG_LEVEL=debug` and, if you want a file, `APP_LOG_FILE`.
+On Linux, inspect the translated rules and driver first.
+
+```sh
+pmg sandbox profile show exec --driver landlock
+pmg sandbox doctor --driver landlock
+PMG_SECCOMP_TRACE=1 pmg --debug sandbox exec -- your-program
+```
+
+Add `--log <file>` alongside `--debug` for a diagnostic file.
+Without `--debug`, PMG disables stdout logging.
+For environment-only file logging, set both `APP_LOG_LEVEL=debug` and `APP_LOG_FILE=<file>`.
+A `--log` option without `--debug` resets the level to info.
+Trace lines begin with `seccomp: allow` or `seccomp: deny`, then a syscall and `pid=`.
+Most name the target with `path=` or `peer=`.
+Most denies use `rule=`, `access=`, or `reason=` for their cause.
+The supervisor does not trace a NULL-destination send or stale notification.
+
+`PMG_KEEP_POLICY` only suppresses helper deletion.
+The outer driver's normal cleanup still removes the policy file.
+Do not rely on it for post-run retention.
+A manually retained policy contains command environment and environment-dependent resolved paths.
 
 ### Network lockdown gaps
 
@@ -252,17 +328,20 @@ These are the known holes in the current enforcement, in approximate priority or
 
 - **The filter does not trap `sendmmsg(2)`.** The destinations of each message are in an
   `mmsghdr[]` array in process memory. The shim's own handshake uses `sendmmsg`, so we
-  accept this blind spot. Resolvers and runtimes rarely use it.
+  leave this blind spot in the target too.
+  A hostile process can use `sendmmsg` on an unconnected UDP socket to send to any host and port.
+  This bypasses `network_via_proxy_only`.
+  glibc also uses it for DNS, normally on an already connected socket.
 - **`allow_unix_sockets` opens every unix socket.** The kernel filter cannot read a
   socket path, so the choice is all or nothing. With the default, glibc NSS modules that
   use a socket (systemd-resolved, nscd) fail and glibc falls back to files and DNS.
+- **`allow_network_bind` also opens loopback port 53.** The supervisor allows a connect to
+  every loopback port under that flag. A loopback DNS resolver is then reachable without
+  `allow_direct_dns`.
 - **TOCTOU on the sockaddr.** A second thread in the target can rewrite the address
   between the memory read of the supervisor and the `CONTINUE`d syscall in the kernel.
   This is the same class as the `openat` TOCTOU. It is adequate for benign install
   scripts. It is not a hardened defense against a determined escape.
-- **The filter does not match 32-bit syscalls.** The filter compares syscall numbers from
-  the build architecture. An i386 compat process multiplexes through `socketcall` and
-  bypasses the network filter. This gap also applies to the `openat` and `execve` traps.
 - **`bind(2)` and `listen(2)` are unrestricted.** This gap is older than lockdown. A
   sandboxed process can listen on any address. The host limits what inbound traffic can
   reach it.
@@ -272,13 +351,12 @@ These are the known holes in the current enforcement, in approximate priority or
 The Landlock and seccomp pattern was designed for the C and Rust threading model. Go pays
 a constant cost. That cost explains most of the decisions above:
 
-- **Go is multi-threaded from `main()`.** Go always has garbage collector, sysmon and
-  netpoll threads. There is no single-threaded mode. `TSYNC` turns those threads into
-  traffic for our supervisor.
-- **The garbage collector stop-the-world conflicts with a seccomp wait.** A goroutine that
-  the kernel holds in a seccomp trap cannot get to a safepoint. The stop-the-world blocks.
-  The supervisor goroutine that would release the trap never runs. Rust has no garbage
-  collector and no stop-the-world.
+- **Go is multi-threaded from `main()`.** The runtime starts sysmon and adds threads for GC work and blocking syscalls.
+- **A trap on a raw runtime syscall can block stop-the-world.** A normal Go syscall releases its P.
+  Some runtime syscalls, including runtime `openat`, do not.
+  If the kernel holds such a call in a trap, stop-the-world can wait indefinitely.
+  A supervisor goroutine in the same filtered process cannot resolve that deadlock.
+  The supervisor therefore runs in the unfiltered helper.
 - **Go cannot run code between fork and execve.** `exec.Cmd` does `clone()`, a fixed
   sequence, and `execve()`. There is no `PreExecFn` field. The shim subcommand gives us
   the hook that `os/exec` does not have. In Rust this code runs inline after `fork()`.
@@ -299,8 +377,23 @@ a constant cost. That cost explains most of the decisions above:
   seccomp-notify on `connect`, `sendto` and `sendmsg`. See "Network lockdown" above for
   the gaps. We do not use the Landlock port rules (V4+) yet. They would be a race-free
   backstop for the passthrough cases.
-- **PID and IPC namespace isolation is best-effort.** On `EPERM` the helper retries
-  without these namespaces.
+- **PID, IPC, and mount namespaces are best-effort.** On `EPERM` or `EINVAL`, the helper warns and retries without them.
+  A profile allowing non-self `/proc` paths skips PID and mount namespace creation.
+  PMG drops authored `/proc` read and write denies with diagnostic warnings.
+  Even when PID namespace creation succeeds, PMG does not mount a fresh procfs.
+  The inherited `/proc` still exposes host process entries subject to Unix permissions.
+  PMG does not apply Landlock signal scoping.
+  Host signal permission checks and other host controls still apply.
+- **ABI limits affect the boundary.** On ABI 1, the kernel refuses every cross-directory
+  rename or link with `EXDEV`.
+  ABI 2 adds `REFER`, which permits them when the file gains no new access rights.
+  ABI 3 adds `TRUNCATE`.
+  On ABI 1 or 2, a file outside `allow_write` can still be truncated if Unix permissions permit it and no deny path matches.
+  The supervisor's truncate check enforces denies, not the full write allow-list.
+  The translator drops a `deny_write` entry outside `allow_write`. On ABI 1 or 2, such an
+  entry never stops a `truncate(2)`.
+  Device ioctl control applies only when ABI 5 rights are selected.
+  PMG does not select signal scopes from newer ABIs.
 - **A root caller loses `CAP_DAC_OVERRIDE` in the sandbox.** The target runs as uid
   65533 with no capabilities. Permission bits decide each access, even for files that
   root owns. A root-owned directory at mode `0555` rejects a write that real root could
@@ -320,8 +413,20 @@ a constant cost. That cost explains most of the decisions above:
   process can rewrite the path bytes in its memory, or replace a symlink on disk, after
   the supervisor reads them and before the kernel resolves the path. This is adequate for
   benign install scripts. It is not a hardened defense.
-- **Kernel denials leave no violation record.** The syscalls in the kernel deny list and
-  a refused unix socket return an error in the kernel. The supervisor never sees them, so
-  `pmg sandbox violations` does not list them.
+- **The policy file goes through a shared temporary directory.** The outer process writes
+  the policy and the command environment into a same-user temporary JSON file. The helper
+  reads it, then gives its pathname to the shim for a second read. Other same-user
+  processes can read the environment in this file. Another sandboxed run with the shared
+  temp write grant can also change the rules or the trap configuration before the shim
+  reads the file again. This race is inferred from the handoff code, not from a
+  reproduced exploit. Do not treat concurrent sandboxed processes under one user as
+  isolated from each other.
+- **Driver audit capture is bounded.** The helper sends events over a Unix audit socket.
+  Connection failure is debug-only and loses captured driver events.
+  The driver buffers at most 512 events, including operational events, and deduplicates captured denials.
+  Environment scrubs and proxy denials have independent reporting paths.
+- **Kernel denials leave no violation record.** The Landlock allow-list, the syscalls in the
+  kernel deny list, a refused unix socket and a foreign-ABI kill all act in the kernel.
+  The supervisor never sees them. `pmg sandbox violations list` does not list them.
 - **The filter does not trap metadata writes.** `chmod`, `chown` and `utimensat` on a
   protected path go through Landlock only. Landlock does not govern them.
