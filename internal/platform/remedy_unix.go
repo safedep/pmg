@@ -20,7 +20,7 @@ func systemControlRemedy(path string) string {
 }
 
 func readAccessRemedy(path string) string {
-	return fmt.Sprintf("Let every account read '%s' and search each directory above it, for example: chmod o+r on the file and chmod o+x on each directory", path)
+	return fmt.Sprintf("Let every account read '%s' and search each directory above it, for example: chmod go+r on the file and chmod go+x on each directory", path)
 }
 
 func leakedConfigDirRemedy(dir string) (help, fix string) {

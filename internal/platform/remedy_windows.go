@@ -18,7 +18,7 @@ func systemControlRemedy(path string) string {
 }
 
 func readAccessRemedy(path string) string {
-	return fmt.Sprintf("Let every account read '%s' and each folder above it, for example: icacls \"%s\" /grant *S-1-5-32-545:R", path, path)
+	return fmt.Sprintf("Let every account read '%s' and traverse each folder above it, for example: icacls \"%s\" /grant *S-1-5-32-545:R on the file and icacls \"<folder>\" /grant *S-1-5-32-545:X on each folder", path, path)
 }
 
 func leakedConfigDirRemedy(dir string) (help, fix string) {
