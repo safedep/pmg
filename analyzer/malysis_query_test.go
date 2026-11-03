@@ -298,3 +298,47 @@ func (s *stubMalwareAnalysisServiceClient) InternalAgenticAnalyzePackage(ctx con
 func (s *stubMalwareAnalysisServiceClient) InternalPublishDomainEvent(ctx context.Context, req *malysisv1.InternalPublishDomainEventRequest, opts ...grpc.CallOption) (*malysisv1.InternalPublishDomainEventResponse, error) {
 	return nil, nil
 }
+
+func TestMalysisQueryAnalyzer_DropsExclusionUnderCloudPolicy(t *testing.T) {
+	tests := []struct {
+		name         string
+		cloudEnabled bool
+		cloudPolicy  bool
+		wantExcluded bool
+	}{
+		{name: "cloud.policy on drops the exclusion", cloudEnabled: true, cloudPolicy: true, wantExcluded: false},
+		{name: "cloud.policy off honors the exclusion", cloudEnabled: true, cloudPolicy: false, wantExcluded: true},
+		{name: "cloud.policy without cloud.enabled honors the exclusion", cloudEnabled: false, cloudPolicy: true, wantExcluded: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Get()
+			saved := cfg.Config
+			t.Cleanup(func() { cfg.Config = saved })
+			cfg.Config.Paranoid = false
+			cfg.Config.Cloud.Enabled = tt.cloudEnabled
+			cfg.Config.Cloud.Policy = tt.cloudPolicy
+
+			resp := &malysisv1.QueryPackageAnalysisResponse{
+				Report: &malysisv1pb.Report{Inference: &malysisv1pb.Report_Inference{IsMalware: true}},
+				MaliciousPackageExclusion: &malysisv1.QueryPackageAnalysisResponse_MaliciousPackageExclusion{
+					ExclusionId: "excl-1",
+					Reason:      "Reviewed",
+				},
+			}
+			an := &malysisQueryAnalyzer{client: &stubMalwareAnalysisServiceClient{resp: resp}, honorExclusions: true}
+
+			result, err := an.Analyze(context.Background(), makePkgVersion("suspicious", "1.0.0"))
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantExcluded, result.IsExcluded)
+			if tt.wantExcluded {
+				assert.Equal(t, ActionAllow, result.Action)
+				return
+			}
+			assert.Equal(t, ActionConfirm, result.Action, "the suspicious verdict stays")
+			assert.Empty(t, result.ExclusionID)
+		})
+	}
+}
