@@ -217,7 +217,7 @@ func checkInOptions(cfg *config.RuntimeConfig, creds *cloud.Credentials) []endpo
 		tenant = ""
 	}
 	return []endpointsync.CheckInOption{
-		endpointsync.WithToolPolicy(cloudpolicy.ToolPolicyState(cloudpolicy.Load(cfg, tenant))),
+		endpointsync.WithToolPolicy(cloudpolicy.CheckInState(cfg, tenant)),
 		endpointsync.WithLabels(endpointsync.ReportedLabels()),
 	}
 }

@@ -138,6 +138,21 @@ func TestToolPolicyState(t *testing.T) {
 		assert.Nil(t, report.GetAppliedAt(), "pmg does not know when the previous file applied")
 	})
 
+	t.Run("a check-in reports the fields that global_lockdown keeps", func(t *testing.T) {
+		cfg := newTestConfig(t)
+		writeCache(t, cfg, cloudpolicytest.WithCooldown(cloudpolicytest.Policy(), 0), 48)
+		cfg.LockForTest()
+		before := cfg.Config.DependencyCooldown
+
+		report := CheckInState(cfg, testTenant).GetPolicy()
+
+		require.Len(t, report.GetExceptions(), 1)
+		assert.Equal(t, PathMinAge, report.GetExceptions()[0].GetPath())
+		assert.Equal(t, recordv1.FieldExceptionReason_FIELD_EXCEPTION_REASON_LOCKED,
+			report.GetExceptions()[0].GetReason())
+		assert.Equal(t, before, cfg.Config.DependencyCooldown, "a check-in changes no config")
+	})
+
 	t.Run("no cache reports none", func(t *testing.T) {
 		cfg := newTestConfig(t)
 

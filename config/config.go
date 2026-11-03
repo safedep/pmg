@@ -1129,6 +1129,15 @@ func LockedRuntimeConfigForTest() *RuntimeConfig {
 	return &RuntimeConfig{configLocked: true}
 }
 
+// LockForTest puts r under global_lockdown. r has no managed file that pmg
+// can read, so the cloud policy keeps every key of it.
+func (r *RuntimeConfig) LockForTest() {
+	if !testing.Testing() {
+		panic("config: LockForTest called outside a test")
+	}
+	r.configLocked = true
+}
+
 // globalConfigFilePath returns the path to the globally managed config file, or
 // "" when the platform has no global config location.
 func globalConfigFilePath() string {
