@@ -156,16 +156,7 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 
 	transport := endpointsync.NewGrpcTransport(cloudClient.Connection())
 
-	endpointID := resolveCloudEndpointID(cfg.Config.Cloud.EndpointID)
-
-	var identityOpts []endpointsync.EndpointIdentityOption
-	if endpointID != "" {
-		identityOpts = append(identityOpts, endpointsync.WithEndpointID(endpointID))
-	}
-
-	identity := endpointsync.NewEndpointIdentityResolver(identityOpts...)
-
-	syncClient, err := endpointsync.NewSyncClient("pmg", pmgToolVersion(), transport, identity,
+	syncClient, err := endpointsync.NewSyncClient("pmg", pmgToolVersion(), transport, NewEndpointIdentityResolver(cfg),
 		cloudSyncOptions(cfg.CloudSyncDBPath())...)
 	if err != nil {
 		if closeErr := cloudClient.Close(); closeErr != nil {
@@ -179,6 +170,22 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 		cloudClient: cloudClient,
 		cfg:         cfg,
 	}, nil
+}
+
+// NewEndpointIdentityResolver returns the endpoint identity that the
+// check-in and the policy fetch send, so both name one endpoint.
+func NewEndpointIdentityResolver(cfg *config.RuntimeConfig) endpointsync.EndpointIdentityResolver {
+	var identityOpts []endpointsync.EndpointIdentityOption
+	if endpointID := resolveCloudEndpointID(cfg.Config.Cloud.EndpointID); endpointID != "" {
+		identityOpts = append(identityOpts, endpointsync.WithEndpointID(endpointID))
+	}
+	return endpointsync.NewEndpointIdentityResolver(identityOpts...)
+}
+
+// ToolVersion returns the version of pmg that cloud events and the policy
+// fetch carry.
+func ToolVersion() string {
+	return pmgToolVersion()
 }
 
 // pmgToolVersion returns the tool version stamped on cloud events, defaulting
