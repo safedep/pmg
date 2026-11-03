@@ -172,6 +172,23 @@ func TestCloudPolicy_BlockEntriesOfGoAndCargo(t *testing.T) {
 			},
 		},
 		{
+			Name:   "a block entry applies to the go toolchain",
+			Policy: cpt.Policy(cpt.Block("r_toolchain", "pkg:golang/golang.org/toolchain", "", "pinned toolchain")),
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "golang.org/toolchain",
+					Versions: []GoVersion{{Version: "v0.0.1-go1.24.0.linux-amd64", PublishedAt: old()}}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				return h.Go().Install("golang.org/toolchain", "v0.0.1-go1.24.0.linux-amd64")
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedGoZip("golang.org/toolchain", "v0.0.1-go1.24.0.linux-amd64"))
+				require.Len(t, h.RuleBlocks(), 1)
+				assert.Equal(t, "r_toolchain", h.RuleBlocks()[0].PolicyRule.RuleID)
+			},
+		},
+		{
 			Name:   "a crate block entry blocks the download",
 			Policy: cpt.Policy(cpt.Block("r_crate", "pkg:cargo/evil", "", "incident")),
 			Setup: func(h *Harness) {

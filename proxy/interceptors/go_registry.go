@@ -115,16 +115,18 @@ func (i *GoRegistryInterceptor) handleArtifact(
 	match *registryMatch,
 	name, version string,
 ) (*proxy.InterceptorResponse, error) {
+	// A package rule decides at each request, so a block that arrives
+	// within the reuse window applies at once. The checksum database proves
+	// that a toolchain is the real one, not that an admin allows it, so a
+	// block also applies to the toolchain.
+	if resp, ok := i.policyBlock(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version); ok {
+		return resp, nil
+	}
+
 	if name == goToolchainModule {
 		log.Infof("[%s] Allowing Go toolchain download %s@%s (verified by Go's checksum database)",
 			ctx.RequestID, name, version)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-	}
-
-	// A package rule decides at each request, so a block that arrives
-	// within the reuse window applies at once.
-	if resp, ok := i.policyBlock(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version); ok {
-		return resp, nil
 	}
 
 	key := goModuleVersionKey(name, version)
