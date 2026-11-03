@@ -256,35 +256,24 @@ can use `sudo` on a hosted runner, so a hostile step can stop the daemon or repl
 binary before the post step runs.
 An unflagged package, a trusted package, or a compromised action can do the same.
 The noninteractive daemon declines suspicious packages and counts them as blocks.
-See [trust decisions](trust.md) and [cooldown](dependency-cooldown.md).
+See [trusted packages](trusted-packages.md) and [cooldown](dependency-cooldown.md).
 
-With `auto-stop: false`, the action skips its entire post routine.
-It does not produce the verdict, summary, proposal, or proxy-variable cleanup.
-Add an explicit stop with `if: always()`.
-This example preserves the stop verdict and clears the proxy variables for later post actions.
+With `auto-stop: false`, the action skips its post step. The job gets no
+verdict, summary or proposal, and the proxy variables stay set. Stop PMG
+in your own step with `if: always()`:
 
 ```yaml
 - name: Stop PMG
   if: always()
-  shell: bash
   run: |
-    rc=0
-    if [ -n "${PMG_PROXY_STATE:-}" ]; then
-      sudo env PMG_CONFIG_DIR="${PMG_PROXY_CONFIG_DIR:-}" \
-        "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation || rc=$?
-    else
-      pmg proxy stop --fail-on-violation || rc=$?
-    fi
-    for name in NODE_USE_ENV_PROXY HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy \
-      PIP_PROXY npm_config_proxy npm_config_https_proxy npm_config_noproxy \
-      NPM_CONFIG_PROXY NPM_CONFIG_HTTPS_PROXY NPM_CONFIG_NOPROXY \
-      YARN_HTTP_PROXY YARN_HTTPS_PROXY; do
-      printf '%s=\n' "$name" >> "$GITHUB_ENV"
-    done
-    exit "$rc"
+    env | cut -d= -f1 | grep -i proxy | grep -v '^PMG_PROXY_' | sed 's/$/=/' >> "$GITHUB_ENV"
+    sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
 ```
 
-This manual stop does not replace the summary or baseline proposal.
+The first line empties the proxy variables, so the post steps of earlier
+actions do not use the stopped proxy. Without kernel enforcement, the
+daemon runs as the runner user. Then use `pmg proxy stop
+--fail-on-violation` in the second line.
 
 The summary lists the destination hosts of the job. On a public repository
 anyone can read the job summary. Set `baseline: false` to leave out the

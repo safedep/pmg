@@ -1,4 +1,4 @@
-# PMG Proxy
+# PMG Proxy Library
 
 A generic, extensible HTTP/HTTPS proxy server with man-in-the-middle (MITM) capabilities for intercepting and analyzing package manager traffic.
 Built with [goproxy](https://github.com/elazarl/goproxy) library.

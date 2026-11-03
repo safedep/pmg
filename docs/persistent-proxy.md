@@ -6,7 +6,7 @@ shim, alias or `pmg` wrapper. It is made for CI jobs, where you set up the
 environment once and then run many commands.
 
 It uses the same interceptors, malware analyzer and certificate manager as
-the proxy in [proxy.md](./proxy.md). The difference is the lifecycle. You
+the per-command proxy in [proxy-mode.md](./proxy-mode.md). The difference is the lifecycle. You
 start the proxy once, the other `pmg proxy` commands find it, and it serves
 every package manager until you stop it.
 

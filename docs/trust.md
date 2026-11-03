@@ -1,4 +1,4 @@
-# Trust
+# Trusting PMG
 
 PMG exists to protect developers from malicious open source packages. This effectively means:
 
