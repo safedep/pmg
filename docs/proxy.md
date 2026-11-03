@@ -165,7 +165,7 @@ Zero server read/write timeout uses 30 minutes.
 
 The upstream transport honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
 CONNECT dialing supports HTTP, HTTPS, and SOCKS5 upstream proxies.
-Loopback destinations bypass the upstream proxy.
+Requests to `localhost` and to loopback IP addresses bypass the upstream proxy.
 With the default dialer, the proxy refuses to dial its own listeners.
 A custom `UpstreamDialContext` replaces that dialer and its check.
 A redirected plain HTTP request that names a loopback address or a listener of the proxy is still refused.

@@ -217,7 +217,7 @@ The daemon does not analyze these fetches:
 - A crate that is already in the cargo cache in `$CARGO_HOME/registry`, for
   example a cache that the CI job restores.
 
-A Cargo `http.proxy` in `.cargo/config.toml`, `CARGO_HTTP_PROXY` or the git
+A Cargo `http.proxy` in `.cargo/config.toml`, `CARGO_HTTP_PROXY` or the global git
 configuration has priority over `HTTPS_PROXY`, so cargo can go around the
 daemon. Under kernel enforcement this is possible when that other proxy
 listens on a port that the kernel does not route. Cargo's connection to a
@@ -247,8 +247,8 @@ pmg proxy start --daemon
 eval "$(pmg proxy env --export)"
 ```
 
-The upstream can be an HTTP, HTTPS or SOCKS5 proxy. Loopback destinations do
-not use it.
+The upstream can be an HTTP, HTTPS or SOCKS5 proxy. Requests to `localhost`
+and to loopback IP addresses do not use it.
 
 `pmg npm install` starts a new proxy for each command, so it always reads
 the current file.
@@ -740,7 +740,8 @@ variables that point a tool at the system store, and the path of the bundle:
 | `PMG_CA_BUNDLE=<system bundle>` | The file to pass into a container. See below. |
 | `PMG_PROXY_RUN=<id>` | The run in the event log, for `pmg sandbox profile propose --run`. |
 
-`curl`, Go, cargo, bun and aube trust the store on their own. pip 24.2 or
+`curl`, Go, cargo and aube trust the store on their own. Recent Bun releases,
+such as 1.4.4, also read `/etc/ssl/cert.pem` and `/etc/ssl/certs`. pip 24.2 or
 later on Python 3.10 or later trusts it too. Older pip needs the exported
 bundle.
 

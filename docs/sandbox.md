@@ -611,8 +611,8 @@ descendant (grandchildren, great-grandchildren, etc.):
    `CAP_DAC_OVERRIDE`.
 3. The helper opens `/proc/<pid>/mem` for each descendant, so deny rules like `~/.ssh` are
    enforced for the full process tree. For a non-root caller, the read works only while the
-   task is dumpable. A task that sets `PR_SET_DUMPABLE=0`, or that runs a binary it cannot
-   read, is not dumpable. The helper then cannot open its memory.
+   task is dumpable. A task that sets `PR_SET_DUMPABLE=0` is not dumpable. A task that runs a
+   binary it cannot read is also not dumpable, unless `fs.suid_dumpable` is 1. The helper then cannot open its memory.
 
 **Fail closed when memory is unreadable**: the supervisor reads `/proc/<child>/mem` at
 startup. If it cannot read it, the run stops. So a host that blocks the read stops the run
@@ -1004,7 +1004,7 @@ The recommended fix is Ubuntu's own mechanism: an AppArmor profile that grants p
 the `userns` permission.
 Create `/etc/apparmor.d/pmg` with the actual native binary path.
 `command -v pmg` suffices for the install-script layout.
-For Homebrew, resolve its link with `readlink -f`, or use a version-directory glob such as `/home/linuxbrew/.linuxbrew/Cellar/pmg/*/bin/pmg`.
+For Homebrew, resolve its link with `readlink -f`, or use a version-directory glob such as `/home/linuxbrew/.linuxbrew/Caskroom/pmg/*/pmg`.
 For npm, use `$(npm root -g)/@safedep/pmg/node_modules/@safedep/pmg-linux-<arch>/bin/pmg`, where `<arch>` is `x64` or `arm64`.
 For mise, name the native binary under its installs directory, not its shim.
 A profile attached to a launcher or shim does not authorize the native helper.

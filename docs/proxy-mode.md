@@ -76,7 +76,7 @@ The legacy flat config key `proxy_install_only` is still supported when the `pro
 PMG itself can use an upstream corporate proxy through `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
 Its HTTP transport and CONNECT dialer support HTTP, HTTPS, and SOCKS5 proxies.
 The child receives PMG's proxy address instead.
-Loopback destinations bypass the upstream proxy.
+Requests to `localhost` and to loopback IP addresses bypass the upstream proxy.
 For TLS connections that PMG makes, add private roots to the system trust store, or set `SSL_CERT_FILE` in PMG's environment.
 When `SSL_CERT_FILE` is set on macOS or Windows, PMG uses only that file.
 On macOS and Windows, set `GODEBUG=x509sslcertoverrideplatform=0` in PMG's environment to keep PMG on the system store. PMG's own connections then ignore `SSL_CERT_FILE`.

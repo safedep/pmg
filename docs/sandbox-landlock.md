@@ -104,7 +104,8 @@ An earlier design mapped `0 → host_uid`. That design gave uid 0 and all capabi
 full target tree. That was not necessary. The helper created the user namespace, so the
 kernel grants it `CAP_SYS_PTRACE` over the namespace. With the same uid on both sides, the
 helper can open the memory of a dumpable descendant. A task that sets
-`PR_SET_DUMPABLE=0`, or that executes a binary it cannot read, is not dumpable. For a
+`PR_SET_DUMPABLE=0` is not dumpable. A task that executes a binary it cannot read is also not
+dumpable, unless `fs.suid_dumpable` is 1. For a
 non-root caller, the kernel then gives its `/proc/<pid>/mem` to root with mode 0600, and
 the helper has no `CAP_DAC_OVERRIDE`. The memory open fails, and the supervisor denies the
 trapped syscall.
@@ -385,7 +386,7 @@ a constant cost. That cost explains most of the decisions above:
   Host signal permission checks and other host controls still apply.
 - **ABI limits affect the boundary.** On ABI 1, the kernel refuses every cross-directory
   rename or link with `EXDEV`.
-  ABI 2 adds `REFER`, which permits them.
+  ABI 2 adds `REFER`, which permits them when the file gains no new access rights.
   ABI 3 adds `TRUNCATE`.
   On ABI 1 or 2, a file outside `allow_write` can still be truncated if Unix permissions permit it and no deny path matches.
   The supervisor's truncate check enforces denies, not the full write allow-list.

@@ -479,8 +479,9 @@ which passes it through with the real certificate. An exemption would be a
 bypass, because the user that runs the jobs can write the runner's folder.
 
 If the daemon stops serving but keeps running, the runner cannot report.
-GitHub cancels the job about 5 minutes after its `timeout-minutes`, and
-later steps, the post step included, do not run. The GitHub default is 360 minutes.
+GitHub cancels the job at its `timeout-minutes`. The GitHub default is 360 minutes.
+If the cancellation does not complete in 5 minutes, GitHub forcibly ends the job.
+Later steps, the post step included, then do not run.
 
 #### Containers
 
