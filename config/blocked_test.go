@@ -126,3 +126,37 @@ blocked_packages:
 	Get().Config.BlockedPackages = nil
 	assert.Len(t, Get().BlockedRules(), 1, "the rules come from the load, not from a parse at each read")
 }
+
+func TestBlockedPackagesOfTheWrongTypeFailClosed(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{name: "a bool in place of the list", yaml: "blocked_packages: false\n"},
+		{name: "a mapping in place of the purl", yaml: "blocked_packages:\n  - purl:\n      name: evil\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalConfig := globalConfig
+			t.Cleanup(func() {
+				globalConfig = originalConfig
+				configLoadErr = nil
+			})
+
+			configDir := t.TempDir()
+			t.Setenv(pmgConfigDirEnvKey, configDir)
+			require.NoError(t, os.WriteFile(filepath.Join(configDir, pmgConfigFileName), []byte(tt.yaml), 0o644))
+
+			initConfig()
+
+			err := LoadError()
+			require.Error(t, err, "a block list that pmg cannot read must not load as no block list")
+			var blockedErr *BlockedPackagesError
+			assert.ErrorAs(t, err, &blockedErr)
+			usefulErr, ok := usefulerror.AsUsefulError(err)
+			require.True(t, ok)
+			assert.Equal(t, errcodes.InvalidBlockedPackages, usefulErr.Code())
+		})
+	}
+}

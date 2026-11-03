@@ -38,6 +38,12 @@ func loadViperConfig() error {
 
 	var merged Config
 	if err := v.Unmarshal(&merged); err != nil {
+		// A failed decode falls back to the defaults, which have no block
+		// list. A block list of the wrong type must not turn its blocks off.
+		var entries []BlockedPackage
+		if keyErr := v.UnmarshalKey("blocked_packages", &entries); keyErr != nil {
+			return &BlockedPackagesError{err: keyErr}
+		}
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 	globalConfig.viper = v
