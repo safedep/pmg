@@ -104,6 +104,29 @@ func (s *Status) Exceptions() []*recordv1.FieldException {
 	return out
 }
 
+// CacheMoved reports whether the cache that the last load read now holds
+// another policy file. It reads only state.json, so the proxy daemon checks
+// it at each tick. Without it the daemon keeps the old policy until its own
+// fetch is due, while another pmg process reports the new revision.
+func (s *Status) CacheMoved() bool {
+	if s == nil || !s.CloudOn || !s.PolicyOn || s.CacheDir == "" {
+		return false
+	}
+	store, err := configsync.NewStore(s.CacheDir)
+	if err != nil {
+		return false
+	}
+	state, err := store.State()
+	if err != nil {
+		return false
+	}
+	seen := ""
+	if s.CacheState != nil {
+		seen = s.CacheState.Digest
+	}
+	return state.Digest != seen
+}
+
 // RejectedReason tells why pmg did not apply the last policy that it
 // fetched, when the state is REJECTED.
 func (s *Status) RejectedReason() string {

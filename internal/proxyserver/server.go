@@ -562,6 +562,7 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 					LockTimeout: cloudSyncTickLockWait,
 					Timeout:     cloudSyncTickTimeout,
 				})
+				reloadIfCacheMoved(cfg, policy)
 				if err != nil {
 					if errors.Is(err, audit.ErrSyncInProgress) {
 						log.Debugf("periodic cloud sync skipped: another sync in progress")
@@ -570,7 +571,6 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 					}
 					continue
 				}
-				reloadIfCacheMoved(cfg, policy, res)
 				if res.EventsErr != nil {
 					log.Warnf("periodic cloud sync failed: %v", res.EventsErr)
 					continue
@@ -591,25 +591,21 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 }
 
 // reloadIfCacheMoved reloads the policy when the cache holds another policy
-// than the one that the daemon applies. Another pmg process, such as pmg
-// cloud sync or a background child, can commit a new policy. The next fetch
-// of the daemon then sends the digest of that cache and gets NOT_MODIFIED,
-// so the status of the fetch alone never shows the change. It reports
-// whether it reloaded.
-func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime, res *cloudsync.Result) bool {
-	if res == nil || res.Policy == nil {
-		return false
-	}
-	applied := ""
-	if a := policy.Current().Applied(); a != nil {
-		applied = a.Digest
-	}
-	if res.Policy.Digest == applied {
+// than the one that the last load read. Another pmg process, such as pmg
+// cloud sync or a background child, can commit a new policy and report it on
+// check-in. The daemon checks at each tick, not only after its own fetch, so
+// it applies that policy within one tick. It reports whether it reloaded.
+func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) bool {
+	if !policy.Status().CacheMoved() {
 		return false
 	}
 
 	st := policy.Reload(cfg)
-	log.Infof("Periodic cloud sync: cloud policy state %s, revision %d", st.State, res.Policy.Revision)
+	var revision uint64
+	if st.Applied != nil {
+		revision = st.Applied.Revision
+	}
+	log.Infof("Periodic cloud sync: cloud policy state %s, revision %d", st.State, revision)
 	return true
 }
 

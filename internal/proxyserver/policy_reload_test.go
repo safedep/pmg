@@ -8,7 +8,6 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	cpt "github.com/safedep/pmg/internal/cloudpolicy/cloudpolicytest"
-	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +28,8 @@ func writeReloadCache(t *testing.T, cfg *config.RuntimeConfig, revision uint64, 
 	return state.Digest
 }
 
-func TestReloadIfCacheMoved(t *testing.T) {
+func newReloadConfig(t *testing.T) *config.RuntimeConfig {
+	t.Helper()
 	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
 	config.Reload()
 	t.Cleanup(config.Reload)
@@ -37,28 +37,38 @@ func TestReloadIfCacheMoved(t *testing.T) {
 	cfg.Config.Cloud.Enabled = true
 	cfg.Config.Cloud.Policy = true
 	cfg.Config.Cloud.EndpointID = reloadEndpointID
+	return cfg
+}
 
+func TestReloadIfCacheMoved(t *testing.T) {
+	cfg := newReloadConfig(t)
 	digest48 := writeReloadCache(t, cfg, 48, "pkg:npm/first")
 	rt := &cloudpolicy.Runtime{}
 	rt.LoadAtStartForTenant(cfg, "")
 	rt.Publish(cfg)
 	require.Equal(t, digest48, rt.Current().Applied().Digest)
 
-	notModified := func(digest string, revision uint64) *cloudsync.Result {
-		return &cloudsync.Result{PolicyRan: true, Policy: &configsync.FetchResult{
-			Status: configsync.FetchNotModified, Digest: digest, Revision: revision,
-		}}
-	}
+	assert.False(t, reloadIfCacheMoved(cfg, rt), "the daemon applies the cache already")
 
-	assert.False(t, reloadIfCacheMoved(cfg, rt, notModified(digest48, 48)), "the daemon applies the cache already")
-	assert.False(t, reloadIfCacheMoved(cfg, rt, &cloudsync.Result{}), "no fetch ran")
-
-	// Another pmg process commits revision 49. The fetch of the daemon sends
-	// the digest of 49 and gets NOT_MODIFIED.
-	digest49 := writeReloadCache(t, cfg, 49, "pkg:npm/second")
-	assert.True(t, reloadIfCacheMoved(cfg, rt, notModified(digest49, 49)))
+	// Another pmg process commits revision 49 and reports it on check-in.
+	// The daemon applies it at its next tick, with no fetch of its own.
+	writeReloadCache(t, cfg, 49, "pkg:npm/second")
+	assert.True(t, reloadIfCacheMoved(cfg, rt))
 
 	assert.Equal(t, uint64(49), rt.Current().Applied().Revision)
 	_, blocked := rt.Current().Block(packagev1.Ecosystem_ECOSYSTEM_NPM, "second", "1.0.0")
 	assert.True(t, blocked, "the daemon applies the policy that another process fetched")
+
+	assert.False(t, reloadIfCacheMoved(cfg, rt), "the next tick does not load the same cache again")
+}
+
+func TestReloadIfCacheMovedWithCloudPolicyOff(t *testing.T) {
+	cfg := newReloadConfig(t)
+	cfg.Config.Cloud.Policy = false
+	writeReloadCache(t, cfg, 48, "pkg:npm/first")
+	rt := &cloudpolicy.Runtime{}
+	rt.LoadAtStartForTenant(cfg, "")
+	rt.Publish(cfg)
+
+	assert.False(t, reloadIfCacheMoved(cfg, rt), "pmg reads no cache with cloud.policy off")
 }
