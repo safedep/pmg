@@ -39,7 +39,7 @@ profile. See [github-action.md](../../docs/github-action.md).
 
 You can create custom sandbox policies by:
 
-1. Copying one of the built-in profiles
+1. Creating a child of a built-in profile with `pmg sandbox profile init <name> --from <builtin> --package-manager <pm>`
 2. Modifying the rules to suit your needs
 3. Referencing the custom profile in your PMG config:
 
