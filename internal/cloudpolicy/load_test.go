@@ -40,6 +40,7 @@ func TestLoadDisabled(t *testing.T) {
 			cfg.Config.Cloud.Enabled = tt.cloudOn
 			cfg.Config.Cloud.Policy = tt.policyOn
 			cfg.Config.BlockedPackages = []config.BlockedPackage{{Purl: "pkg:npm/local-evil"}}
+			require.NoError(t, config.PreprocessPackageRefs(&cfg.Config))
 
 			st := Load(cfg, testTenant)
 

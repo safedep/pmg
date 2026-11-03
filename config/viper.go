@@ -50,7 +50,7 @@ func loadViperConfig() error {
 	if err := ValidateProxyServerNetworkMode(merged.Proxy.Server.NetworkMode); err != nil {
 		return err
 	}
-	if _, err := BlockedPackageRules(merged.BlockedPackages, configPath); err != nil {
+	if err := parseBlockedPackages(&merged); err != nil {
 		return err
 	}
 

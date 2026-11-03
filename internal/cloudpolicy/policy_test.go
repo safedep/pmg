@@ -26,6 +26,7 @@ func TestPolicyDecisions(t *testing.T) {
 		cloudpolicytest.Trust("r_expired", "pkg:npm/old", "", time.Now().Add(-time.Hour), corev1.TrustScope_TRUST_SCOPE_MALWARE),
 	), 48)
 	cfg.Config.BlockedPackages = []config.BlockedPackage{{Purl: "pkg:npm/@local/*", Reason: "local"}}
+	require.NoError(t, config.PreprocessPackageRefs(&cfg.Config))
 	p := newPolicy(Load(cfg, testTenant), cfg.Config.DependencyCooldown)
 
 	pypi := packagev1.Ecosystem_ECOSYSTEM_PYPI

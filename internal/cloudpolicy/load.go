@@ -153,10 +153,7 @@ func Load(cfg *config.RuntimeConfig, tenant string) *Status {
 		CacheDir: cfg.CloudPolicyCacheDir(),
 	}
 
-	local, err := config.BlockedPackageRules(cfg.Config.BlockedPackages, cfg.ConfigFilePath())
-	if err != nil {
-		log.Debugf("cloud policy: blocked_packages is invalid: %v", err)
-	}
+	local := cfg.BlockedRules()
 
 	if cfg.CloudPolicyEnabled() && cfg.ConfigDir() != "" {
 		loadCache(cfg, st)

@@ -6,7 +6,6 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
-	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/policy/match"
 	"github.com/safedep/pmg/config"
 )
@@ -148,11 +147,7 @@ func (p *Policy) Rules() []match.Rule {
 // the config and the rules of blocked_packages. An entry that does not parse
 // is a load error that stops each install, so it adds no rule here.
 func FromConfig(cfg *config.RuntimeConfig) *Policy {
-	local, err := config.BlockedPackageRules(cfg.Config.BlockedPackages, cfg.ConfigFilePath())
-	if err != nil {
-		log.Debugf("cloud policy: blocked_packages is invalid: %v", err)
-	}
-	index, _ := newIndex(nil, local)
+	index, _ := newIndex(nil, cfg.BlockedRules())
 	return &Policy{index: index, Cooldown: cfg.Config.DependencyCooldown}
 }
 

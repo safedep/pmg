@@ -17,6 +17,7 @@ import (
 	sandboxutil "github.com/safedep/pmg/sandbox/util"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/policy/match"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/errcodes"
@@ -90,6 +91,9 @@ type Config struct {
 	// BlockedPackages are the packages that PMG blocks at download, whatever
 	// the verdict of the malware analysis is.
 	BlockedPackages []BlockedPackage `mapstructure:"blocked_packages"`
+
+	// blockedRules are BlockedPackages as package rules, parsed at load.
+	blockedRules []match.Rule
 
 	// AdvisoryMessage is an optional org-specific message appended to every
 	// block output, regardless of which control blocked the installation.

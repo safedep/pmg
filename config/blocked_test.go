@@ -32,7 +32,7 @@ func TestBlockedPackageRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rules, err := BlockedPackageRules([]BlockedPackage{tt.entry}, "/etc/pmg.yml")
+			rules, err := BlockedPackageRules([]BlockedPackage{tt.entry})
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				var blockedErr *BlockedPackagesError
@@ -44,7 +44,7 @@ func TestBlockedPackageRules(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, rules, 1)
 			assert.Equal(t, match.EffectBlock, rules[0].Effect)
-			assert.Equal(t, match.Origin{Kind: match.OriginLocal, Path: "/etc/pmg.yml"}, rules[0].Origin)
+			assert.Equal(t, match.Origin{Kind: match.OriginLocal}, rules[0].Origin)
 			assert.Equal(t, LocalRuleID(tt.entry.Purl, tt.entry.Vers), rules[0].ID)
 		})
 	}
@@ -54,9 +54,9 @@ func TestLocalRuleIDDoesNotDependOnTheOrder(t *testing.T) {
 	a := BlockedPackage{Purl: "pkg:npm/a"}
 	b := BlockedPackage{Purl: "pkg:npm/b", Vers: "vers:npm/<2.0.0"}
 
-	forward, err := BlockedPackageRules([]BlockedPackage{a, b}, "")
+	forward, err := BlockedPackageRules([]BlockedPackage{a, b})
 	require.NoError(t, err)
-	backward, err := BlockedPackageRules([]BlockedPackage{b, a}, "")
+	backward, err := BlockedPackageRules([]BlockedPackage{b, a})
 	require.NoError(t, err)
 
 	assert.Equal(t, forward[0].ID, backward[1].ID)
@@ -117,4 +117,12 @@ blocked_packages:
 		Vers:   "vers:npm/>=1.2.0|<2.0.0",
 		Reason: "IR-2291 credential stealer",
 	}}, Get().Config.BlockedPackages)
+
+	rules := Get().BlockedRules()
+	require.Len(t, rules, 1)
+	assert.Equal(t, LocalRuleID("pkg:npm/evil", "vers:npm/>=1.2.0|<2.0.0"), rules[0].ID)
+	assert.Equal(t, match.Origin{Kind: match.OriginLocal, Path: Get().ConfigFilePath()}, rules[0].Origin)
+
+	Get().Config.BlockedPackages = nil
+	assert.Len(t, Get().BlockedRules(), 1, "the rules come from the load, not from a parse at each read")
 }

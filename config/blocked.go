@@ -45,12 +45,11 @@ func (e *BlockedPackagesError) Unwrap() error {
 	return e.err
 }
 
-// BlockedPackageRules returns the package rules of blocked_packages. path is
-// the config file that sets the list. A block message names it. Each rule
+// BlockedPackageRules returns the package rules of blocked_packages. Each rule
 // has the id "local:" and the first 12 hex characters of the SHA-256 of the
 // PURL, a newline and the range, so the id does not change when the order of
 // the list changes.
-func BlockedPackageRules(entries []BlockedPackage, path string) ([]match.Rule, error) {
+func BlockedPackageRules(entries []BlockedPackage) ([]match.Rule, error) {
 	rules := make([]match.Rule, 0, len(entries))
 	var errs []error
 	for i, entry := range entries {
@@ -60,7 +59,7 @@ func BlockedPackageRules(entries []BlockedPackage, path string) ([]match.Rule, e
 			PURL:   entry.Purl,
 			Vers:   entry.Vers,
 			Reason: entry.Reason,
-			Origin: match.Origin{Kind: match.OriginLocal, Path: path},
+			Origin: match.Origin{Kind: match.OriginLocal},
 		}
 
 		if entry.Purl == "" {
@@ -78,6 +77,30 @@ func BlockedPackageRules(entries []BlockedPackage, path string) ([]match.Rule, e
 		return nil, &BlockedPackagesError{err: errors.Join(errs...)}
 	}
 	return rules, nil
+}
+
+// parseBlockedPackages parses blocked_packages into the rules of cfg. pmg
+// parses the list once for each config load, and every reader takes the
+// rules from RuntimeConfig.BlockedRules.
+func parseBlockedPackages(cfg *Config) error {
+	rules, err := BlockedPackageRules(cfg.BlockedPackages)
+	if err != nil {
+		cfg.blockedRules = nil
+		return err
+	}
+	cfg.blockedRules = rules
+	return nil
+}
+
+// BlockedRules returns the rules of blocked_packages, with the active config
+// file as their origin. A block message names that file.
+func (r *RuntimeConfig) BlockedRules() []match.Rule {
+	rules := make([]match.Rule, len(r.Config.blockedRules))
+	for i, rule := range r.Config.blockedRules {
+		rule.Origin.Path = r.configFilePath
+		rules[i] = rule
+	}
+	return rules
 }
 
 // LocalRuleID returns the rule id of a blocked_packages entry.
