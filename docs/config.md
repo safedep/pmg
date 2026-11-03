@@ -37,6 +37,46 @@ See [config template](../config/config.template.yml) for the configuration schem
 
 Custom npm, PyPI, Go and Cargo registry endpoints are configured under `proxy.registries` (a list, so edit the config file directly or use `pmg config edit` rather than `pmg config set`). Invalid entries fail closed: install commands and `pmg proxy start` refuse to run until the file is fixed, while `pmg config` and other non-install commands keep working. See [Custom Registries](proxy-mode.md#custom-registries).
 
+## Blocked Packages
+
+`blocked_packages` lists packages that PMG blocks at download, whatever the malware analysis says. A
+blocked package wins over `trusted_packages` and over `--insecure-installation`:
+
+```yaml
+blocked_packages:
+  - purl: pkg:npm/evil                  # a PURL, or a prefix that ends with "/*" or ".*"
+    vers: "vers:npm/>=1.2.0|<2.0.0"     # optional. Not with a version in the PURL
+    reason: "IR-2291 credential stealer"  # optional. Shown in the block message
+```
+
+An entry that does not parse fails closed, as an invalid `proxy.registries` entry does. On a managed
+endpoint only the managed config sets the list.
+
+## Cloud Policy
+
+With `cloud.policy: true` inside `cloud.enabled: true`, PMG applies the policy that your security
+admin sets in SafeDep Cloud: block entries, trust entries and the dependency cooldown.
+
+```bash
+pmg config set cloud.policy true
+```
+
+- PMG fetches the policy in the background after a command, at most every 5 minutes, also when
+  `cloud.auto_sync.enabled` is false. `pmg cloud sync` fetches it at once.
+- PMG keeps the policy in `cloud-policy/` in the config directory. When the fetch fails or you log
+  out, PMG keeps the last policy that it applied.
+- A block entry of the policy wins over every trust entry, `trusted_packages` and
+  `--insecure-installation`. A trust entry never skips the malware analysis and never allows
+  verified malware.
+- When the policy sets the dependency cooldown, PMG ignores `PMG_DEPENDENCY_COOLDOWN_*` and refuses
+  `--skip-dependency-cooldown`.
+- Under `global_lockdown: true`, the policy does not change a key that the managed config sets. To
+  turn off all cloud content on a managed endpoint, set `cloud.policy: false` in the managed config.
+- With `cloud.policy` on, PMG ignores the exclusions of the malware analysis. Create trust entries
+  instead.
+
+`pmg setup doctor` and `pmg setup info --json` show the applied revision and the age of the cache.
+
 ## Environment Variables
 
 Any configuration key can be overridden using environment variables, without modifying the config
