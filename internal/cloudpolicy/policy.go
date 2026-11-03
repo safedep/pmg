@@ -73,10 +73,14 @@ func (p *Policy) Block(ecosystem packagev1.Ecosystem, name, version string) (Rul
 }
 
 // TrustMalware returns the cloud trust entry with scope MALWARE that waives a
-// malware verdict that is not verified. pmg never asks it for verified
-// malware. The verified malware guard of match holds anyway.
-func (p *Policy) TrustMalware(ecosystem packagev1.Ecosystem, name, version string) (RuleMatch, bool) {
-	return p.trust(ecosystem, name, version, match.ScopeMalware, match.VerdictMalware)
+// malware verdict. For a verified verdict it returns none: the verified
+// malware guard of match decides that.
+func (p *Policy) TrustMalware(ecosystem packagev1.Ecosystem, name, version string, verified bool) (RuleMatch, bool) {
+	verdict := match.VerdictMalware
+	if verified {
+		verdict = match.VerdictVerifiedMalware
+	}
+	return p.trust(ecosystem, name, version, match.ScopeMalware, verdict)
 }
 
 // TrustCooldown returns the cloud trust entry with scope COOLDOWN that

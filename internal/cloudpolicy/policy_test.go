@@ -60,10 +60,13 @@ func TestPolicyDecisions(t *testing.T) {
 				assert.Contains(t, block.Rule.ID, tt.wantBlock)
 			}
 
-			malware, ok := p.TrustMalware(tt.ecosystem, tt.pkg, tt.version)
+			malware, ok := p.TrustMalware(tt.ecosystem, tt.pkg, tt.version, false)
 			assert.Equal(t, tt.wantMalware != "", ok)
 			assert.Equal(t, tt.wantMalware, malware.Rule.ID)
 			assert.Equal(t, tt.wantMalware, malware.Citation.GetRuleId())
+
+			_, ok = p.TrustMalware(tt.ecosystem, tt.pkg, tt.version, true)
+			assert.False(t, ok, "no trust entry waives verified malware")
 
 			cooldown, ok := p.TrustCooldown(tt.ecosystem, tt.pkg, tt.version)
 			assert.Equal(t, tt.wantCool != "", ok)

@@ -61,12 +61,10 @@ func (b *baseRegistryInterceptor) policy() *cloudpolicy.Policy {
 	return currentPolicy(b.execContext.Policy)
 }
 
-// policyBlock blocks the artifact when a block entry of the cloud policy or of
-// blocked_packages matches it. A block entry needs no network and no
-// verdict, so it runs before every other step. It wins over every trust
-// entry, over trusted_packages and over --insecure-installation. pmg checks
-// the index for each request and keeps no rule result in a cache, so a block
-// that arrives later applies to a package that pmg screened before.
+// policyBlock runs before every other step, because a block entry needs no
+// verdict and wins over every trust entry, trusted_packages and
+// --insecure-installation. Its result is never cached, so a block that
+// arrives later applies to a package that pmg screened before.
 func (b *baseRegistryInterceptor) policyBlock(
 	ctx *proxy.RequestContext,
 	ecosystem packagev1.Ecosystem,
@@ -113,25 +111,26 @@ func (b *baseRegistryInterceptor) policyBlock(
 	}, true
 }
 
-// trustedByPolicy allows a malware verdict that is not verified when a cloud
-// trust entry with scope MALWARE matches. It runs only after pmg has the
-// verdict, so a trust entry never skips the query. It also waives a verdict
-// that paranoid turned into a block. No trust entry waives verified malware.
+// trustedByPolicy runs only after the malware query, so a trust entry never
+// skips the query. It also waives a verdict that paranoid turned into a
+// block.
 func (b *baseRegistryInterceptor) trustedByPolicy(
 	ctx *proxy.RequestContext,
 	ecosystem packagev1.Ecosystem,
 	name, version string,
 	result *analyzer.PackageVersionAnalysisResult,
 ) (*proxy.InterceptorResponse, bool) {
-	if !result.IsMalware || result.IsVerified {
+	if !result.IsMalware {
 		return nil, false
 	}
 	if result.Action != analyzer.ActionConfirm && result.Action != analyzer.ActionBlock {
 		return nil, false
 	}
 
-	m, ok := b.policy().TrustMalware(ecosystem, name, version)
-	if !ok {
+	// match refuses every trust entry for verified malware. pmg checks the
+	// verdict again, so a bug in one place cannot allow verified malware.
+	m, ok := b.policy().TrustMalware(ecosystem, name, version, result.IsVerified)
+	if !ok || result.IsVerified {
 		return nil, false
 	}
 
