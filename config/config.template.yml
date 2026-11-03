@@ -34,8 +34,8 @@ advisory_message: ""
 # PMG intercepts package manager requests through a local proxy and analyzes
 # packages in real-time as they are downloaded.
 proxy:
-  # When true, only install commands are proxied. Other commands
-  # (e.g., npm ls, pip list) bypass the proxy and execute directly.
+  # When true, known non-download commands (e.g., npm ls, pip list)
+  # bypass the proxy. Unknown commands still use it.
   install_only: false
 
   # Per-package-manager commands to skip proxying (only applies when install_only is true).
@@ -176,7 +176,7 @@ sandbox:
 
   # Controls scope of sandbox enforcement:
   # - true: sandbox applies to all package manager commands
-  # - false (default): sandbox only applies to install commands, others run unrestricted
+  # - false (default): known non-download commands run without the sandbox
   # Requires 'enabled: true' and per-PM policies to be active. May break workflows expecting unrestricted commands.
   enforce_always: false
 

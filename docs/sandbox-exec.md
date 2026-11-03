@@ -2,6 +2,7 @@
 
 `pmg sandbox exec` runs any program inside the PMG sandbox. The program keeps its own exit code.
 On the Landlock driver, a program that a signal kills makes pmg exit with code 255.
+A signal that also reaches pmg, such as Ctrl+C without a PTY, stops pmg itself.
 PMG runs the program in a PTY when stdin and stdout are a terminal, PMG runs in the foreground, and `CI` is not `true`.
 Its stderr then reaches the terminal on the stdout stream, so `2>` does not capture it.
 PMG applies credential denies, environment scrubbing, and write restrictions with the limits below.
@@ -44,7 +45,7 @@ denials. The value is in the deny rules:
   Other project hook files remain writable under the checkout grant.
   Examples include `.cursor/hooks.json`, `.codex/hooks.json`, and `.codex/config.toml`.
   The Codex preset also leaves `~/.codex/config.toml` writable, including inline hooks.
-  The Claude preset leaves `~/.claude.json` writable. Its MCP server entries run commands on the next start.
+  The Claude preset leaves `~/.claude.json` writable. The MCP server entries in that file run commands on the next Claude Code start.
   The preset also leaves `~/.claude/plugins` writable. An installed plugin can carry hooks.
   A hook write can install future command execution or disable a security layer such as [Gryph](https://github.com/safedep/gryph).
 
@@ -128,7 +129,7 @@ Clearing verdicts does not authenticate violation reports or stop a live writer.
 See [Manage](caching.md#manage).
 
 Default PMG configuration and sandbox directories have explicit write denies.
-These denies do not follow `PMG_CONFIG_DIR`.
+These denies do not follow `PMG_CONFIG_DIR` or, on Linux, `XDG_CONFIG_HOME`.
 Keep relocated policy state outside all writable grants, or add explicit write denies for it.
 A config directory under the checkout or temp grant can let the child change later profiles and overlays.
 
@@ -174,7 +175,8 @@ config file.
 
 Under [managed lockdown](config.md#lockdown), user presets and overlays do not apply.
 PMG refuses runtime profile and sandbox-allow overrides and saved allowance commands.
-An administrator must create the profile file, register its path under `sandbox.policy_templates`, and map `sandbox.policies.exec` to that template.
+An administrator must create the profile file and map `sandbox.policies.exec` to it.
+The value can be a `sandbox.policy_templates` name, an absolute path, or a path next to the global config file.
 A template value is a file path, not inline profile YAML.
 
 ## Network
@@ -253,8 +255,8 @@ keeps it for the repository.
 Landlock and Seatbelt apply `network_via_proxy_only`. Bubblewrap does not, and refuses the `exec`
 profile.
 For Bubblewrap, create a child profile with `network_via_proxy_only: false`.
-That workaround loses direct outbound confinement. `pmg sandbox doctor` says
-which in the `Exec network path` row.
+That workaround loses direct outbound confinement. `pmg sandbox doctor` shows in its
+`Exec network path` row whether the selected driver can run the `exec` profile.
 
 The `exec` profile sets `allow_network_bind`, so the drivers keep loopback open and `NO_PROXY`
 sends it around the proxy.
@@ -266,7 +268,8 @@ A child profile may set `network_via_proxy_only: false`. The program then gets t
 environment only, a program that ignores the variables goes around the policy, and the report
 under `enforce` says so.
 
-A proxy connection has a wall-clock limit of 24 hours. A long agent session keeps its model API
+A plain HTTP request through the proxy has a limit of 24 hours. A CONNECT tunnel has no time
+limit. A long agent session keeps its model API
 connection. A program that pins the model API by address needs an exact address rule when the
 profile sets `deny_ip_literals`.
 
@@ -307,7 +310,7 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
 - On Landlock, when a non-root user runs pmg, the supervisor cannot read the memory of a
   non-dumpable process. The supervisor then denies the trapped exec and file syscalls of that
   process. Under network lockdown, it also denies `connect`, `sendmsg`, and a `sendto` that names a
-  destination. gpg-agent and ssh-agent make themselves non-dumpable. Bubblewrap does not read
+  destination. ssh-agent makes itself non-dumpable. Bubblewrap does not read
   process memory. To use Bubblewrap, set `PMG_SANDBOX_DRIVER=bubblewrap` and use a child profile
   with `network_via_proxy_only: false`. That child loses direct outbound confinement.
 - `git worktree add` and `git worktree remove` are not supported yet. A new worktree lands

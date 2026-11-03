@@ -32,7 +32,7 @@ such as `.claude`, `.cursor`, `.devcontainer`, `.idea` and `.husky`.
 - **Credential and sensitive file protection**: The sandbox blocks read and write access to known list of credential files by default.
 - **Git hooks are always blocked**: Read and write access to `.git/hooks/` in both `$CWD` and `$HOME` is always denied to prevent arbitrary code execution via repository hooks. A repository that sets `core.hooksPath` to a directory inside the working tree (for example, husky sets `.husky/_`) is not covered. That directory is writable under the default profiles. Git does not read `.git/hooks` there. The `.git/config` deny stops a package from setting `core.hooksPath` itself.
 - **Git config is blocked by default**: Read and write access to `.git/config` is denied unless `allow_git_config: true` is set in the policy. This prevents credential helper manipulation. To let git read the file, add an exact `${CWD}/.git/config` entry to `allow_read`. The `git` preset adds this entry and also allows writes under `.git`. The `exec` profile already has this entry.
-- **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files inside the project, and writes to `.git`, `.github/workflows` and `.vscode` at the project root. On macOS, files inside a nested credential directory such as `sub/.aws` can stay readable. The whole `.git` directory is write-denied unless `allow_git_config: true` is set, because hooks and config also live under `.git/modules` and `.git/worktrees`. The `git` preset opts out with an exact `${CWD}/.git` entry while the top-level hooks and config stay denied. Submodule hooks and config under `.git/modules` can become writable with this opt-out.
+- **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files inside the project, and writes to `.git`, `.github/workflows` and `.vscode` at the project root. On macOS, files inside a nested credential directory such as `sub/.aws` can stay readable. The whole `.git` directory is write-denied unless `allow_git_config: true` is set, because hooks and config also live under `.git/modules` and `.git/worktrees`. The `git` preset opts out with an exact `${CWD}/.git` entry while the top-level hooks stay denied and config stays write-denied. Submodule hooks and config under `.git/modules` can become writable with this opt-out.
 - **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, PMG removes equal entries after path expansion.
   An identical glob override can remove a glob deny such as `/etc/**`.
   A narrower path cannot remove a broader glob deny. An exact-match entry in `allow_read` or `allow_write` (policy or runtime) opts out of the mandatory deny for that credential file. `.git/hooks` does not accept opt-outs.
@@ -163,9 +163,10 @@ CLI. Use HTTPS remotes, or a custom profile that sets `allow_unix_sockets: true`
 set it. With `network_via_proxy_only`, `allow_unix_sockets` lets traffic go around the proxy
 through a host socket, and `pmg sandbox profile lint` warns about it.
 
-On Ubuntu 24.04 and later, or on 23.10 with the restriction turned on, AppArmor also refuses a
-connect to a host socket from the Landlock driver's user namespace. This refusal applies also with
-`allow_unix_sockets: true`. Install the pmg AppArmor profile
+Ubuntu 24.04 and later restrict unprivileged user namespaces with AppArmor by default.
+Ubuntu 23.10 does the same when `kernel.apparmor_restrict_unprivileged_userns` is 1.
+Under this restriction, AppArmor refuses a connect to a host socket from the Landlock driver's
+user namespace. The refusal also applies when the sandbox profile sets `allow_unix_sockets: true`. Install the pmg AppArmor profile
 described in [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
 to lift that restriction for pmg.
 
@@ -332,9 +333,10 @@ pmg sandbox explain --last
 pmg sandbox profile show npm --resolved
 ```
 
-This output does not include the profile that `sandbox.policies.npm.profile` names, the project
-overlay, `--sandbox-allow` overrides or the mandatory denies. Add `--driver` to see the mandatory
-denies.
+The `--resolved` output shows the built-in `npm` profile. It does not apply the profile or
+template that `sandbox.policies.npm.profile` names. It also leaves out the project overlay, the
+`--sandbox-allow` overrides, the network flags, the linked-worktree grants and the mandatory
+denies. Add `--driver` to see the mandatory denies.
 
 `pmg sandbox doctor` runs platform-specific checks for the current host. It checks the driver that
 PMG uses, so a driver that PMG does not use cannot fail it. Add `--driver` to check another driver.
@@ -618,7 +620,7 @@ instead of running with no enforcement. Examples are a `hidepid` proc mount,
 `kernel.yama.ptrace_scope=3`, and a hardening LSM. PMG does not fall back to Bubblewrap here.
 Bubblewrap may not be installed. At runtime the supervisor denies a trapped path or exec
 syscall when it cannot read the memory that holds the path. So a process cannot read a denied
-file by making its own memory unreadable. A non-dumpable process, such as gpg-agent or
+file by making its own memory unreadable. A non-dumpable process, such as
 ssh-agent, loses file access on the Landlock driver. See step 3. To avoid this, set
 `PMG_SANDBOX_DRIVER=bubblewrap`. Bubblewrap enforces at the mount layer and does not read
 process memory. Bubblewrap refuses a profile that sets `network_via_proxy_only`, such as
@@ -938,7 +940,7 @@ and [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime).
 
 PMG records Seatbelt denials in the violation cache. Inspect them with `pmg sandbox violations list`
 and `pmg sandbox explain --last`.
-Inspect native policy before running it with `pmg sandbox profile show npm --driver seatbelt`.
+Use `pmg sandbox profile show npm --driver seatbelt` to inspect the native policy before a run.
 
 To see every raw denial of a run, also the ones that PMG does not record after a clean run, run the
 command with debug logging:

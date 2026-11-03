@@ -41,7 +41,8 @@ A [globally managed config](config.md#globally-managed-configuration) replaces t
 Lockdown disables configuration environment overrides.
 Check `pmg setup info --json` before an experiment.
 Setup also writes outside the isolated paths.
-It changes shell startup files and writes shims to the user data directory.
+It writes shims to the user data directory.
+On macOS and Linux, it also changes shell startup files.
 On Windows, it changes the user `PATH`.
 On macOS or Linux, set `HOME` to a scratch directory and unset `XDG_DATA_HOME` before you test setup.
 
@@ -84,6 +85,6 @@ Do not depend on that variable for a permanent policy dump.
 
 Dependency changes have separate age gates.
 vet's dependency-cooldown control reports a version younger than 2 days as high severity.
-The [vet policy](../.github/vet/policy.yml) fails the check on each high finding.
+The [vet policy](../.github/vet/policy.yml) fails the check on each critical or high finding that a pull request adds.
 [pnpm-workspace.yaml](../pnpm-workspace.yaml) sets `minimumReleaseAge` to 4320 minutes.
 Treat suppressions as reviewed policy exceptions.

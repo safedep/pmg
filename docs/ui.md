@@ -15,7 +15,7 @@ The verbosity level can be set per-invocation using `--silent` or `--verbose` CL
 Use `PMG_VERBOSITY` for aliases and shims.
 For example, `PMG_VERBOSITY=silent npm install express` selects the PMG level through a POSIX shell alias.
 A [locked global config](config.md#lockdown) ignores `PMG_VERBOSITY`.
-The `--silent` and `--verbose` flags still apply.
+The `--silent` and `--verbose` flags of a direct `pmg` command still apply.
 `--silent` and `--verbose` are mutually exclusive.
 The local `pmg sandbox profile lint --verbose` flag adds info-level lint issues instead of changing global UI verbosity.
 
@@ -42,12 +42,12 @@ UI messages are displayed in the user interface, currently in the terminal. Foll
 | `ShowWarning` warnings | Shown | Shown | Shown |
 | Malware block and its advisory | Shown | Shown | Shown with package detail |
 | Suspicious-package prompt on an interactive TTY | Shown | Shown | Shown |
-| Cooldown-only, insecure-bypass, and network-policy execution reports | Hidden | Shown when that outcome applies | Detailed for cooldown and insecure bypass. A network-policy denial adds only the one-run `--sandbox-allow` option. |
+| Cooldown-only, insecure-bypass, and network-policy execution reports | Hidden | Shown when that outcome applies | Detailed for cooldown and insecure bypass. An enforced network-policy denial adds only the one-run `--sandbox-allow` option. |
 
 This table describes the shared UI and report helpers.
 Other commands can print directly.
+`pmg sandbox exec` prints its network denial report in every UI level.
 Verbose output adds the execution report, flagged-package summaries, and withheld cooldown versions.
-For a network-policy denial, verbose also shows the `--sandbox-allow` option for one run.
 
 A suspicious-package prompt defaults to refusal.
 The helper accepts a trimmed case-insensitive answer beginning with `y`.
@@ -92,5 +92,5 @@ APP_LOG_LEVEL=debug APP_LOG_FILE=/tmp/pmg-debug.log pmg npm install express
 
 The `APP_LOG_*` example writes only to the file.
 The root `--log` option also redirects event-log entries into that file.
-It disables the default daily event-log directory for that process.
-Profile proposal commands that read the daily directory cannot discover those redirected runs.
+It disables the default event-log directory for that process.
+Profile proposal commands that read the event-log directory cannot discover those redirected runs.

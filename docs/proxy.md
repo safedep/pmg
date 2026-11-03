@@ -57,7 +57,7 @@ Use the network policy for destination refusal before decryption.
 | Action | Effect |
 | --- | --- |
 | `ActionAllow` or nil response | Continue to other interceptors and upstream. |
-| `ActionBlock` | Stop immediately. The default status is 403. The proxy uses `BlockMessage` when it is not empty. Otherwise it uses the `BlockMessageRenderer` result. If that is empty, it uses a default message. |
+| `ActionBlock` | Stop immediately. The default status is 403. The proxy uses `BlockMessage` when it is not empty. Otherwise it uses the result of `BlockMessageRenderer`, when one is set. If that is empty, it uses a default message. |
 | `ActionModifyRequest` | Replace headers when supplied. `ModifiedBody` has no effect. |
 | `ActionModifyResponse` | Register one response modifier. Another interceptor can replace it. Modifiers do not form a chain. |
 
@@ -168,6 +168,7 @@ CONNECT dialing supports HTTP, HTTPS, and SOCKS5 upstream proxies.
 Loopback destinations bypass the upstream proxy.
 With the default dialer, the proxy refuses to dial its own listeners.
 A custom `UpstreamDialContext` replaces that dialer and its check.
+A redirected plain HTTP request that names a loopback address or a listener of the proxy is still refused.
 Retries apply only to GET, HEAD, or OPTIONS requests without a body while the request context is live.
 Retries remain subject to the transport timeouts.
 TLS connections that the proxy establishes use TLS 1.2 or later and verify system roots by default.

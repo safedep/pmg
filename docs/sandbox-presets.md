@@ -68,7 +68,7 @@ package_managers: [pnpm]
 presets: [git, astro]
 ```
 
-Use `pmg setup info` to find the config directory.
+`pmg setup info` shows the config file. With a per-user config, its directory is the config directory.
 Linux normally uses `~/.config/safedep/pmg`.
 macOS uses `~/Library/Application Support/safedep/pmg`.
 Select the custom profile through `sandbox.policies.pnpm.profile: pnpm-custom`, or with `--sandbox-profile pnpm-custom` for one run.

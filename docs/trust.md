@@ -45,6 +45,7 @@ Pin a reviewed image digest when you need a stable image identity.
 See [Docker build attestations](https://docs.docker.com/build/metadata/attestations/) for the registry provenance format.
 
 For a local source build, disable cgo as the release build does.
+The example uses a POSIX shell.
 
 ```sh
 CGO_ENABLED=0 go build -o ./bin/pmg ./main.go
@@ -102,7 +103,8 @@ Use the actual downloaded path for each verification command.
 `@safedep/pmg` is a launcher.
 An optional platform package contains the executable.
 Check both package layers.
-Run the real `npm` for each command in this section, not the PMG shim or alias.
+Run the real `npm` for each command in this section.
+Do not run it through the PMG alias or shim. For example, call `npm` by its full path.
 Dependency cooldown can hide a new release.
 Set `VERSION` to the release you installed.
 Without a version, `npm view` reads the `latest` dist-tag.
@@ -144,7 +146,8 @@ model consists of the following layers:
 
 PMG currently uses SafeDep as its threat intelligence source.
 When the analyzer fails, PMG allows the artifact through the malware check.
-Paranoid mode blocks suspicious verdicts and registry requests that PMG cannot identify.
+Paranoid mode blocks suspicious verdicts.
+It also blocks most registry reads that PMG cannot identify.
 It does not turn analyzer errors into blocks.
 Other controls can still reject the request.
 See [analysis behavior](proxy-mode.md#how-pmg-identifies-a-package).

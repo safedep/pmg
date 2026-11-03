@@ -40,13 +40,14 @@ pmg config set cloud.enabled true
 See [config template](../config/config.template.yml) for the configuration schema.
 PMG ignores unknown keys without a warning. Check spelling and nesting after every edit.
 A YAML syntax error or a value that PMG cannot decode can discard the whole file.
-PMG then ignores the file and uses a compiled-in fallback.
+PMG then uses a compiled-in fallback and shows no warning.
+This can disable configured sandbox or paranoid protection.
 The fallback is not the config template.
 It trusts no package and has no sandbox policies.
-It also ignores `PMG_*` overrides, except `PMG_INSECURE_INSTALLATION`.
-PMG shows no warning.
-This can disable configured sandbox or paranoid protection.
-`pmg config get` prints any key that the file sets, also a misspelled key.
+It also ignores most `PMG_*` overrides.
+`PMG_INSECURE_INSTALLATION` and `PMG_DISABLE_TELEMETRY` still apply.
+[Lockdown](#lockdown) blocks `PMG_INSECURE_INSTALLATION` in all cases.
+`pmg config get` prints each key that the file sets. This includes a misspelled key.
 After an edit, run it with the key name from the config template and check the value.
 If it prints `config not initialized`, PMG could not load the file and uses the compiled-in fallback.
 Write durations such as `168h`. `7d` is not valid.
@@ -113,7 +114,7 @@ See [Proxy Mode](proxy-mode.md#removed-disabling-proxy-interception).
 # Enable paranoid mode without editing the config file
 PMG_PARANOID=true pmg npm install express
 
-# Restrict proxy to install commands only
+# Skip the proxy for known non-download commands
 PMG_PROXY_INSTALL_ONLY=true pmg npm install express
 ```
 
@@ -185,7 +186,7 @@ pmg config get --system proxy.server.enforce.ports
 same ownership checks as `pmg setup install --system`.
 On Windows, use an administrator terminal and omit `sudo`. `get` works for any user.
 Creating this file changes configuration for every account on the machine.
-PMG then ignores each user's per-user file and refuses per-user `config set` and `config edit`.
+PMG then ignores each user's per-user file.
 Use `--system` only for an intended machine-wide baseline. Under `sudo`
 without `--system`, `edit` and `set` refuse and name both files, instead of changing root's
 per-user config in silence. When a managed config exists, they refuse without `--system` for
@@ -265,7 +266,7 @@ See [Proxy policy overrides](persistent-proxy.md#network-policy) and
 PMG reads `global_lockdown` directly from the global file.
 Environment variables and CLI flags cannot change this switch.
 If a trusted path's file is unreadable or its YAML cannot be parsed, PMG treats it as locked
-and uses defaults. A file that parses but cannot decode uses defaults and retains only the
+and uses the compiled-in fallback. A file that parses but cannot decode uses the compiled-in fallback and retains only the
 lockdown state that the YAML boolean selected.
 A path that fails the ownership or reachability check is ignored instead, as described above.
 Invalid decoded registries and network modes fail closed.

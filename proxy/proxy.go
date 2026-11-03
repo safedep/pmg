@@ -85,9 +85,10 @@ type ProxyConfig struct {
 
 	// ServerReadWriteTimeout is the timeout applied to the http.Server's
 	// ReadTimeout and WriteTimeout. net/http clears these deadlines on
-	// Hijack(), so they apply to plain HTTP proxy requests and not to CONNECT
-	// tunnels. RequestTimeout governs individual upstream round-trips for
-	// MITM'd connections.
+	// Hijack(), so they do not limit CONNECT tunnels. They apply to each
+	// request the server reads, including TLS-terminated transparent
+	// connections. Splices never reach the server. RequestTimeout bounds only
+	// the wait for upstream response headers.
 	//
 	// If zero, defaults to 30 minutes.
 	ServerReadWriteTimeout time.Duration

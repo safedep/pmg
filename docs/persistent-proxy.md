@@ -111,8 +111,8 @@ pmg proxy status   # report whether a proxy runs, and which network policy it ap
 `pmg proxy <command> --help` lists the flags. `--daemon` works on Unix only.
 On Windows use the foreground `pmg proxy start`, and stop it with Ctrl+C in
 that terminal. `pmg proxy stop` and `status` do not work on Windows.
-`pmg proxy stop` deletes the state file of a running proxy and fails. The
-proxy continues to run. `pmg proxy env` and `pmg proxy stop` then cannot
+There, `pmg proxy stop` deletes the state file of a running proxy. Then it
+fails, and the proxy continues to run. `pmg proxy env` and `pmg proxy stop` then cannot
 find it.
 
 To run more than one proxy on a host, give each its own `--state` path.
@@ -220,9 +220,9 @@ The daemon does not analyze these fetches:
 A Cargo `http.proxy` in `.cargo/config.toml`, `CARGO_HTTP_PROXY` or the git
 configuration has priority over `HTTPS_PROXY`, so cargo can go around the
 daemon. Under kernel enforcement this is possible when that other proxy
-listens on a port that the kernel does not route. A proxy at a skip
-destination, such as a loopback address, also goes around it. See
-[Eligibility](#eligibility).
+listens on a port that the kernel does not route. Cargo's connection to a
+proxy at a loopback address or at an address in `skip_destinations` is
+also not routed. See [Eligibility](#eligibility).
 
 cargo reads `CARGO_HTTP_CAINFO`, which `pmg proxy env` prints. Under
 enforcement cargo trusts the system trust store.
@@ -970,9 +970,10 @@ reaches the registry directly.
 - One proxy per state file. On Unix, a second foreground start on the same
   state file fails while one runs. A second `--daemon` start does not start
   a new proxy. It prints the address and pid of the daemon that already
-  runs and exits `0`. PMG ignores the flags of the second start. With
-  `--enforce`, the second start runs the enforcement checks first. It fails
-  with `EnforceAlreadyActive` when a daemon already enforces the same
+  runs. Then it exits `0`. The flags of the second start do not change the
+  running daemon. The second start still checks its network flags and fails
+  on a bad flag. With `--enforce`, it also runs the enforcement checks. It
+  fails with `EnforceAlreadyActive` when a daemon already enforces the same
   cgroup. Run `pmg proxy stop` first.
 - Without `--enforce`, routing depends on the variables, and a process that
   drops or ignores them bypasses the proxy. Use

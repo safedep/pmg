@@ -99,13 +99,14 @@ It sets `PMG_CLOUD_AUTO_SYNC_ENABLED=true` in server mode and `false` in shim mo
 It also exports `PMG_CLOUD_ENDPOINT_ID`, with `gha/<owner>/<repo>` as its default.
 These variables override the corresponding `config-file` values.
 Use `endpoint-id` to set another identity.
+With `sandbox: true` and an empty `sandbox-driver`, the action also exports `PMG_SANDBOX_DRIVER=landlock`.
 
 The JavaScript boolean inputs accept only case-insensitive `true` as true.
 Other nonempty values, including `yes` and `1`, are false.
 This includes `auto-stop`, `fail-on-violation`, `baseline`, `sandbox`, `expose-to-job-network`, and `skip-event-logging`.
 A typo can disable the job-end gate.
 Use lowercase `true` or `false` for these inputs.
-Use exactly lowercase `true` for `cache` and `sandbox`. The shell scripts check these values separately.
+Use exactly lowercase `true` for `cache`, `sandbox`, and `skip-event-logging`. The shell scripts and PMG check these values separately.
 
 | Input | Effect when set | PMG default if empty |
 |---|---|---|
@@ -298,7 +299,7 @@ enforcement and says so in the log. Any other failure of the enforced start
 fails the action.
 Examples include a port outside 1 to 65535, an invalid CIDR, or an unknown user in `enforce`.
 PMG ignores unknown keys.
-A value with the wrong YAML type can make PMG discard the whole file and use defaults without a visible warning.
+A value with the wrong YAML type can make PMG discard the whole file and use the compiled-in fallback without a visible warning.
 Check the active policy with `sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE"`.
 See [config failure behavior](config.md).
 When the job sets an `enforce-*` input and the action cannot enforce, the
@@ -396,6 +397,7 @@ network:
     - "*:*"
 ```
 
+Under kernel enforcement, the runner's traffic to GitHub also goes through the proxy.
 See [Runner traffic](#runner-traffic). The built-in `github-actions` profile
 allows the hosts of the runner, its agents, GitHub releases, and the cache
 and artifact storage, so a profile that inherits it does not list them. Run
@@ -693,7 +695,7 @@ See [docs/config.md](./config.md) for the full mapping.
 | Runner | Supported |
 |---|---|
 | `ubuntu-latest`, `ubuntu-24.04` (x86_64) | Yes |
-| `ubuntu-22.04` (x86_64) | Repository action CI does not test it. |
+| `ubuntu-22.04` (x86_64) | Not verified by the repository action CI. Test the image and enforcement mode before use. |
 | `ubuntu-24.04-arm`, `ubuntu-22.04-arm` (arm64) | The installer supports arm64. Repository action CI does not test it. |
 | Other labels, including `ubuntu-26.04`, `ubuntu-26.04-arm`, and `ubuntu-slim` | Not verified by the repository action CI. Test the image and enforcement mode before use. |
 | A job container on a Linux runner, Alpine on x86_64 included | Yes. See [Job containers and Docker actions](#job-containers-and-docker-actions). |

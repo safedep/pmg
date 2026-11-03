@@ -55,10 +55,11 @@ trusted_packages:
     reason: Approved Cargo version
 ```
 
-### PURL matching
-
 The launcher entry does not cover PMG's platform-specific optional dependencies.
 Those package names receive their own checks.
+
+### PURL matching
+
 Trust works for npm, PyPI, Go, and Cargo.
 An accepted PURL of another type does not add a supported ecosystem.
 
@@ -70,10 +71,13 @@ Cargo folds names to lowercase and treats `-` and `_` as the same.
 Go module paths remain case-sensitive.
 Use the actual Go version, including its `v` prefix.
 
-PMG ignores an invalid PURL and shows no warning, also with `--debug`.
-The `trusted packages` count in the `--debug` output also counts the invalid entry.
+PMG ignores an invalid PURL. PMG shows no warning, even with `--debug`.
+The `trusted packages` count in the `--debug` output includes invalid entries.
 `pmg config get` displays raw values and does not prove that each PURL parsed.
 
+### Audit records
+
 When event logging is enabled, PMG records `install_trusted_allowed` for each trusted artifact.
-Cloud sync can translate and deliver that event when configured.
+Insecure installation mode records `install_insecure_bypass` instead.
+Cloud sync can translate and deliver either event when configured.
 Do not assume every exemption has a retained remote record when logging or delivery is disabled.

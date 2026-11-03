@@ -19,7 +19,7 @@ A tenant exclusion is a SafeDep Cloud entry that allows one flagged package vers
 PMG applies it only to authenticated queries.
 See [trusted packages](trusted-packages.md) and [How PMG identifies a package](#how-pmg-identifies-a-package).
 
-When PMG does not prompt and `CI` is absent, PMG sets `CI=true` for the package manager.
+When PMG proxies a command without a prompt and `CI` is absent, PMG sets `CI=true` for the package manager.
 An explicit `CI=false` stays unchanged.
 `CI=false` does not make PMG prompt.
 
@@ -57,7 +57,7 @@ proxy:
 
 PMG matches the first non-flag argument under the exact package-manager name.
 For example, `pnpm dev` matches `dev`, but `pnpm install dev` does not.
-PMG treats a flag value as a non-flag argument. In `pnpm --filter web dev`, the first non-flag argument is `web`.
+PMG does not know which flags take a value. In `pnpm --filter web dev`, the first non-flag argument is `web`.
 `npm run dev` matches `run`.
 An `npm: ["run"]` entry skips every npm script.
 A `pip` entry does not cover `pip3` or `pipx`.
@@ -79,7 +79,7 @@ The child receives PMG's proxy address instead.
 Loopback destinations bypass the upstream proxy.
 For TLS connections that PMG makes, add private roots to the system trust store, or set `SSL_CERT_FILE` in PMG's environment.
 When `SSL_CERT_FILE` is set on macOS or Windows, PMG uses only that file.
-`GODEBUG=x509sslcertoverrideplatform=0` keeps PMG on the system store.
+On macOS and Windows, set `GODEBUG=x509sslcertoverrideplatform=0` in PMG's environment to keep PMG on the system store. PMG's own connections then ignore `SSL_CERT_FILE`.
 On Linux, PMG also reads the system certificate directories, such as `/etc/ssl/certs`.
 Set `SSL_CERT_DIR` to replace those directories.
 For an opaque tunnel, the client validates the destination certificate.
@@ -265,8 +265,7 @@ Use `--debug` or `--log <file>` to see it.
 
 **A vendor-specific PyPI project page is not recognized.** The metadata path must use one of the standard layouts above. PMG does not guess that an arbitrary `<base>/<project>/` path is project metadata unless the base ends in `/simple` or `/+simple`.
 Distribution file downloads under the matched endpoint are still analyzed.
-Paranoid mode returns HTTP 403 for an unrecognized project page unless insecure installation is active.
-The install then fails.
+Paranoid mode blocks the project page. See [PyPI registry requirements](#pypi-registry-requirements).
 
 **An artifact is never analyzed.** Compare its URL with the configured endpoint origin and base path. A Host Observation in the audit log means the artifact used an unknown origin: add that origin as an endpoint. A non-matching path on a configured origin passes through without a Host Observation: correct the base path or add a disjoint endpoint.
 
@@ -288,7 +287,7 @@ PMG rejects these values:
 - Endpoint paths with empty or dot segments (`/npm//team`, `/npm/../team`), which can never match real traffic
 - At proxy startup, an endpoint whose host is covered by a built-in registry (for example `registry.npmjs.org`, `pypi.org`, `proxy.golang.org`, `sum.golang.org`, `index.crates.io`, `static.crates.io`, or their subdomains). PMG already analyzes these hosts, or never decrypts them, as with `sum.golang.org`
 
-The error names the registry and the specific problem. An empty name has no registry name to report, so the error names the entry position instead, for example `proxy.registries[0]`. While the error stands, commands that run intercepted traffic (`pmg <pkg-manager>` installs, `pmg proxy start`) fail closed, because a fallback to defaults would silently drop the configured protection. Commands such as `pmg config`, `pmg setup doctor`, and `pmg version` still work, so you can repair the file with PMG itself.
+The error names the registry and the specific problem. An empty name has no registry name to report, so the error names the entry position instead, for example `proxy.registries[0]`. While the error stands, commands that run intercepted traffic (`pmg <pkg-manager>` installs, `pmg proxy start`) fail closed, because a fallback to the compiled-in configuration would silently drop the configured protection. Commands such as `pmg config`, `pmg setup doctor`, and `pmg version` still work, so you can repair the file with PMG itself.
 
 Host Observations use event type `proxy_host_observed` in `YYYYMMDD-pmg.log` JSON-lines files.
 PMG names each file for the day the process starts.
@@ -304,7 +303,7 @@ jq -c 'select(.event_type == "proxy_host_observed") | .details' <logs-dir>/*-pmg
 ```
 
 `skip_event_logging` disables the default event writer.
-The root `--log <file>` option redirects diagnostics and events to one file instead of the daily directory.
+The root `--log <file>` option redirects diagnostics and events to one file instead of the event-log directory.
 With `skip_event_logging` on, that file gets diagnostics only.
 See [configuration paths](config.md).
 
@@ -326,7 +325,7 @@ For Cargo, read the `[registries]` and `[source]` tables of each `.cargo/config.
 pip applies the global, user, and site files, then the `PIP_CONFIG_FILE` file.
 Later files override earlier files.
 When the `PIP_CONFIG_FILE` file exists, pip does not read the user file.
-It also lists active `PIP_*` environment variables under its `env_var:` section. An environment variable such as `PIP_INDEX_URL` overrides every config file.
+`pip config debug` also lists active `PIP_*` environment variables under its `env_var:` section. An environment variable such as `PIP_INDEX_URL` overrides every config file.
 See [pip configuration](https://pip.pypa.io/en/stable/topics/configuration/).
 
 uv does not read pip configuration.

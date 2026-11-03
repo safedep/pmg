@@ -37,7 +37,7 @@ The built-in exec profile permits writes to the default cache directories.
 
 Persists **benign** Malysis (malware analysis) verdicts on disk, so a package
 version that was already screened is not re-analyzed on a later download while its cached verdict is valid.
-Only the Malysis analyzer has a disk cache today.
+Only the Malysis analyzer has a disk cache.
 
 Only benign verdicts are cached on disk, and each entry expires after a TTL.
 PMG never persists malicious, suspicious, or tenant-excluded verdicts.
@@ -60,7 +60,7 @@ This includes block, suspicious, and tenant-excluded results.
 It also includes the allow for a package that SafeDep has not analyzed yet.
 That cache has no TTL. The `analysis_cache` settings do not control it.
 A short disk TTL or a disabled disk cache does not refresh these memory entries.
-Restart the daemon to apply a new malware verdict or tenant exclusion.
+Restart the daemon to drop these memory entries. When the disk cache is on, also clear it. See [Manage](#manage).
 
 ### Enable
 
@@ -89,7 +89,7 @@ See [Configuration](config.md) for managed files and overrides.
 Use a Go duration with a unit, such as `30m`, `24h`, or `168h`.
 `7d`, `1w`, and a quoted nonzero number without a unit are invalid.
 An unquoted YAML integer represents nanoseconds. A nonpositive TTL disables disk reuse.
-A duration decode error can make PMG use defaults for the whole configuration.
+A duration decode error can make PMG use the compiled-in fallback for the whole configuration.
 After an edit, run `pmg setup cache status` and check the reported TTL.
 
 A new process applies the current TTL to existing rows.

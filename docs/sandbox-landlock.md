@@ -26,7 +26,7 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
    pmg main ──fork+exec──► pmg __landlock_sandbox_exec      [helper, unfiltered]
                                   │ runs supervisor loop
                                   │
-                          clone(CLONE_NEWUSER, uid=caller→caller)
+                          clone(CLONE_NEWUSER, uid=caller→caller, root→65533)
                                   │
                                   ▼
                            pmg __landlock_shim              [locked exec thread,
@@ -43,7 +43,7 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
 ```
 
 The helper has no seccomp filter. Its own syscalls never wait for the supervisor.
-The helper reads `/proc/<pid>/mem` of a descendant to resolve the path of a trapped syscall.
+The helper reads `/proc/<pid>/mem` of a descendant to read the path or the socket address of a trapped syscall.
 For a non-root caller, this works only for a dumpable descendant.
 
 ### Code layout
@@ -334,6 +334,9 @@ These are the known holes in the current enforcement, in approximate priority or
 - **`allow_unix_sockets` opens every unix socket.** The kernel filter cannot read a
   socket path, so the choice is all or nothing. With the default, glibc NSS modules that
   use a socket (systemd-resolved, nscd) fail and glibc falls back to files and DNS.
+- **`allow_network_bind` also opens loopback port 53.** The supervisor allows a connect to
+  every loopback port under that flag. A loopback DNS resolver is then reachable without
+  `allow_direct_dns`.
 - **TOCTOU on the sockaddr.** A second thread in the target can rewrite the address
   between the memory read of the supervisor and the `CONTINUE`d syscall in the kernel.
   This is the same class as the `openat` TOCTOU. It is adequate for benign install
@@ -422,8 +425,7 @@ a constant cost. That cost explains most of the decisions above:
   The driver buffers at most 512 events, including operational events, and deduplicates captured denials.
   Environment scrubs and proxy denials have independent reporting paths.
 - **Kernel denials leave no violation record.** The Landlock allow-list, the syscalls in the
-  kernel deny list, a refused unix socket and a foreign-ABI kill all act in the kernel. The
-  supervisor never sees them, so
-  `pmg sandbox violations list` does not list them.
+  kernel deny list, a refused unix socket and a foreign-ABI kill all act in the kernel.
+  The supervisor never sees them. `pmg sandbox violations list` does not list them.
 - **The filter does not trap metadata writes.** `chmod`, `chown` and `utimensat` on a
   protected path go through Landlock only. Landlock does not govern them.

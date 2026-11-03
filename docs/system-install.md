@@ -30,7 +30,7 @@ What the MSI does:
 - The PATH entry for the directory of `pmg.exe` stays after uninstall, as after `pmg setup remove --system`.
 - An upgrade under a running `pmg.exe` renames the running file to `pmg.exe.old.<product code>` and installs the new file at once. The process keeps the old build until it restarts.
 - `msiexec` can return 3010 (restart required) for such an upgrade. The new file is in place and no restart is needed. An MDM can map 3010 to success for this package.
-- The next upgrade or the uninstall deletes old backups. A backup that a process still holds stays. The next upgrade deletes it after that process exits. After an uninstall, an administrator must delete it.
+- The next upgrade or the uninstall deletes old backups. A backup that a process still holds stays. The next upgrade deletes it if that process has exited. After an uninstall, it stays until an administrator deletes it or a later MSI install runs.
 - For a running executable of the installed build, Windows Installer can defer deletion of the locked file until restart.
 - An edge release ships an MSI too, listed as `pmg (edge)`. It replaces a stable install of the same version, and the next stable build replaces it.
 
