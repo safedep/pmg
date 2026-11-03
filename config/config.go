@@ -87,6 +87,10 @@ type Config struct {
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
 	TrustedPackages []TrustedPackage `mapstructure:"trusted_packages"`
 
+	// BlockedPackages are the packages that PMG blocks at download, whatever
+	// the verdict of the malware analysis is.
+	BlockedPackages []BlockedPackage `mapstructure:"blocked_packages"`
+
 	// AdvisoryMessage is an optional org-specific message appended to every
 	// block output, regardless of which control blocked the installation.
 	AdvisoryMessage string `mapstructure:"advisory_message"`
@@ -155,6 +159,10 @@ type CloudConfig struct {
 	Enabled    bool                `mapstructure:"enabled"`
 	EndpointID string              `mapstructure:"endpoint_id"`
 	AutoSync   CloudAutoSyncConfig `mapstructure:"auto_sync"`
+
+	// Policy applies the cloud policy of the tenant. It applies only when
+	// Enabled is true.
+	Policy bool `mapstructure:"policy"`
 }
 
 // CloudAutoSyncConfig controls opportunistic background sync of the cloud
@@ -489,6 +497,24 @@ func (r *RuntimeConfig) CloudCheckInLastRunPath() string {
 	return filepath.Join(r.configDir, "cloud-checkin.lastrun")
 }
 
+// CloudPolicyCacheDir returns the folder of the cloud policy cache. It is in
+// the config folder, because the OS can purge a cache folder.
+func (r *RuntimeConfig) CloudPolicyCacheDir() string {
+	return filepath.Join(r.configDir, "cloud-policy")
+}
+
+// CloudPolicyLastRunPath returns the path of the timestamp file of the last
+// policy fetch attempt, in Unix epoch seconds.
+func (r *RuntimeConfig) CloudPolicyLastRunPath() string {
+	return filepath.Join(r.configDir, "cloud-policy.lastrun")
+}
+
+// CloudPolicyEnabled reports whether PMG applies the cloud policy:
+// cloud.policy is on inside cloud.enabled.
+func (r *RuntimeConfig) CloudPolicyEnabled() bool {
+	return r.Config.Cloud.Enabled && r.Config.Cloud.Policy
+}
+
 // ConfigFilePath returns the path to the active config file (the globally
 // managed file when present, otherwise the per-user file).
 func (r *RuntimeConfig) ConfigFilePath() string {
@@ -813,8 +839,8 @@ func InitError() error {
 var configLoadErr error
 
 // LoadError returns the error that made configuration loading fail closed,
-// or nil. An invalid proxy.registries entry and an invalid
-// sandbox.network_mode set this, since falling back to defaults would
+// or nil. An invalid proxy.registries entry, an invalid blocked_packages
+// entry and an invalid sandbox.network_mode set this, since falling back to defaults would
 // silently drop a protection the user configured; every other load failure
 // still warns and continues.
 func LoadError() error {
@@ -875,6 +901,11 @@ func loadConfig() error {
 	var modeErr *NetworkModeError
 	if errors.As(err, &modeErr) {
 		return NewInvalidNetworkModeError(modeErr)
+	}
+
+	var blockedErr *BlockedPackagesError
+	if errors.As(err, &blockedErr) {
+		return NewInvalidBlockedPackagesError(err)
 	}
 
 	log.Warnf("Failed to load config, using defaults: %v", err)

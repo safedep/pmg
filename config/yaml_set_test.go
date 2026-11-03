@@ -106,6 +106,20 @@ func Test_setValueInYAML(t *testing.T) {
 			wantErr: "key not found",
 		},
 		{
+			name:     "add a template key that an older file does not hold",
+			input:    "cloud:\n  enabled: true\n  auto_sync:\n    enabled: true\nparanoid: false\n",
+			key:      "cloud.policy",
+			value:    "true",
+			expected: "cloud:\n  enabled: true\n  auto_sync:\n    enabled: true\n  policy: true\nparanoid: false\n",
+		},
+		{
+			name:    "an added template key keeps its type",
+			input:   "cloud:\n  enabled: true\n",
+			key:     "cloud.policy",
+			value:   "yes",
+			wantErr: "expected true or false",
+		},
+		{
 			name:    "error when setting non-leaf node",
 			input:   "cloud:\n  enabled: false\n",
 			key:     "cloud",
