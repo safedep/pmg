@@ -97,8 +97,11 @@ func (r *Runtime) LoadAtStartForTenant(cfg *config.RuntimeConfig, tenant string)
 func (r *Runtime) Publish(cfg *config.RuntimeConfig) {
 	st := r.status.Load()
 	if st == nil {
-		st = Load(cfg, "")
-		r.status.Store(st)
+		// An internal command, such as a sandbox helper, loads no cache. It
+		// runs for each sandboxed process, so it applies only
+		// blocked_packages.
+		r.current.Store(FromConfig(cfg))
+		return
 	}
 	r.current.Store(newPolicy(st, cfg.Config.DependencyCooldown))
 }

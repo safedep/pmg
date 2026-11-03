@@ -305,3 +305,20 @@ func TestRuntimeLoadAtStartRecordsTheCloudKeys(t *testing.T) {
 	assert.Equal(t, cfg.Config.DependencyCooldown, rt.Current().Cooldown)
 	assert.Same(t, st, rt.Status())
 }
+
+func TestRuntimePublishWithNoLoadAppliesOnlyTheLocalRules(t *testing.T) {
+	cfg := newTestConfig(t)
+	writeCache(t, cfg, cloudpolicytest.Policy(blockEvil()), 48)
+	cfg.Config.BlockedPackages = []config.BlockedPackage{{Purl: "pkg:npm/local-evil"}}
+	require.NoError(t, config.PreprocessPackageRefs(&cfg.Config))
+
+	rt := &Runtime{}
+	rt.Publish(cfg)
+
+	assert.Nil(t, rt.Status(), "an internal command loads no cache")
+	assert.Nil(t, rt.Current().Applied())
+	_, blocked := rt.Current().Block(npm, "evil", "1.0.0")
+	assert.False(t, blocked)
+	_, blocked = rt.Current().Block(npm, "local-evil", "1.0.0")
+	assert.True(t, blocked)
+}
