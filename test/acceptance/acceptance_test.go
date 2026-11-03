@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,15 +16,19 @@ import (
 	"testing"
 	"time"
 
+	specv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/spec/v1"
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudauth"
+	"github.com/safedep/pmg/internal/cloudpolicy/cloudpolicytest"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/safedep/pmg/sandbox"
 	sandboxplatform "github.com/safedep/pmg/sandbox/platform"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/prototext"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 func TestAcceptance(t *testing.T) {
@@ -100,13 +105,18 @@ func TestAcceptance(t *testing.T) {
 					if err := isolateHome(env); err != nil {
 						return err
 					}
-					switch category {
-					case enforceCategory:
+					switch {
+					case category == enforceCategory:
 						return isolateEnforcement(env, pmgBin)
-					case trustStoreCategory:
+					case category == trustStoreCategory:
 						return isolateTrustStore(env, pmgBin)
+					case relDir == cloudPolicyDir:
+						return isolateManagedConfig(env)
 					}
 					return nil
+				},
+				Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
+					"policy-cache": cmdPolicyCache,
 				},
 				Condition: func(cond string) (bool, error) {
 					switch cond {
@@ -125,6 +135,8 @@ func TestAcceptance(t *testing.T) {
 						return exec.Command("docker", "info").Run() == nil, nil
 					case "truststore":
 						return trustStoreEnabled(), nil
+					case "root":
+						return os.Geteuid() == 0, nil
 					default:
 						return false, fmt.Errorf("unknown testscript condition %q", cond)
 					}
@@ -146,6 +158,81 @@ const (
 
 	trustStoreCleanupTimeout = 2 * time.Minute
 )
+
+// cloudPolicyDir holds the scripts of the cloud policy. They run with no
+// cloud fetch: policy-cache writes the policy cache that pmg applies.
+const cloudPolicyDir = "cloud/policy"
+
+var managedConfigSerial sync.Mutex
+
+// isolateManagedConfig runs the cloud policy scripts one at a time and
+// restores the managed config when a script ends, also when it fails. A
+// script that tests global_lockdown writes the managed config, and the file
+// governs every later pmg run on the host.
+func isolateManagedConfig(env *testscript.Env) error {
+	managedConfigSerial.Lock()
+	saved, err := saveManagedConfig(config.SystemConfigFilePath())
+	if err != nil {
+		managedConfigSerial.Unlock()
+		return err
+	}
+	env.Defer(func() {
+		defer managedConfigSerial.Unlock()
+		saved.restore()
+	})
+	return nil
+}
+
+// cmdPolicyCache writes the policy cache of pmg from a resolved policy in the
+// text format:
+//
+//	policy-cache [-revision N] [-unknown-field N] <config dir> <policy.textproto>
+//
+// The header names the tenant acceptance.safedep.io and the machine id that
+// pmg derives from $PMG_CLOUD_ENDPOINT_ID, so pmg applies the cache with no
+// cloud login. -unknown-field adds a varint field that the contract does not
+// know to package_admission.
+func cmdPolicyCache(ts *testscript.TestScript, neg bool, args []string) {
+	if neg {
+		ts.Fatalf("unsupported: ! policy-cache")
+	}
+
+	flags := flag.NewFlagSet("policy-cache", flag.ContinueOnError)
+	revision := flags.Uint64("revision", 48, "the tenant policy revision")
+	unknownField := flags.Int("unknown-field", 0, "a field number of package_admission that the contract does not know")
+	ts.Check(flags.Parse(args))
+	if flags.NArg() != 2 {
+		ts.Fatalf("usage: policy-cache [-revision N] [-unknown-field N] <config dir> <policy.textproto>")
+	}
+
+	policy := &specv1.ResolvedPolicy{}
+	ts.Check(prototext.Unmarshal([]byte(ts.ReadFile(flags.Arg(1))), policy))
+	if *unknownField > 0 {
+		admission := policy.GetSpec().GetPackageAdmission()
+		if admission == nil {
+			ts.Fatalf("policy-cache: -unknown-field needs a package_admission")
+		}
+		b := protowire.AppendTag(nil, protowire.Number(*unknownField), protowire.VarintType)
+		b = protowire.AppendVarint(b, 1)
+		m := admission.ProtoReflect()
+		m.SetUnknown(append(m.GetUnknown(), b...))
+	}
+
+	endpointID := ts.Getenv("PMG_CLOUD_ENDPOINT_ID")
+	if endpointID == "" {
+		ts.Fatalf("policy-cache: set PMG_CLOUD_ENDPOINT_ID, so the header names the machine of pmg")
+	}
+	machineID, err := cloudpolicytest.MachineID(endpointID)
+	ts.Check(err)
+
+	dir := filepath.Join(ts.MkAbs(flags.Arg(0)), "cloud-policy")
+	ts.Check(cloudpolicytest.Write(dir, policy, cloudpolicytest.Header{
+		Tenant:                "acceptance.safedep.io",
+		MachineID:             machineID,
+		Revision:              *revision,
+		DefaultPolicyRevision: 12,
+	}))
+}
 
 var trustStoreSerial sync.Mutex
 

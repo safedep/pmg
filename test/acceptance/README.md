@@ -125,6 +125,24 @@ when its first path segment is `cloud`. The community-category scripts always us
 `community-api.safedep.io` path; only `cloud/...` scripts use the authenticated `api.safedep.io`
 path. Put an authenticated-path guarantee under `scripts/cloud/`.
 
+### Cloud policy cases
+
+The scripts under `scripts/cloud/policy/` run the real binary with no cloud fetch. The command
+`policy-cache` writes the policy cache of pmg from a resolved policy in the text format:
+
+```
+env PMG_CLOUD_ENDPOINT_ID=acceptance-policy
+policy-cache $WORK/config policy.textproto
+```
+
+The header of the cache names the tenant `acceptance.safedep.io` and the machine id that pmg derives
+from `PMG_CLOUD_ENDPOINT_ID`. Set it in each script, and clear `SAFEDEP_API_KEY` and
+`SAFEDEP_TENANT_ID`. With no login, pmg applies the cache and does not fetch. `-revision N` sets the
+revision. `-unknown-field N` adds a field that the contract does not know to `package_admission`.
+
+The harness runs these scripts one at a time and restores the managed config when a script ends. A
+script that writes the managed config guards on the `root` condition.
+
 ### Enforce cases
 
 The `enforce` category covers eBPF enforcement for the persistent proxy

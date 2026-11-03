@@ -392,6 +392,54 @@
   tier: P1
   guarantee: "A rejected proxy configuration records a PMG error source and configuration reason in the session summary."
   labels: [cloud, audit, error-reporting, offline]
+- id: cloud/policy/block-entry-blocks
+  title: "a block entry of the cloud policy blocks an install"
+  category: cloud
+  tier: P0
+  guarantee: "A cloud block entry stops npm install through pmg, also when a trust entry or trusted_packages matches. The message cites the revision and the rule."
+  labels: [cloud, policy, block]
+- id: cloud/policy/local-block-list
+  title: "blocked_packages blocks with no cloud"
+  category: cloud
+  tier: P1
+  guarantee: "blocked_packages blocks a package with no cloud. The message names the config file and the rule."
+  labels: [cloud, policy, block]
+- id: cloud/policy/trust-never-allows-verified-malware
+  title: "a trust entry never allows verified malware"
+  category: cloud
+  tier: P0
+  guarantee: "A trust entry of the cloud policy with every scope does not let pmg install verified malware."
+  labels: [cloud, policy, malware, block]
+- id: cloud/policy/lockdown-keeps-managed-key
+  title: "global_lockdown keeps a managed key against the cloud policy"
+  category: cloud
+  tier: P1
+  guarantee: "Under global_lockdown the cloud policy does not change a key that the managed config sets, and pmg reports the field as locked."
+  labels: [cloud, policy, managed, lockdown]
+- id: cloud/policy/flag-on-mandatory-key-fails
+  title: "a flag on a key that the cloud policy sets fails"
+  category: cloud
+  tier: P1
+  guarantee: "When the cloud policy sets the dependency cooldown, --skip-dependency-cooldown fails with a usage error that names the field and the revision."
+  labels: [cloud, policy, cooldown, offline]
+- id: cloud/policy/off-behaves-as-today
+  title: "cloud.policy off ignores the policy cache"
+  category: cloud
+  tier: P1
+  guarantee: "With cloud.policy off, pmg ignores the policy cache and installs as it does today."
+  labels: [cloud, policy]
+- id: cloud/policy/doctor-shows-revision
+  title: "doctor shows the applied policy revision"
+  category: cloud
+  tier: P1
+  guarantee: "pmg setup doctor shows the applied policy revision and the cache age, and warns when cloud.policy is on and no cache exists."
+  labels: [cloud, policy, doctor, offline]
+- id: cloud/policy/unknown-field-reported
+  title: "an unknown field of the cloud policy is reported"
+  category: cloud
+  tier: P2
+  guarantee: "pmg reports a field of the cloud policy that it does not know by its contract path, and applies the rest of the policy."
+  labels: [cloud, policy, offline]
 - id: cloud/analyzer/bad-creds-fall-back-to-community
   title: "invalid cloud creds fall back to community analyzer"
   category: cloud
