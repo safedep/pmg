@@ -116,7 +116,7 @@ func requirePathSearchableByAll(path string) error {
 }
 
 func requireRootOwnedPath(path string, info os.FileInfo) error {
-	uid, ok := fileOwnerUID(info)
+	uid, ok := platform.FileOwnerUID(info)
 	if !ok {
 		return fmt.Errorf("cannot determine owner of %s", path)
 	}
@@ -141,7 +141,7 @@ func requireSafeParentDir(dir string) error {
 		return fmt.Errorf("directory %s containing pmg executable is writable by others", dir)
 	}
 
-	uid, ok := fileOwnerUID(info)
+	uid, ok := platform.FileOwnerUID(info)
 	if !ok {
 		return fmt.Errorf("cannot determine owner of directory %s", dir)
 	}

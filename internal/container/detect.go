@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // engineSockets are the sockets where a rootful runtime serves the Docker
@@ -60,7 +61,12 @@ func candidateSockets(getenv func(string) string) []string {
 
 func detect(ctx context.Context, sockets []string) Introspector {
 	for _, socket := range sockets {
-		if _, err := os.Stat(socket); err != nil {
+		info, err := os.Stat(socket)
+		if err != nil {
+			continue
+		}
+		if !trustedOwner(info, os.Geteuid()) {
+			log.Debugf("container: %s is not owned by root, so it is not used", socket)
 			continue
 		}
 		client := newEngineClient(socket)
@@ -75,6 +81,17 @@ func detect(ctx context.Context, sockets []string) Introspector {
 		})
 	}
 	return nil
+}
+
+// trustedOwner reports whether root, or the account that runs the daemon,
+// owns a socket. The root daemon writes the names a runtime gives into audit
+// events, so a socket that another account owns, such as a rootless Docker
+// socket in DOCKER_HOST, could feed it false names. A rootless runtime keeps
+// its containers off the bridges of the host, so it names none anyway. ok is
+// false where the OS has no uid, and there the check does not apply.
+func trustedOwner(info os.FileInfo, euid int) bool {
+	uid, ok := platform.FileOwnerUID(info)
+	return !ok || uid == 0 || int64(uid) == int64(euid)
 }
 
 func probe(ctx context.Context, client *engineClient) (Runtime, error) {

@@ -195,6 +195,34 @@ func TestSnapshotWindowsStartWhenTheListCallReturns(t *testing.T) {
 	}
 }
 
+func TestSnapshotDoesNotBackOffForAnExpiredLookup(t *testing.T) {
+	clock := time.Unix(1000, 0)
+	calls := 0
+	// The Engine API client fails on an expired context, and so does this one.
+	list := func(ctx context.Context) (map[netip.Addr]Container, error) {
+		calls++
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return map[netip.Addr]Container{webAddr: web}, nil
+	}
+	s := newSnapshot(RuntimeDocker, list)
+	s.now = func() time.Time { return clock }
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, found, err := s.ContainerByAddress(expired, webAddr)
+	require.NoError(t, err)
+	assert.False(t, found)
+	assert.Zero(t, calls, "an expired lookup does not call the runtime")
+
+	clock = clock.Add(time.Second)
+	_, found, err = s.ContainerByAddress(context.Background(), webAddr)
+	require.NoError(t, err)
+	assert.True(t, found, "the next lookup lists, because no backoff started")
+	assert.Equal(t, 1, calls)
+}
+
 func TestSnapshotUnmapsAnIPv4MappedAddress(t *testing.T) {
 	clock := time.Unix(1000, 0)
 	l := &fakeLister{byAddr: map[netip.Addr]Container{webAddr: web}}

@@ -657,6 +657,8 @@ The daemon looks for Docker at `/var/run/docker.sock` and for Podman at
 `DOCKER_HOST` or `CONTAINER_HOST`. `sudo` drops these variables, so keep
 them with `sudo -E` or set them on the command line, as in
 `sudo DOCKER_HOST=unix:///srv/docker.sock pmg proxy start`. The daemon
+uses only a socket that root owns. A rootless runtime keeps its containers
+off the bridges of the host, so its socket names none. The daemon
 looks when it starts, and again every 10 seconds until a runtime answers.
 When no runtime answers, a row names the address, as in
 `container 172.17.0.2`.

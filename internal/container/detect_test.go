@@ -4,10 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,6 +66,30 @@ func TestCandidateSocketsAddsAUnixHostAfterTheDefaults(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := candidateSockets(func(name string) string { return tc.env[name] })
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestTrustedOwnerRefusesASocketOfAnotherAccount(t *testing.T) {
+	socket := fakeEngine(t, map[string]http.HandlerFunc{})
+	info, err := os.Stat(socket)
+	require.NoError(t, err)
+	uid, ok := platform.FileOwnerUID(info)
+	if !ok {
+		t.Skip("this OS has no uid")
+	}
+
+	cases := []struct {
+		name string
+		euid int
+		want bool
+	}{
+		{"the account that runs the daemon", int(uid), true},
+		{"another account", int(uid) + 1, uid == 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, trustedOwner(info, tc.euid))
 		})
 	}
 }
