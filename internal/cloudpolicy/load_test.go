@@ -323,3 +323,14 @@ func TestRuntimePublishWithNoLoadAppliesOnlyTheLocalRules(t *testing.T) {
 	_, blocked = rt.Current().Block(npm, "local-evil", "1.0.0")
 	assert.True(t, blocked)
 }
+
+func TestLoadWithNoConfigFolderReportsNone(t *testing.T) {
+	cfg := &config.RuntimeConfig{}
+	cfg.Config.Cloud.Enabled = true
+	cfg.Config.Cloud.Policy = true
+
+	st := Load(cfg, testTenant)
+
+	assert.Equal(t, recordv1.ApplyState_APPLY_STATE_NONE, st.State)
+	assert.Error(t, st.LoadErr)
+}

@@ -20,6 +20,10 @@ import (
 	"github.com/safedep/pmg/internal/platform"
 )
 
+// errNoConfigDir means that pmg could not resolve its config folder, which
+// holds the policy cache.
+var errNoConfigDir = errors.New("cloud policy: the config folder is not known")
+
 // StaleAfter is the age of the last successful fetch after which pmg reports
 // the cache as stale. It still applies a stale cache. From M2, cloud.yml sets
 // it.
@@ -155,7 +159,12 @@ func Load(cfg *config.RuntimeConfig, tenant string) *Status {
 
 	local := cfg.BlockedRules()
 
-	if cfg.CloudPolicyEnabled() && cfg.ConfigDir() != "" {
+	switch {
+	case !cfg.CloudPolicyEnabled():
+	case cfg.ConfigDir() == "":
+		st.State = recordv1.ApplyState_APPLY_STATE_NONE
+		st.LoadErr = errNoConfigDir
+	default:
 		loadCache(cfg, st)
 	}
 
@@ -219,14 +228,13 @@ func loadCache(cfg *config.RuntimeConfig, st *Status) {
 			return configsync.Accepted{}, nil
 		})
 
-		state, stateErr := store.State()
 		if err != nil {
 			// The first folder sets the status, so a sudo run that finds no
 			// cache in either folder reports the folder of the invoking user.
 			if i == 0 || st.CacheState == nil {
 				st.CacheDir = dir
 				st.LoadErr = err
-				if stateErr == nil {
+				if state, stateErr := store.State(); stateErr == nil {
 					st.CacheState = state
 				}
 			}
