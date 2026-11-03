@@ -653,7 +653,11 @@ in `container web (node:22)`. The audit events also carry the container ID
 and the image ID.
 
 The daemon looks for Docker at `/var/run/docker.sock` and for Podman at
-`/run/podman/podman.sock`. It looks once, when it starts. Start the runtime
+`/run/podman/podman.sock`. Then it tries a `unix://` socket in
+`DOCKER_HOST` or `CONTAINER_HOST`. `sudo` drops these variables, so keep
+them with `sudo -E` or set them on the command line, as in
+`sudo DOCKER_HOST=unix:///srv/docker.sock pmg proxy start`. The daemon
+looks once, when it starts. Start the runtime
 before `pmg proxy start`, or restart the daemon after the runtime starts. A
 `RUN` step of `docker build` names the builder, such as
 `container buildx_buildkit_builder0 (moby/buildkit:buildx-stable-1)`,

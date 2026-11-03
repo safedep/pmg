@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,4 +44,26 @@ func TestDetectDoesNotWaitForeverOnAHungSocket(t *testing.T) {
 	ins := detect(context.Background(), []string{hung, docker})
 	require.NotNil(t, ins)
 	assert.Equal(t, RuntimeDocker, ins.Runtime())
+}
+
+func TestCandidateSocketsAddsAUnixHostAfterTheDefaults(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want []string
+	}{
+		{"no variable", nil, engineSockets},
+		{"a Docker socket of its own", map[string]string{"DOCKER_HOST": "unix:///srv/docker.sock"}, append(slices.Clone(engineSockets), "/srv/docker.sock")},
+		{"a Podman socket of its own", map[string]string{"CONTAINER_HOST": "unix:///srv/podman.sock"}, append(slices.Clone(engineSockets), "/srv/podman.sock")},
+		{"a default path is not tried twice", map[string]string{"DOCKER_HOST": "unix:///var/run/docker.sock"}, engineSockets},
+		{"a TCP host is not used", map[string]string{"DOCKER_HOST": "tcp://10.0.0.5:2375"}, engineSockets},
+		{"an SSH host is not used", map[string]string{"CONTAINER_HOST": "ssh://core@10.0.0.5/run/podman/podman.sock"}, engineSockets},
+		{"a relative path is not used", map[string]string{"DOCKER_HOST": "unix://docker.sock"}, engineSockets},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := candidateSockets(func(name string) string { return tc.env[name] })
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
