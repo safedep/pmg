@@ -334,3 +334,34 @@ func TestLoadWithNoConfigFolderReportsNone(t *testing.T) {
 	assert.Equal(t, recordv1.ApplyState_APPLY_STATE_NONE, st.State)
 	assert.Error(t, st.LoadErr)
 }
+
+func TestCacheMovedChecksEachFolderThatTheLoadRead(t *testing.T) {
+	cfg := newTestConfig(t)
+	writeCache(t, cfg, cloudpolicytest.Policy(blockEvil()), 48)
+	st := Load(cfg, testTenant)
+	assert.False(t, st.CacheMoved(), "the cache did not change")
+
+	// Under sudo the folder of the invoking user comes first. The load saw
+	// no policy there.
+	invoking := filepath.Join(t.TempDir(), "cloud-policy")
+	st.seen[invoking] = ""
+	assert.False(t, st.CacheMoved())
+
+	require.NoError(t, cloudpolicytest.Write(invoking, cloudpolicytest.Policy(blockEvil()), cloudpolicytest.Header{
+		Tenant: testTenant, MachineID: testMachineID(t), Revision: 49,
+	}))
+	assert.True(t, st.CacheMoved(), "a policy in a folder that had none counts")
+
+	st.seen[invoking] = stateDigest(invoking)
+	writeCache(t, cfg, cloudpolicytest.Policy(blockEvil()), 50)
+	assert.True(t, st.CacheMoved(), "a new policy in the own folder counts")
+}
+
+func TestCacheMovedWithCloudPolicyOff(t *testing.T) {
+	cfg := newTestConfig(t)
+	cfg.Config.Cloud.Policy = false
+	st := Load(cfg, testTenant)
+	writeCache(t, cfg, cloudpolicytest.Policy(blockEvil()), 48)
+
+	assert.False(t, st.CacheMoved())
+}

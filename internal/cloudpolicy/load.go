@@ -68,6 +68,10 @@ type Status struct {
 
 	index            *match.Index
 	cooldownCitation *recordv1.DecisionCitation
+
+	// seen maps each cache folder that the load read, in priority order, to
+	// the digest of its state.json then, or "" when it had none.
+	seen map[string]string
 }
 
 // Exceptions returns the fields that pmg does not apply as the policy says:
@@ -104,27 +108,36 @@ func (s *Status) Exceptions() []*recordv1.FieldException {
 	return out
 }
 
-// CacheMoved reports whether the cache that the last load read now holds
+// CacheMoved reports whether a cache folder that the last load read now holds
 // another policy file. It reads only state.json, so the proxy daemon checks
 // it at each tick. Without it the daemon keeps the old policy until its own
-// fetch is due, while another pmg process reports the new revision.
+// fetch is due, while another pmg process reports the new revision. It checks
+// each folder, so under sudo a policy that appears in the folder of the
+// invoking user after the load also counts.
 func (s *Status) CacheMoved() bool {
-	if s == nil || !s.CloudOn || !s.PolicyOn || s.CacheDir == "" {
+	if s == nil || !s.CloudOn || !s.PolicyOn {
 		return false
 	}
-	store, err := configsync.NewStore(s.CacheDir)
+	for dir, digest := range s.seen {
+		if stateDigest(dir) != digest {
+			return true
+		}
+	}
+	return false
+}
+
+// stateDigest returns the digest that state.json in dir names, or "" when
+// the folder has no readable state.
+func stateDigest(dir string) string {
+	store, err := configsync.NewStore(dir)
 	if err != nil {
-		return false
+		return ""
 	}
 	state, err := store.State()
 	if err != nil {
-		return false
+		return ""
 	}
-	seen := ""
-	if s.CacheState != nil {
-		seen = s.CacheState.Digest
-	}
-	return state.Digest != seen
+	return state.Digest
 }
 
 // RejectedReason tells why pmg did not apply the last policy that it
@@ -221,7 +234,13 @@ func loadCache(cfg *config.RuntimeConfig, st *Status) {
 		storeOpts = append(storeOpts, configsync.WithTenant(st.Tenant))
 	}
 
-	for i, dir := range cacheDirs(cfg) {
+	dirs := cacheDirs(cfg)
+	st.seen = make(map[string]string, len(dirs))
+	for _, dir := range dirs {
+		st.seen[dir] = stateDigest(dir)
+	}
+
+	for i, dir := range dirs {
 		store, err := configsync.NewStore(dir, storeOpts...)
 		if err != nil {
 			st.LoadErr = err
