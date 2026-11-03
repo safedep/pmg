@@ -23,6 +23,10 @@ type flagSpec struct {
 	// true when the globally managed config governs this value
 	managed bool
 
+	// keys are the dotted config keys that the flag sets. A flag on a key
+	// that the cloud policy sets fails.
+	keys []string
+
 	// bind registers the flag on fs. It owns the type, target field, and default
 	// (read at bind time), keeping the flag tied to its config field with
 	// compile-time safety rather than a stringly-typed key.
@@ -38,24 +42,28 @@ var configFlagSpecs = []flagSpec{
 	},
 	{
 		name: "paranoid", usage: "Enable high-security defaults (treat suspicious as malicious)", managed: true,
+		keys: []string{"paranoid"},
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Paranoid, name, globalConfig.Config.Paranoid, usage)
 		},
 	},
 	{
 		name: "skip-event-log", usage: "Skip event logging", managed: true,
+		keys: []string{"skip_event_logging"},
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.SkipEventLogging, name, globalConfig.Config.SkipEventLogging, usage)
 		},
 	},
 	{
 		name: "sandbox", usage: "Enable sandbox mode to isolate package manager processes (EXPERIMENTAL)", managed: true,
+		keys: []string{"sandbox.enabled"},
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Sandbox.Enabled, name, globalConfig.Config.Sandbox.Enabled, usage)
 		},
 	},
 	{
 		name: "sandbox-enforce", usage: "Apply sandbox to all commands, not just install commands (requires --sandbox)", managed: true,
+		keys: []string{"sandbox.enforce_always"},
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Sandbox.EnforceAlways, name, globalConfig.Config.Sandbox.EnforceAlways, usage)
 		},
@@ -74,6 +82,7 @@ var configFlagSpecs = []flagSpec{
 	},
 	{
 		name: "skip-dependency-cooldown", usage: "Skip dependency cooldown enforcement", managed: true,
+		keys: []string{"dependency_cooldown.enabled"},
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&skipDependencyCooldown, name, false, usage)
 		},
@@ -156,6 +165,13 @@ func FinalizeDependencyCooldownOverride() {
 	if skipDependencyCooldown {
 		globalConfig.Config.DependencyCooldown.Enabled = false
 	}
+}
+
+// SkipDependencyCooldownRequested reports whether --skip-dependency-cooldown
+// is set. The proxy daemon applies it again when a new cloud policy does not
+// set the cooldown.
+func SkipDependencyCooldownRequested() bool {
+	return skipDependencyCooldown
 }
 
 // FinalizeSandboxAllowOverrides parses the raw --sandbox-allow flag values

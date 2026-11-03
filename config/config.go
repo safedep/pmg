@@ -472,6 +472,9 @@ type RuntimeConfig struct {
 	localDBDir               string
 	cacheDir                 string
 	viper                    *viper.Viper
+
+	// cloudKeys are the keys that the cloud policy set. See SetCloudKeys.
+	cloudKeys []CloudKey
 }
 
 // CloudSyncDBPath returns the path to the cloud sync WAL database.
