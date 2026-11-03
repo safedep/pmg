@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/safedep/pmg/sandbox/propose"
@@ -97,12 +98,23 @@ func writeOverview(b *strings.Builder, in Input) {
 	if !in.Stop.Stopped {
 		return
 	}
-	mode, profile := "off", "none"
+	// Without a profile the proxy allows and records every connection, and
+	// denies none. That is audit. A run under enforce cannot start without a
+	// profile. A final state that PMG could not read has no network policy
+	// either, and then the mode and the profile are unknown.
+	mode, profile, profileCell := config.SandboxNetworkModeAudit, "", code("none")
+	switch {
+	case !in.Stop.StateVerified:
+		mode, profileCell = "unknown", "unknown"
+	case in.Proposal != nil:
+		profileCell = code("none") + ", see the proposal below"
+	}
 	if n := in.Stop.Network; n != nil {
 		mode, profile = n.Mode, n.Profile()
-	}
-	if in.Workspace != "" {
-		profile = strings.ReplaceAll(profile, strings.TrimSuffix(in.Workspace, "/")+"/", "")
+		if in.Workspace != "" {
+			profile = strings.ReplaceAll(profile, strings.TrimSuffix(in.Workspace, "/")+"/", "")
+		}
+		profileCell = code(profile)
 	}
 	blocked := strconv.Itoa(in.Stop.BlockedCount)
 	if !in.Stop.StateVerified {
@@ -110,7 +122,7 @@ func writeOverview(b *strings.Builder, in Input) {
 	}
 	b.WriteString("| Packages blocked | Network mode | Network profile | Destinations observed |\n")
 	b.WriteString("|---|---|---|---|\n")
-	fmt.Fprintf(b, "| %s | %s | %s | %d |\n\n", blocked, cell(mode), code(profile), in.Stop.Observed)
+	fmt.Fprintf(b, "| %s | %s | %s | %d |\n\n", blocked, cell(mode), profileCell, in.Stop.Observed)
 }
 
 func writeDenials(b *strings.Builder, in Input) {
