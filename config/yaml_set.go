@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"strings"
 
+	goyaml "github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
 	"github.com/safedep/pmg/internal/platform"
-	"gopkg.in/yaml.v3"
 )
 
 // SetConfigValue updates a config value in the YAML config file on disk.
@@ -208,7 +208,7 @@ func setValueAtPath(node *ast.MappingNode, segments []string, value string, temp
 // newMappingValue returns the mapping value "key: value" at column, the
 // column of the other keys of its mapping.
 func newMappingValue(key string, value any, column int) (*ast.MappingValueNode, error) {
-	snippet, err := yaml.Marshal(map[string]any{key: value})
+	snippet, err := goyaml.Marshal(map[string]any{key: value})
 	if err != nil {
 		return nil, fmt.Errorf("failed to add key %q: %w", key, err)
 	}
