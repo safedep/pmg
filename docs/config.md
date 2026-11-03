@@ -162,7 +162,7 @@ Whenever a global config file is present and only the system account can change 
 
 By default a user can still override the global config's values at runtime through `PMG_*` environment variables and CLI flags. Enable lockdown to forbid that.
 
-PMG ignores a global config file that another account can change, and lockdown then has no effect. On Linux and macOS, root must own the file and each directory from `/` down to it, and no group or other write is allowed, except on a sticky directory. A link is followed only when root owns it, and its target must pass the same check. On Windows, Administrators or SYSTEM must own the file and the two directories above it. Each `pmg` command prints a warning when PMG ignores the file, and `pmg setup doctor` fails. See [system-install.md](./system-install.md#configuration).
+PMG ignores a global config file that another account can change, and lockdown then has no effect. On Linux and macOS, root must own the file and each directory from `/` down to it, and no group or other write is allowed. A sticky directory is the exception, but not for the two directories right above the file: no other account may create an entry there. A link is followed only when root owns it, and its target must pass the same check. On Windows, Administrators or SYSTEM must own the file and the two directories above it. Each `pmg` command prints a warning when PMG ignores the file, and `pmg setup doctor` fails. See [system-install.md](./system-install.md#configuration).
 
 ## System Install (Linux)
 
