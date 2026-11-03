@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"os"
-	"path/filepath"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -44,13 +44,15 @@ func candidateSockets(getenv func(string) string) []string {
 		if value == "" {
 			continue
 		}
-		path, ok := strings.CutPrefix(value, "unix://")
-		if !ok || !filepath.IsAbs(path) {
+		// A socket path is a Unix path on each OS, so path, not filepath,
+		// checks it. filepath.IsAbs refuses /srv/docker.sock on Windows.
+		socket, ok := strings.CutPrefix(value, "unix://")
+		if !ok || !path.IsAbs(socket) {
 			log.Debugf("container: %s=%s is not a unix:// socket path, so it is not used", name, value)
 			continue
 		}
-		if !slices.Contains(sockets, path) {
-			sockets = append(sockets, path)
+		if !slices.Contains(sockets, socket) {
+			sockets = append(sockets, socket)
 		}
 	}
 	return sockets
