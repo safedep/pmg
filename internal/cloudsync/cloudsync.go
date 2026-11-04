@@ -220,13 +220,18 @@ func (s steps) run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*
 // checkInOptions adds the cloud policy state of pmg and the reported labels
 // to the check-in.
 func checkInOptions(cfg *config.RuntimeConfig, creds *cloud.Credentials) []endpointsync.CheckInOption {
+	labels := endpointsync.WithLabels(endpointsync.ReportedLabels())
+
+	// A tenant of "" skips the tenant check of the cache, so the check-in
+	// could report the policy of another tenant. Report no policy state.
 	tenant, err := creds.GetTenantDomain()
 	if err != nil {
-		tenant = ""
+		log.Warnf("cloud sync: the login has no tenant, so the check-in reports no policy state: %v", err)
+		return []endpointsync.CheckInOption{labels}
 	}
 	return []endpointsync.CheckInOption{
 		endpointsync.WithToolPolicy(cloudpolicy.CheckInState(cfg, tenant)),
-		endpointsync.WithLabels(endpointsync.ReportedLabels()),
+		labels,
 	}
 }
 

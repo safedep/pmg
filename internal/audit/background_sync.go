@@ -87,7 +87,7 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	}
 
 	if !EventSyncDue(cfg) && !PolicyFetchDue(cfg) {
-		log.Debugf("Auto-sync and policy pacing not elapsed; skipping spawn")
+		log.Debugf("No background sync step is due; skipping spawn")
 		return
 	}
 

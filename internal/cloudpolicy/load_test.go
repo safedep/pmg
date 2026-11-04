@@ -274,7 +274,7 @@ func TestApplyUnderLockdownKeepsTheManagedKeys(t *testing.T) {
 
 func TestRuntimeReloadSwapsThePolicy(t *testing.T) {
 	cfg := newTestConfig(t)
-	rt := &Runtime{}
+	rt := &Runtime{LoginTenant: noLogin}
 	rt.LoadAtStart(cfg)
 	rt.Publish(cfg)
 
@@ -297,7 +297,7 @@ func TestRuntimeLoadAtStartRecordsTheCloudKeys(t *testing.T) {
 	writeCache(t, cfg, cloudpolicytest.WithCooldown(cloudpolicytest.Policy(), 72*time.Hour), 48)
 	t.Cleanup(func() { cfg.SetCloudKeys(nil) })
 
-	rt := &Runtime{}
+	rt := &Runtime{LoginTenant: noLogin}
 	st := rt.LoadAtStart(cfg)
 	rt.Publish(cfg)
 

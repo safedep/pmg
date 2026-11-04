@@ -73,7 +73,7 @@ func logIgnoredEnv(key string) {
 func (r *Runtime) LoadAtStart(cfg *config.RuntimeConfig) *Status {
 	tenant := ""
 	if cfg.CloudPolicyEnabled() {
-		tenant = loginTenant()
+		tenant = r.loginTenant()
 	}
 	return r.LoadAtStartForTenant(cfg, tenant)
 }
@@ -112,7 +112,7 @@ func (r *Runtime) Publish(cfg *config.RuntimeConfig) {
 func (r *Runtime) Reload(cfg *config.RuntimeConfig) *Status {
 	tenant := ""
 	if cfg.CloudPolicyEnabled() {
-		tenant = loginTenant()
+		tenant = r.loginTenant()
 	}
 
 	st := Load(cfg, tenant)
@@ -127,6 +127,13 @@ func (r *Runtime) Reload(cfg *config.RuntimeConfig) *Status {
 	r.status.Store(st)
 	r.current.Store(newPolicy(st, target.DependencyCooldown))
 	return st
+}
+
+func (r *Runtime) loginTenant() string {
+	if r.LoginTenant != nil {
+		return r.LoginTenant()
+	}
+	return loginTenant()
 }
 
 func newPolicy(st *Status, cooldown config.DependencyCooldownConfig) *Policy {

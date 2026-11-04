@@ -49,3 +49,6 @@ func writeCache(t *testing.T, cfg *config.RuntimeConfig, policy *specv1.Resolved
 		DefaultPolicyRevision: 12,
 	}))
 }
+
+// noLogin stands for a machine with no cloud login, as on CI.
+func noLogin() string { return "" }

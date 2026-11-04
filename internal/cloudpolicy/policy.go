@@ -157,6 +157,11 @@ type Runtime struct {
 	// baseline is dependency_cooldown before the cloud layer. A reload
 	// applies a new cloud layer on top of it.
 	baseline config.DependencyCooldownConfig
+
+	// LoginTenant returns the tenant of the cloud login, or "" for no login.
+	// When it is nil, the runtime reads the keychain. A test sets it, so a
+	// developer who ran pmg cloud login gets the same result as CI.
+	LoginTenant func() string
 }
 
 var global = &Runtime{}

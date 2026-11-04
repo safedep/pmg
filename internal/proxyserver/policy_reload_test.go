@@ -43,7 +43,7 @@ func newReloadConfig(t *testing.T) *config.RuntimeConfig {
 func TestReloadIfCacheMoved(t *testing.T) {
 	cfg := newReloadConfig(t)
 	digest48 := writeReloadCache(t, cfg, 48, "pkg:npm/first")
-	rt := &cloudpolicy.Runtime{}
+	rt := &cloudpolicy.Runtime{LoginTenant: func() string { return "" }}
 	rt.LoadAtStartForTenant(cfg, "")
 	rt.Publish(cfg)
 	require.Equal(t, digest48, rt.Current().Applied().Digest)
@@ -55,6 +55,7 @@ func TestReloadIfCacheMoved(t *testing.T) {
 	writeReloadCache(t, cfg, 49, "pkg:npm/second")
 	assert.True(t, reloadIfCacheMoved(cfg, rt))
 
+	require.NotNil(t, rt.Current().Applied())
 	assert.Equal(t, uint64(49), rt.Current().Applied().Revision)
 	_, blocked := rt.Current().Block(packagev1.Ecosystem_ECOSYSTEM_NPM, "second", "1.0.0")
 	assert.True(t, blocked, "the daemon applies the policy that another process fetched")
@@ -66,7 +67,7 @@ func TestReloadIfCacheMovedWithCloudPolicyOff(t *testing.T) {
 	cfg := newReloadConfig(t)
 	cfg.Config.Cloud.Policy = false
 	writeReloadCache(t, cfg, 48, "pkg:npm/first")
-	rt := &cloudpolicy.Runtime{}
+	rt := &cloudpolicy.Runtime{LoginTenant: func() string { return "" }}
 	rt.LoadAtStartForTenant(cfg, "")
 	rt.Publish(cfg)
 
