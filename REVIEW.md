@@ -67,7 +67,8 @@ CI already checks these. Do not report them.
   scope.
 - Drift between `internal/netenforce/bpf/enforce.bpf.c` and the committed object. CI rebuilds it.
 - Workflow security in `.github/`. zizmor checks it.
-- Secrets. gitleaks and TruffleHog check them.
+- Secrets that TruffleHog finds in CI. CI does not run gitleaks, so a secret that only gitleaks
+  would find stays in scope.
 - Dependency risk in `go.mod` and `package.json`. vet checks it.
 
 Do not review these files line by line:
