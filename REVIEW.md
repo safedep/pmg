@@ -60,9 +60,10 @@ name. For a fail-open or sandbox finding, show the path from the input to the de
 
 CI already checks these. Do not report them, with one exception:
 
-- Never skip a suppression that the pull request adds: a `//nolint` directive, a
-  `# zizmor: ignore[...]` comment or a new entry in `.github/zizmor.yml`. Check that its reason
-  holds. The CI check cannot report what the suppression hides.
+- Never skip a suppression that the pull request adds for a check in this list: a `//nolint`
+  directive, a `# zizmor: ignore[...]` comment, a new entry in `.github/zizmor.yml`, a
+  `trufflehog:ignore` comment or a `gitleaks:allow` comment. Check that its reason holds. The
+  check cannot report what the suppression hides.
 - Lint findings from golangci-lint in files that build on Linux. CI lints new lines on
   `ubuntu-latest` only, so a lint-class problem in a `_darwin.go` or `_windows.go` file, or in a
   file with another non-Linux build tag, stays in scope. `errcheck` skips `fmt.Fprint*` to
