@@ -31,13 +31,18 @@ type binding struct {
 	label string
 
 	// apply sets the pmg keys from the value of the path in the value tree.
+	// A row without apply sets no key. Another part of pmg applies the path.
 	apply func(cfg *config.Config, value any) error
 }
 
-// bindings is the binding table of pmg. core.package_rules has no row with
-// keys: the package rule index applies it. scan_gate is a capability that
-// pmg does not implement.
+// bindings is the binding table of pmg. scan_gate is a capability that pmg
+// does not implement.
 var bindings = []binding{
+	{
+		// The package rule index applies the package rules.
+		path:  PathPackageRules,
+		label: "the package rules",
+	},
 	{
 		path:  PathMinAge,
 		keys:  []string{keyCooldownEnabled, keyCooldownDays},
@@ -48,7 +53,7 @@ var bindings = []binding{
 
 // implementedCapabilities are the capabilities of the contract that pmg
 // applies. A field of these capabilities that the contract marks
-// binding_required must have a row, or the package rule index.
+// binding_required must have a row.
 var implementedCapabilities = map[string]bool{
 	"core":              true,
 	"package_admission": true,

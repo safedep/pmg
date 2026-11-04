@@ -21,6 +21,10 @@ func Apply(cfg *config.RuntimeConfig, target *config.Config, st *Status) {
 	}
 
 	for _, row := range bindings {
+		if row.apply == nil {
+			continue
+		}
+
 		value, ok := st.Projection.Values[row.path]
 		if !ok {
 			continue

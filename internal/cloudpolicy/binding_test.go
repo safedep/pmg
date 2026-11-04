@@ -12,24 +12,68 @@ import (
 
 // The test of dry/policy/bind replaces this test when vet arrives.
 func TestBindingTableCoversTheContract(t *testing.T) {
-	fields := map[string]project.Field{}
-	for _, f := range project.Fields() {
-		fields[f.Path] = f
+	withoutRow := func(path string) []binding {
+		var rows []binding
+		for _, row := range bindings {
+			if row.path != path {
+				rows = append(rows, row)
+			}
+		}
+		return rows
 	}
 
-	rows := map[string]bool{PathPackageRules: true}
-	for _, row := range bindings {
-		rows[row.path] = true
+	tests := []struct {
+		name     string
+		rows     []binding
+		wantGaps []string
+	}{
+		{
+			name: "the binding table of pmg",
+			rows: bindings,
+		},
+		{
+			name:     "a table without the package rules",
+			rows:     withoutRow(PathPackageRules),
+			wantGaps: []string{"no row for binding_required field " + PathPackageRules},
+		},
+		{
+			name:     "a row for a path that the contract does not have",
+			rows:     append(withoutRow(""), binding{path: "core.no_such_field"}),
+			wantGaps: []string{"row for unknown field core.no_such_field"},
+		},
 	}
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.ElementsMatch(t, tt.wantGaps, bindingGaps(tt.rows, project.Fields()))
+		})
+	}
+}
+
+// bindingGaps returns each binding_required field of an implemented
+// capability that has no row, and each row whose path is not in the contract.
+func bindingGaps(rows []binding, fields []project.Field) []string {
+	known := map[string]bool{}
 	for _, f := range fields {
-		if f.BindingRequired && implementedCapabilities[f.Capability] {
-			assert.Truef(t, rows[f.Path], "the binding table has no row for %s, which the contract marks binding_required", f.Path)
+		known[f.Path] = true
+	}
+	bound := map[string]bool{}
+	for _, row := range rows {
+		bound[row.path] = true
+	}
+
+	var gaps []string
+	for _, f := range fields {
+		if f.BindingRequired && implementedCapabilities[f.Capability] && !bound[f.Path] {
+			gaps = append(gaps, "no row for binding_required field "+f.Path)
 		}
 	}
-	for path := range rows {
-		assert.Containsf(t, fields, path, "the binding table names %s, which the contract does not have", path)
+	for _, row := range rows {
+		if !known[row.path] {
+			gaps = append(gaps, "row for unknown field "+row.path)
+		}
 	}
+	return gaps
 }
 
 func TestApplyMinAge(t *testing.T) {
