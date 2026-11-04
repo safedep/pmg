@@ -58,17 +58,24 @@ name. For a fail-open or sandbox finding, show the path from the input to the de
 
 ## Do not report
 
-CI already checks these. Do not report them.
+CI already checks these. Do not report them, with one exception:
 
-- Lint findings from golangci-lint, which CI runs on new lines. This includes an unchecked error
-  from `fmt.Fprintf` to an `io.Writer`, which `errcheck` reports.
+- Never skip a suppression that the pull request adds: a `//nolint` directive, a
+  `# zizmor: ignore[...]` comment or a new entry in `.github/zizmor.yml`. Check that its reason
+  holds. The CI check cannot report what the suppression hides.
+- Lint findings from golangci-lint in files that build on Linux. CI lints new lines on
+  `ubuntu-latest` only, so a lint-class problem in a `_darwin.go` or `_windows.go` file, or in a
+  file with another non-Linux build tag, stays in scope. `errcheck` skips `fmt.Fprint*` to
+  `os.Stderr`, `*bytes.Buffer` and `*strings.Builder`. CLAUDE.md requires that check, so an
+  unchecked `fmt.Fprint*` to `os.Stderr` stays in scope.
 - Test and build failures on Linux and macOS, where CI runs `go test ./...`. On Windows, CI builds
-  `main.go` and tests every package outside `sandbox/`. A Windows-only failure in `sandbox/` is in
-  scope.
+  `main.go` and skips every package whose import path contains `/sandbox`, which includes
+  `sandbox/` and `cmd/sandbox`. A Windows-only failure in those packages is in scope.
 - Drift between `internal/netenforce/bpf/enforce.bpf.c` and the committed object. CI rebuilds it.
 - Workflow security in `.github/`. zizmor checks it.
-- Secrets that TruffleHog finds in CI. CI does not run gitleaks, so a secret that only gitleaks
-  would find stays in scope.
+- A live credential that TruffleHog verifies in CI. TruffleHog does not fail CI on a secret that it
+  cannot verify, and CI does not run gitleaks. So any other secret (a private key, an internal
+  token, a credential for a service that TruffleHog cannot reach) stays in scope.
 - Dependency risk in `go.mod` and `package.json`. vet checks it.
 
 Do not review these files line by line:
