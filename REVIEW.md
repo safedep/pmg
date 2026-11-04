@@ -62,7 +62,9 @@ CI already checks these. Do not report them.
 
 - Lint findings from golangci-lint, which CI runs on new lines. This includes an unchecked error
   from `fmt.Fprintf` to an `io.Writer`, which `errcheck` reports.
-- Test and build failures on Linux, macOS and Windows. CI runs `go test ./...` on each.
+- Test and build failures on Linux and macOS, where CI runs `go test ./...`. On Windows, CI builds
+  `main.go` and tests every package outside `sandbox/`. A Windows-only failure in `sandbox/` is in
+  scope.
 - Drift between `internal/netenforce/bpf/enforce.bpf.c` and the committed object. CI rebuilds it.
 - Workflow security in `.github/`. zizmor checks it.
 - Secrets. gitleaks and TruffleHog check them.
