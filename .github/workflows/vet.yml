@@ -1,6 +1,15 @@
 name: vet
+# Scans each pull request, each push to main and a weekly run. The push run
+# scans the full checkout, so it catches a change that reaches main with no
+# pull request, such as a force-push from an infected machine. The weekly run
+# finds malware that SafeDep learns about after a merge.
 on:
   pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 4 * * 1"
 permissions: {}
 concurrency:
   group: vet-${{ github.event.pull_request.number || github.ref }}
@@ -10,14 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: write # to post the comment
+      security-events: write # to upload the SARIF report
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: safedep/vet@ab411af714adac8eeee2e1c2ab11f71cc74adb64 # v2.0.0-alpha.20261007071725
+      - uses: safedep/vet@aea785417d1482f63760258126616181ee203ba2 # v2.0.0-alpha.20261011085541
         with:
           # The vet v2 alpha publishes a release on each merge. A short
           # release cooldown lets PMG test each release soon after it
           # ships. Remove the input to use the default of 24 hours.
           release-cooldown: 1
+          sarif: true
