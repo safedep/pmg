@@ -58,6 +58,7 @@ func TestReportNormalMalwareAdvisoryMessage(t *testing.T) {
 
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Malicious package blocked")
+	assert.Contains(t, out, "PMG: 1 package analyzed, 1 blocked")
 	assert.Contains(t, out, "ℹ Contact #security-help")
 	assert.NotContains(t, out, "\n\n\n", "no double blank lines in block output")
 }
@@ -362,6 +363,7 @@ func TestReportRendersRuleBlocks(t *testing.T) {
 
 			out := captureStdout(t, func() { Report(ruleBlockedData()) })
 
+			assert.Contains(t, out, "Blocked by policy")
 			assert.Contains(t, out, "pmg: blocked pkg:npm/evil@1.2.4 by the policy of your tenant")
 			assert.Contains(t, out, "rule r_9c1 · policy revision 48 · default policy revision 12 · IR-2291 credential stealer")
 			assert.NotContains(t, out, "malicious package detected")

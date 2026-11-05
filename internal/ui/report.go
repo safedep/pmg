@@ -179,8 +179,9 @@ func printMalwareBlockSection(data *ReportData) {
 }
 
 // PolicyRuleBlockedHeadline is the headline printed when a block entry of the
-// cloud policy or of blocked_packages blocked a package.
-const PolicyRuleBlockedHeadline = "Package blocked by a package rule"
+// cloud policy or of blocked_packages blocked a package. The lines below it
+// name each package and say which policy blocked it.
+const PolicyRuleBlockedHeadline = "Blocked by policy"
 
 func printRuleBlockSection(data *ReportData) {
 	if len(data.RuleBlockedPackages) == 0 {
@@ -278,22 +279,22 @@ func reportNormal(data *ReportData) {
 				pluralizePackages(data.TotalAnalyzed), pluralizePackages(data.BlockedCount))
 		} else {
 			icon = Colors.Red("✗")
-			message = fmt.Sprintf("PMG: %d packages analyzed, %d blocked",
-				data.TotalAnalyzed, data.BlockedCount)
+			message = fmt.Sprintf("PMG: %s analyzed, %d blocked",
+				pluralizePackages(data.TotalAnalyzed), data.BlockedCount)
 		}
 	case OutcomeUserCancelled:
 		icon = Colors.Yellow("✗")
-		message = fmt.Sprintf("PMG: %d packages analyzed, installation cancelled",
-			data.TotalAnalyzed)
+		message = fmt.Sprintf("PMG: %s analyzed, installation cancelled",
+			pluralizePackages(data.TotalAnalyzed))
 	default:
 		// Success case
 		if data.HasIssues() {
 			icon = Colors.Yellow("!")
-			message = fmt.Sprintf("PMG: %d packages analyzed (%d confirmed)",
-				data.TotalAnalyzed, data.ConfirmedCount)
+			message = fmt.Sprintf("PMG: %s analyzed (%d confirmed)",
+				pluralizePackages(data.TotalAnalyzed), data.ConfirmedCount)
 		} else {
 			icon = Colors.Green("✓")
-			message = fmt.Sprintf("PMG: %d packages analyzed", data.TotalAnalyzed)
+			message = fmt.Sprintf("PMG: %s analyzed", pluralizePackages(data.TotalAnalyzed))
 		}
 	}
 
@@ -350,7 +351,7 @@ func reportVerbose(data *ReportData) {
 	// Show blocked/confirmed package details in verbose mode
 	if len(data.RuleBlockedPackages) > 0 {
 		fmt.Println()
-		fmt.Println(Colors.Red("  Blocked by a package rule:"))
+		fmt.Println(Colors.Red("  " + PolicyRuleBlockedHeadline + ":"))
 		for _, block := range data.RuleBlockedPackages {
 			fmt.Println(PolicyRuleBlockMessage(block))
 		}
@@ -596,7 +597,7 @@ func printOutcomeLine(data *ReportData) {
 		case hasMalware && hasCooldown:
 			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — malicious package detected + cooldown policy"))
 		case hasRule && !hasMalware:
-			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — package rule"))
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — policy"))
 		case hasCooldown:
 			fmt.Printf("  %s %s\n", Colors.Yellow("⊘"), Colors.Yellow("Installation blocked — dependency cooldown policy"))
 		default:
