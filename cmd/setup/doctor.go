@@ -273,7 +273,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 	}
 
 	results := doctor.RunChecks(checks)
-	for _, r := range cloudPolicyResults(cloudPolicyStatus(cfg), time.Now()) {
+	for _, r := range cloudPolicyResults(cloudPolicyStatus(cfg), cfg.CloudPolicySetInFile(), time.Now()) {
 		r.Name = checkCloudPolicy
 		r.Category = categoryCloud
 		results = append(results, r)

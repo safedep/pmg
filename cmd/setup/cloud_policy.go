@@ -32,7 +32,11 @@ func cloudPolicyStatus(cfg *config.RuntimeConfig) *cloudpolicy.Status {
 // check runs only when cloud.policy is on. It passes when the state is
 // APPLIED with no exception. It warns for every other state, for each
 // exception, and for a key that global_lockdown kept.
-func cloudPolicyResults(st *cloudpolicy.Status, now time.Time) []doctor.CheckResult {
+//
+// cloud.policy defaults to true, so with cloud.enabled false the check warns
+// only when policySetInFile is true: the config file turns the policy on
+// itself. Every pmg with the cloud off would get the warning otherwise.
+func cloudPolicyResults(st *cloudpolicy.Status, policySetInFile bool, now time.Time) []doctor.CheckResult {
 	if st == nil || !st.PolicyOn {
 		return nil
 	}
@@ -42,6 +46,9 @@ func cloudPolicyResults(st *cloudpolicy.Status, now time.Time) []doctor.CheckRes
 	}
 
 	if !st.CloudOn {
+		if !policySetInFile {
+			return nil
+		}
 		return []doctor.CheckResult{warn(
 			"cloud.policy is on, but cloud.enabled is false. pmg does not fetch the policy",
 			"Set cloud.enabled: true in config")}

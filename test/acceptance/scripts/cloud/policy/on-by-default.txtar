@@ -1,0 +1,38 @@
+# guarantee: cloud.enabled is the one opt-in for the cloud policy. With no
+# cloud.policy key, pmg applies the policy cache. With the cloud off and no
+# cloud.policy key, doctor does not warn about the cloud policy.
+
+env HOME=$WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+env SAFEDEP_API_KEY=
+env SAFEDEP_TENANT_ID=
+env PMG_CLOUD_ENABLED=
+env PMG_CLOUD_ENDPOINT_ID=acceptance-policy
+mkdir $WORK/home
+
+policy-cache $WORK/config policy.textproto
+
+exec pmg setup info --json
+stdout '"enabled": true,\s+"state": "applied"'
+stdout '"revision": 48'
+
+exec pmg config set cloud.enabled false
+exec pmg setup info --json
+! stdout '"name": "cloud-policy"'
+
+-- config/config.yml --
+cloud:
+  enabled: true
+  auto_sync:
+    enabled: false
+-- policy.textproto --
+spec {
+  core {
+    package_rules {
+      rule_id: "r_acceptance_block"
+      selector { purl: "pkg:npm/left-pad" }
+      effect: EFFECT_BLOCK
+      reason: "acceptance block"
+    }
+  }
+}

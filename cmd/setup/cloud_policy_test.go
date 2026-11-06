@@ -77,6 +77,9 @@ func TestCloudPolicyResults(t *testing.T) {
 		setup func(t *testing.T, cfg *config.RuntimeConfig)
 		want  []doctorLine
 
+		// policySetInFile is true when the config file sets cloud.policy.
+		policySetInFile bool
+
 		// wantInLast is more text that the last line holds.
 		wantInLast string
 	}{
@@ -85,10 +88,15 @@ func TestCloudPolicyResults(t *testing.T) {
 			setup: func(t *testing.T, cfg *config.RuntimeConfig) { cfg.Config.Cloud.Policy = false },
 		},
 		{
-			name:  "cloud.policy on and cloud.enabled off warns",
-			setup: func(t *testing.T, cfg *config.RuntimeConfig) { cfg.Config.Cloud.Enabled = false },
+			name:            "cloud.policy on in the file and cloud.enabled off warns",
+			setup:           func(t *testing.T, cfg *config.RuntimeConfig) { cfg.Config.Cloud.Enabled = false },
+			policySetInFile: true,
 			want: []doctorLine{{doctor.StatusWarn,
 				"cloud.policy is on, but cloud.enabled is false. pmg does not fetch the policy"}},
+		},
+		{
+			name:  "cloud.policy on by default and cloud.enabled off runs no check",
+			setup: func(t *testing.T, cfg *config.RuntimeConfig) { cfg.Config.Cloud.Enabled = false },
 		},
 		{
 			name:  "no cache warns",
@@ -149,7 +157,7 @@ func TestCloudPolicyResults(t *testing.T) {
 			tt.setup(t, cfg)
 
 			st := cloudpolicy.Load(cfg, doctorTenant)
-			results := cloudPolicyResults(st, time.Now())
+			results := cloudPolicyResults(st, tt.policySetInFile, time.Now())
 
 			require.Len(t, results, len(tt.want))
 			for i, want := range tt.want {

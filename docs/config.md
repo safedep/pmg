@@ -84,11 +84,12 @@ endpoint only the managed config sets the list.
 
 ## Cloud Policy
 
-With `cloud.policy: true` inside `cloud.enabled: true`, PMG applies the policy that your security
-admin sets in SafeDep Cloud: block entries, trust entries and the dependency cooldown.
+With `cloud.enabled: true`, PMG applies the policy that your security admin sets in SafeDep Cloud:
+block entries, trust entries and the dependency cooldown. `cloud.policy` defaults to `true`. To turn
+the policy off and keep the other cloud features, set it to `false`:
 
 ```bash
-pmg config set cloud.policy true
+pmg config set cloud.policy false
 ```
 
 - PMG fetches the policy in the background after a command, at most every 5 minutes, also when
