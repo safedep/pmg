@@ -802,7 +802,7 @@ func isProxyRegistriesError(err error) bool {
 // the config file check. A plain-HTTP endpoint gets a warning. Anyone on the
 // network path can read and change that traffic.
 func checkProxyRegistriesResult(loadErr error, registries []config.ProxyRegistryConfig) doctor.CheckResult {
-	if loadErr != nil && isProxyRegistriesError(loadErr) {
+	if isProxyRegistriesError(loadErr) {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
 			Message: "proxy.registries is invalid. Installs and proxy start fail closed",

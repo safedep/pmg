@@ -301,6 +301,24 @@ func TestSetConfigValue(t *testing.T) {
 		assert.Equal(t, false, val)
 	})
 
+	t.Run("keeps an unrelated empty section when it adds a section", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy:\nproxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+		initConfig()
+		require.False(t, Get().Config.Proxy.InstallOnly)
+
+		err = SetConfigValue("cloud.policy", "false")
+		require.NoError(t, err)
+
+		initConfig()
+		assert.False(t, Get().Config.Proxy.InstallOnly)
+	})
+
 	t.Run("returns error for nonexistent key", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)

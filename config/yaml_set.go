@@ -114,8 +114,9 @@ func GetSystemConfigValue(key string) (any, error) {
 // mergeTemplateSectionIntoFile merges one top-level section of the template
 // into the config file. The merge keeps a key that the file has, also when
 // its value is empty, so a section such as "cloud:" with no keys would stay
-// empty. The merge drops such a top-level key first, and the section of the
-// template takes its place.
+// empty. The merge drops that section first when it is empty, and the section
+// of the template takes its place. Other empty keys stay, because an empty
+// proxy section still turns off the legacy proxy_install_only key.
 func mergeTemplateSectionIntoFile(configPath, section string) error {
 	fi, err := os.Stat(configPath)
 	if err != nil {
@@ -128,7 +129,7 @@ func mergeTemplateSectionIntoFile(configPath, section string) error {
 
 	data, err = filterTopLevelKeys(data, func(mv *ast.MappingValueNode) bool {
 		_, empty := mv.Value.(*ast.NullNode)
-		return !empty
+		return !empty || mv.Key.GetToken().Value != section
 	})
 	if err != nil {
 		return err
@@ -162,7 +163,7 @@ func filterTopLevelKeys(data []byte, keep func(*ast.MappingValueNode) bool) ([]b
 		return data, nil
 	}
 
-	kept := root.Values[:0]
+	kept := make([]*ast.MappingValueNode, 0, len(root.Values))
 	for _, mv := range root.Values {
 		if keep(mv) {
 			kept = append(kept, mv)
@@ -274,10 +275,10 @@ func setValueAtPath(node *ast.MappingNode, segments []string, value string, temp
 			return replaceScalarValue(mv, value)
 		}
 
-		childMapping, ok := mv.Value.(*ast.MappingNode)
 		if _, empty := mv.Value.(*ast.NullNode); empty {
 			return fmt.Errorf("%w: intermediate key %q has no value", errKeyNotFound, target)
 		}
+		childMapping, ok := mv.Value.(*ast.MappingNode)
 		if !ok {
 			return fmt.Errorf("key not found: intermediate key %q is not a mapping", target)
 		}
