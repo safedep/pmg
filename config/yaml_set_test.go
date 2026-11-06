@@ -259,6 +259,29 @@ func TestSetConfigValue(t *testing.T) {
 		assert.Equal(t, true, val)
 	})
 
+	t.Run("fills a section that the file leaves empty from the template", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("# my settings\nparanoid: true\ncloud:\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("cloud.policy", "false")
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "# my settings")
+		assert.Contains(t, string(data), "paranoid: true")
+
+		initConfig()
+		val, err := GetConfigValue("cloud.policy")
+		require.NoError(t, err)
+		assert.Equal(t, false, val)
+	})
+
 	t.Run("returns error for nonexistent key", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)

@@ -11,6 +11,7 @@ import (
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/internal/platform"
 )
 
@@ -40,16 +41,14 @@ func SetConfigValue(key, value string) error {
 	// template, such as cloud. pmg setup install merges the template into the
 	// file. Do the same merge here, so the user does not have to run setup,
 	// which also writes shell aliases and PATH shims.
-	if err := writeTemplateConfigFile(configPath); err != nil {
+	if err := mergeTemplateIntoFile(configPath); err != nil {
 		return fmt.Errorf("failed to add the missing keys of the template: %w", err)
 	}
 	return setConfigValueInFile(configPath, key, value)
 }
 
-// errKeyNotFound is the error of a set when the file has no such key.
 var errKeyNotFound = errors.New("key not found")
 
-// templateHasKey reports whether the template has key.
 func templateHasKey(key string) bool {
 	v, err := newFileViper("")
 	return err == nil && v.IsSet(key)
@@ -108,6 +107,61 @@ func GetSystemConfigValue(key string) (any, error) {
 		return nil, fmt.Errorf("unknown config key: %s", key)
 	}
 	return v.Get(key), nil
+}
+
+// mergeTemplateIntoFile merges the template into the config file, as pmg
+// setup install does. The merge keeps a key that the file has, also when its
+// value is empty, so a section such as "cloud:" with no keys would stay
+// empty. The merge drops such a top-level key first, and the section of the
+// template takes its place.
+func mergeTemplateIntoFile(configPath string) error {
+	fi, err := os.Stat(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat config file: %w", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	data, err = dropEmptyTopLevelKeys(data)
+	if err != nil {
+		return err
+	}
+	merged, err := utils.MergeYAML(data, []byte(templateConfig))
+	if err != nil {
+		return fmt.Errorf("failed to merge config: %w", err)
+	}
+	if err := os.WriteFile(configPath, merged, fi.Mode()); err != nil {
+		return fmt.Errorf("failed to write merged config: %w", err)
+	}
+	return nil
+}
+
+func dropEmptyTopLevelKeys(data []byte) ([]byte, error) {
+	file, err := parser.ParseBytes(data, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+	if len(file.Docs) == 0 {
+		return data, nil
+	}
+	root, ok := file.Docs[0].Body.(*ast.MappingNode)
+	if !ok {
+		return data, nil
+	}
+
+	kept := root.Values[:0]
+	for _, mv := range root.Values {
+		if _, empty := mv.Value.(*ast.NullNode); !empty {
+			kept = append(kept, mv)
+		}
+	}
+	if len(kept) == len(root.Values) {
+		return data, nil
+	}
+	root.Values = kept
+	return []byte(file.String()), nil
 }
 
 func setConfigValueInFile(configPath, key, value string) error {
@@ -210,6 +264,9 @@ func setValueAtPath(node *ast.MappingNode, segments []string, value string, temp
 		}
 
 		childMapping, ok := mv.Value.(*ast.MappingNode)
+		if _, empty := mv.Value.(*ast.NullNode); empty {
+			return fmt.Errorf("%w: intermediate key %q has no value", errKeyNotFound, target)
+		}
 		if !ok {
 			return fmt.Errorf("key not found: intermediate key %q is not a mapping", target)
 		}
