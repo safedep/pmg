@@ -342,7 +342,7 @@ func TestCloudPolicy_Cooldown(t *testing.T) {
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				require.True(t, res.Blocked())
-				assert.Contains(t, res.Requests[0].Body, "Cooldown of 7 days set by the policy of your tenant (revision 48)")
+				assert.Contains(t, res.Requests[0].Body, "The policy of your tenant (revision 48) sets a cooldown of 7 days")
 
 				blocks := h.CooldownBlocks()
 				require.Len(t, blocks, 1)

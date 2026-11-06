@@ -396,7 +396,7 @@ func TestReportCooldownBlockNamesThePolicy(t *testing.T) {
 		revision uint64
 		expected string
 	}{
-		{name: "the tenant policy", revision: 48, expected: "Cooldown of 5 days set by the policy of your tenant (revision 48)"},
+		{name: "the tenant policy", revision: 48, expected: "The policy of your tenant (revision 48) sets a cooldown of 5 days"},
 		{name: "the local config"},
 	}
 
@@ -417,7 +417,7 @@ func TestReportCooldownBlockNamesThePolicy(t *testing.T) {
 
 				assert.Contains(t, out, "fresh@2.0.0")
 				if tt.expected == "" {
-					assert.NotContains(t, out, "set by the policy of your tenant")
+					assert.NotContains(t, out, "The policy of your tenant")
 				} else {
 					assert.Contains(t, out, tt.expected)
 				}

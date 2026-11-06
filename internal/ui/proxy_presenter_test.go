@@ -110,7 +110,7 @@ func TestProxyPresenterBlockMessage(t *testing.T) {
 				CooldownDaysLeft:       5,
 				CooldownPolicyRevision: 48,
 			},
-			expected: "Package blocked by dependency cooldown: go/example.com/fresh@v1.1.0\n\nPublished 2 day(s) ago; cooldown window is 7 day(s) (5 remaining).\n\nCooldown of 7 days set by the policy of your tenant (revision 48)",
+			expected: "Package blocked by dependency cooldown: go/example.com/fresh@v1.1.0\n\nPublished 2 day(s) ago; cooldown window is 7 day(s) (5 remaining).\n\nThe policy of your tenant (revision 48) sets a cooldown of 7 days",
 		},
 		{
 			name:     "nil context",

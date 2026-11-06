@@ -92,7 +92,7 @@ func CooldownPolicyLine(days int, revision uint64) string {
 	if revision == 0 {
 		return ""
 	}
-	return fmt.Sprintf("Cooldown of %s set by the policy of your tenant (revision %d)", pluralizeDays(days), revision)
+	return fmt.Sprintf("The policy of your tenant (revision %d) sets a cooldown of %s", revision, pluralizeDays(days))
 }
 
 // NetworkDenialMessage is the one sentence for a connection the network
