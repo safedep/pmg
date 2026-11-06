@@ -92,6 +92,9 @@ the policy off and keep the other cloud features, set it to `false`:
 pmg config set cloud.policy false
 ```
 
+With the policy on, PMG reads your SafeDep Cloud credentials when a command starts, and fetches the
+policy in the background at most every 5 minutes. Set `cloud.policy: false` to stop both.
+
 - PMG fetches the policy in the background after a command, at most every 5 minutes, also when
   `cloud.auto_sync.enabled` is false. `pmg cloud sync` fetches it at once.
 - PMG keeps the policy in `cloud-policy/` in the config directory. When the fetch fails or you log
