@@ -46,7 +46,28 @@ func SetConfigValue(key, value string) error {
 	if err := mergeTemplateSectionIntoFile(configPath, section); err != nil {
 		return fmt.Errorf("failed to add the missing keys of the template: %w", err)
 	}
+	if section == "proxy" {
+		if err := carryLegacyProxyInstallOnly(configPath); err != nil {
+			return err
+		}
+	}
 	return setConfigValueInFile(configPath, key, value)
+}
+
+// carryLegacyProxyInstallOnly copies the legacy proxy_install_only value into
+// the proxy section that the merge added. PMG reads the legacy key only when
+// the file has no proxy section, so the template value of
+// proxy.install_only would otherwise turn install-only mode off.
+func carryLegacyProxyInstallOnly(configPath string) error {
+	raw, err := readConfigFileKeys(configPath)
+	if err != nil {
+		return err
+	}
+	legacy, ok := raw["proxy_install_only"].(bool)
+	if !ok {
+		return nil
+	}
+	return setConfigValueInFile(configPath, "proxy.install_only", strconv.FormatBool(legacy))
 }
 
 var errKeyNotFound = errors.New("key not found")

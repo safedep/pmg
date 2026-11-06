@@ -813,7 +813,7 @@ func checkProxyRegistriesResult(loadErr error, registries []config.ProxyRegistry
 		return doctor.CheckResult{
 			Status:  doctor.StatusWarn,
 			Message: "Not checked. The config file did not load",
-			Fix:     "Repair the config file. The Config file check shows the error",
+			Fix:     "Repair the config file or the PMG_* environment variables. The Config file check shows the error",
 		}
 	}
 	if len(registries) == 0 {

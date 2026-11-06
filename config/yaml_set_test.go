@@ -301,6 +301,23 @@ func TestSetConfigValue(t *testing.T) {
 		assert.Equal(t, false, val)
 	})
 
+	t.Run("carries the legacy proxy_install_only key into an added proxy section", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("proxy.server.listen_port", "8080")
+		require.NoError(t, err)
+
+		initConfig()
+		assert.True(t, Get().Config.Proxy.InstallOnly)
+		assert.Equal(t, 8080, Get().Config.Proxy.Server.ListenPort)
+	})
+
 	t.Run("keeps an unrelated empty section when it adds a section", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
