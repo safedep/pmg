@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/safedep/dry/cloud"
@@ -9,6 +10,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
@@ -63,7 +65,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	if res.PolicyErr != nil {
-		ui.ErrorExit(policyFetchFailureError(res.PolicyErr))
+		ui.ErrorExit(policyFetchFailureError(res.PolicyErr, appliedPolicyRevision(cfg)))
 	}
 	if res.EventsErr != nil {
 		ui.ErrorExit(syncFailureError(res.EventsErr))
@@ -72,17 +74,53 @@ func runSync(cmd *cobra.Command, args []string) error {
 }
 
 // policyFetchFailureError maps a failed policy fetch to a user-facing error.
-// pmg keeps the last policy that it applied.
-func policyFetchFailureError(err error) error {
-	if usefulErr, ok := usefulerror.AsUsefulError(err); ok {
+// pmg keeps the last policy that it applied. applied is the revision of that
+// policy, or 0 when no policy applies. An offline machine gets a network or
+// timeout error, so the message says which policy still applies.
+func policyFetchFailureError(err error, applied uint64) error {
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	if ok && !isOfflineCode(usefulErr.Code()) {
 		return withCredentialGuidance(usefulErr, err)
+	}
+
+	code := errcodes.Network
+	if ok {
+		code = usefulErr.Code()
+	}
+	human := "Cannot fetch the cloud policy from SafeDep Cloud. No cloud policy applies yet"
+	if applied > 0 {
+		human = fmt.Sprintf("Cannot fetch the cloud policy from SafeDep Cloud. The last policy still applies (revision %d)", applied)
 	}
 	return usefulerror.NewUsefulError().
 		Wrap(err).
-		WithCode(errcodes.Network).
-		WithHumanError("Failed to fetch the cloud policy. pmg keeps the last policy that it applied").
+		WithCode(code).
+		WithHumanError(human).
 		WithHelp("Check your network connectivity and ensure SafeDep Cloud is reachable").
 		WithAdditionalHelp("Run 'pmg setup doctor' to see the policy that pmg applies")
+}
+
+// isOfflineCode reports whether code is a network or timeout error, which
+// a machine without a connection to SafeDep Cloud gets.
+func isOfflineCode(code string) bool {
+	switch code {
+	case errcodes.Network, errcodes.Timeout,
+		usefulerror.ErrNetworkError, usefulerror.ErrGatewayTimeout, usefulerror.ErrServiceUnavailable:
+		return true
+	}
+	return false
+}
+
+// appliedPolicyRevision returns the revision of the cloud policy that pmg
+// applies, or 0 when no policy applies.
+func appliedPolicyRevision(cfg *config.RuntimeConfig) uint64 {
+	st := cloudpolicy.Global().Status()
+	if st == nil {
+		st = cloudpolicy.Load(cfg, "")
+	}
+	if st.Applied == nil {
+		return 0
+	}
+	return st.Applied.Revision
 }
 
 // syncFailureError maps a failed sync to a user-facing error. Errors
