@@ -177,6 +177,19 @@ func TestPolicyRuleBlockMessage(t *testing.T) {
 				"     They can run: safedep policy rule show r_[2J9c1",
 		},
 		{
+			name: "a scoped npm package shows the decoded PURL",
+			blockCtx: &proxy.BlockContext{
+				Ecosystem:      packagev1.Ecosystem_ECOSYSTEM_NPM,
+				PackageName:    "@types/ms",
+				PackageVersion: "2.1.0",
+				PolicyRule:     &proxy.PolicyRuleBlock{RuleID: "r_9c1", Cloud: true, Revision: 48, DefaultPolicyRevision: 12},
+			},
+			expected: "pmg: blocked pkg:npm/@types/ms@2.1.0 by the policy of your tenant\n" +
+				"     rule r_9c1 · policy revision 48 · default policy revision 12\n" +
+				"     To ask for an exception, send the rule id and the reason to your security admin.\n" +
+				"     They can run: safedep policy rule show r_9c1",
+		},
+		{
 			name:     "no rule renders nothing",
 			blockCtx: blocked(nil),
 			advisory: "Contact #security-help",

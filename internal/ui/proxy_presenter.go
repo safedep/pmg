@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"unicode"
 
@@ -129,7 +130,8 @@ func PolicyRuleBlockMessage(blockCtx *proxy.BlockContext) string {
 }
 
 // packagePurl names the blocked package as a PURL, the form of the rule
-// selectors.
+// selectors. An admin writes a selector in the decoded form, for example
+// pkg:npm/@types/ms, so the message decodes the wire form for display only.
 func packagePurl(blockCtx *proxy.BlockContext) string {
 	purl, err := pb.Purl(&packagev1.PackageVersion{
 		Package: &packagev1.Package{Ecosystem: blockCtx.Ecosystem, Name: blockCtx.PackageName},
@@ -137,6 +139,8 @@ func packagePurl(blockCtx *proxy.BlockContext) string {
 	})
 	if err != nil {
 		purl = fmt.Sprintf("%s/%s@%s", ecosystemLabel(blockCtx.Ecosystem), blockCtx.PackageName, blockCtx.PackageVersion)
+	} else if decoded, decodeErr := url.PathUnescape(purl); decodeErr == nil {
+		purl = decoded
 	}
 	return removeControlChars(purl)
 }
