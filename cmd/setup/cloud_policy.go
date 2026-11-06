@@ -105,15 +105,15 @@ func rejectedMessage(st *cloudpolicy.Status) string {
 		applies = fmt.Sprintf("revision %d", st.Applied.Revision)
 	}
 
-	state := st.CacheState
-	if state.LastFetchRejected() {
-		return fmt.Sprintf("revision %d was rejected: %s. pmg applies %s",
-			state.Rejected.Revision, state.Rejected.Reason, applies)
+	subject := "the policy cache"
+	if revision := st.RejectedRevision(); revision > 0 {
+		subject = fmt.Sprintf("revision %d", revision)
 	}
-	if state != nil && st.FromPrevious {
-		return fmt.Sprintf("revision %d failed its check: %s. pmg applies %s", state.Revision, st.RejectedReason(), applies)
+	verb := "failed its check"
+	if st.CacheState.LastFetchRejected() {
+		verb = "was rejected"
 	}
-	return fmt.Sprintf("the policy cache failed its check: %s. pmg applies %s", st.RejectedReason(), applies)
+	return fmt.Sprintf("%s %s: %s. pmg applies %s", subject, verb, st.RejectedReason(), applies)
 }
 
 // exceptionLines groups the exceptions of the policy for people: the

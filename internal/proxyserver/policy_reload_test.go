@@ -68,6 +68,14 @@ func TestReloadIfCacheMoved(t *testing.T) {
 	out.Reset()
 	assert.False(t, reloadIfCacheMoved(cfg, rt, &out), "the next tick does not load the same cache again")
 	assert.Empty(t, out.String(), "the next tick writes no line")
+
+	// Revision 50 names another machine, so it fails its check and
+	// revision 49 still applies.
+	require.NoError(t, cpt.Write(cfg.CloudPolicyCacheDir(), cpt.Policy(cpt.Block("r_block", "pkg:npm/third", "", "incident")),
+		cpt.Header{Tenant: "acme.safedep.io", MachineID: "another-machine", Revision: 50}))
+	assert.True(t, reloadIfCacheMoved(cfg, rt, &out))
+	assert.Equal(t, "Rejected cloud policy revision 50. Revision 49 still applies\n", out.String())
+	assert.Equal(t, uint64(49), rt.Current().Applied().Revision)
 }
 
 func TestReloadIfCacheMovedWithCloudPolicyOff(t *testing.T) {

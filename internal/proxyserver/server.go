@@ -16,6 +16,7 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -613,14 +614,30 @@ func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime, 
 	}
 	log.Infof("Periodic cloud sync: cloud policy state %s, revision %d", st.State, revision)
 
-	line := "No cloud policy applies. pmg applies the tool baseline"
-	if st.Applied != nil {
-		line = fmt.Sprintf("Applied cloud policy revision %d", revision)
-	}
-	if _, err := fmt.Fprintln(out, line); err != nil {
+	if _, err := fmt.Fprintln(out, reloadLine(st)); err != nil {
 		log.Warnf("failed to write the cloud policy reload line: %v", err)
 	}
 	return true
+}
+
+// reloadLine tells the operator which policy the daemon applies after a
+// reload. A rejected policy keeps the last applied revision, so the line
+// names both revisions and does not claim that a new policy applies.
+func reloadLine(st *cloudpolicy.Status) string {
+	if st.State == recordv1.ApplyState_APPLY_STATE_REJECTED {
+		rejected := "the cloud policy cache"
+		if revision := st.RejectedRevision(); revision > 0 {
+			rejected = fmt.Sprintf("cloud policy revision %d", revision)
+		}
+		if st.Applied != nil {
+			return fmt.Sprintf("Rejected %s. Revision %d still applies", rejected, st.Applied.Revision)
+		}
+		return fmt.Sprintf("Rejected %s. pmg applies the tool baseline", rejected)
+	}
+	if st.Applied != nil {
+		return fmt.Sprintf("Applied cloud policy revision %d", st.Applied.Revision)
+	}
+	return "No cloud policy applies. pmg applies the tool baseline"
 }
 
 // listenAddr resolves the proxy's bind address from config (host) and the
