@@ -282,6 +282,25 @@ func TestSetConfigValue(t *testing.T) {
 		assert.Equal(t, false, val)
 	})
 
+	t.Run("keeps the legacy proxy_install_only key in effect when it adds a section", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("cloud.policy", "false")
+		require.NoError(t, err)
+
+		initConfig()
+		assert.True(t, Get().Config.Proxy.InstallOnly)
+		val, err := GetConfigValue("cloud.policy")
+		require.NoError(t, err)
+		assert.Equal(t, false, val)
+	})
+
 	t.Run("returns error for nonexistent key", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)

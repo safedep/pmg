@@ -38,10 +38,12 @@ func SetConfigValue(key, value string) error {
 	}
 
 	// A config file that an older PMG wrote can miss a whole section of the
-	// template, such as cloud. pmg setup install merges the template into the
-	// file. Do the same merge here, so the user does not have to run setup,
-	// which also writes shell aliases and PATH shims.
-	if err := mergeTemplateIntoFile(configPath); err != nil {
+	// template, such as cloud. Add only the section of the key from the
+	// template. A merge of the whole template adds a proxy section to a file
+	// that has the legacy proxy_install_only key, and the legacy key then
+	// stops having an effect.
+	section, _, _ := strings.Cut(key, ".")
+	if err := mergeTemplateSectionIntoFile(configPath, section); err != nil {
 		return fmt.Errorf("failed to add the missing keys of the template: %w", err)
 	}
 	return setConfigValueInFile(configPath, key, value)
@@ -109,12 +111,12 @@ func GetSystemConfigValue(key string) (any, error) {
 	return v.Get(key), nil
 }
 
-// mergeTemplateIntoFile merges the template into the config file, as pmg
-// setup install does. The merge keeps a key that the file has, also when its
-// value is empty, so a section such as "cloud:" with no keys would stay
+// mergeTemplateSectionIntoFile merges one top-level section of the template
+// into the config file. The merge keeps a key that the file has, also when
+// its value is empty, so a section such as "cloud:" with no keys would stay
 // empty. The merge drops such a top-level key first, and the section of the
 // template takes its place.
-func mergeTemplateIntoFile(configPath string) error {
+func mergeTemplateSectionIntoFile(configPath, section string) error {
 	fi, err := os.Stat(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to stat config file: %w", err)
@@ -124,11 +126,20 @@ func mergeTemplateIntoFile(configPath string) error {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	data, err = dropEmptyTopLevelKeys(data)
+	data, err = filterTopLevelKeys(data, func(mv *ast.MappingValueNode) bool {
+		_, empty := mv.Value.(*ast.NullNode)
+		return !empty
+	})
 	if err != nil {
 		return err
 	}
-	merged, err := utils.MergeYAML(data, []byte(templateConfig))
+	templateSection, err := filterTopLevelKeys([]byte(templateConfig), func(mv *ast.MappingValueNode) bool {
+		return mv.Key.GetToken().Value == section
+	})
+	if err != nil {
+		return err
+	}
+	merged, err := utils.MergeYAML(data, templateSection)
 	if err != nil {
 		return fmt.Errorf("failed to merge config: %w", err)
 	}
@@ -138,7 +149,7 @@ func mergeTemplateIntoFile(configPath string) error {
 	return nil
 }
 
-func dropEmptyTopLevelKeys(data []byte) ([]byte, error) {
+func filterTopLevelKeys(data []byte, keep func(*ast.MappingValueNode) bool) ([]byte, error) {
 	file, err := parser.ParseBytes(data, parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
@@ -153,7 +164,7 @@ func dropEmptyTopLevelKeys(data []byte) ([]byte, error) {
 
 	kept := root.Values[:0]
 	for _, mv := range root.Values {
-		if _, empty := mv.Value.(*ast.NullNode); !empty {
+		if keep(mv) {
 			kept = append(kept, mv)
 		}
 	}

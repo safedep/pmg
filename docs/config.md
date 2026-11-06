@@ -180,7 +180,7 @@ Under a [globally managed config](#globally-managed-configuration) with `global_
 **Limitation**
 
 - `config set` can set a key of the template that the config file does not have.
-  It merges the missing keys of the template into the file, as `pmg setup install` does.
+  It adds the top-level section of that key from the template, such as `cloud`, and only that section.
   It keeps your other values and comments. A key that the template does not have returns
   a "key not found" error.
 - `config set --system` does not merge the template into the managed config. It adds a missing
