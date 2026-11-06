@@ -799,13 +799,21 @@ func isProxyRegistriesError(err error) bool {
 // checkProxyRegistriesResult reports the state of proxy.registries. A load
 // error of proxy.registries fails the check. Installs and proxy start fail
 // closed until the user repairs the config file. Other load errors belong to
-// the config file check. A plain-HTTP endpoint gets a warning. Anyone on the
-// network path can read and change that traffic.
+// the config file check. The loader then stops before it reads the
+// registries, so the check cannot run. A plain-HTTP endpoint gets a warning.
+// Anyone on the network path can read and change that traffic.
 func checkProxyRegistriesResult(loadErr error, registries []config.ProxyRegistryConfig) doctor.CheckResult {
 	if isProxyRegistriesError(loadErr) {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
 			Message: "proxy.registries is invalid. Installs and proxy start fail closed",
+		}
+	}
+	if loadErr != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: "Not checked. The config file did not load",
+			Fix:     "Repair the config file. The Config file check shows the error",
 		}
 	}
 	if len(registries) == 0 {

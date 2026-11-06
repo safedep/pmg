@@ -220,8 +220,9 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 		{
 			name:        "blocked_packages load error does not blame the registries",
 			loadErr:     config.NewInvalidBlockedPackagesError(&config.BlockedPackagesError{}),
-			wantStatus:  doctor.StatusPass,
-			wantMessage: "No custom registries",
+			registries:  []config.ProxyRegistryConfig{httpRegistry},
+			wantStatus:  doctor.StatusWarn,
+			wantMessage: "Not checked",
 		},
 		{
 			name:        "no registries passes",
