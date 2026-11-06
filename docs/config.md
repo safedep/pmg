@@ -69,7 +69,8 @@ See [Custom Registries](proxy-mode.md#custom-registries).
 ## Blocked Packages
 
 `blocked_packages` lists packages that PMG blocks at download, whatever the malware analysis says. A
-blocked package wins over `trusted_packages` and over `--insecure-installation`:
+blocked package wins over `trusted_packages` and over the `PMG_INSECURE_INSTALLATION` environment
+variable:
 
 ```yaml
 blocked_packages:
@@ -95,7 +96,7 @@ pmg config set cloud.policy true
 - PMG keeps the policy in `cloud-policy/` in the config directory. When the fetch fails or you log
   out, PMG keeps the last policy that it applied.
 - A block entry of the policy wins over every trust entry, `trusted_packages` and
-  `--insecure-installation`. A trust entry never skips the malware analysis and never allows
+  `PMG_INSECURE_INSTALLATION`. A trust entry never skips the malware analysis and never allows
   verified malware.
 - When the policy sets the dependency cooldown, PMG ignores `PMG_DEPENDENCY_COOLDOWN_*` and refuses
   `--skip-dependency-cooldown`.

@@ -154,7 +154,7 @@ trusted_packages:
 
 # Blocked packages are packages that PMG blocks at download, whatever the
 # malware analysis says. A blocked package wins over trusted_packages and over
-# --insecure-installation.
+# the PMG_INSECURE_INSTALLATION environment variable.
 #
 # The purl selects one package, one version, or every package under a prefix
 # that ends with "/*" or ".*". The optional vers is a version range in the vers
