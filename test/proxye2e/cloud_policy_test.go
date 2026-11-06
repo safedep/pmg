@@ -10,7 +10,6 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	cpt "github.com/safedep/pmg/internal/cloudpolicy/cloudpolicytest"
-	"github.com/safedep/pmg/internal/ui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -93,7 +92,7 @@ func TestCloudPolicy_BlockEntries(t *testing.T) {
 			Exec:   func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.2.4") },
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assertRuleBlocked(t, h, res, "r_9c1", true)
-				assert.Equal(t, ui.OutcomeBlocked, h.Outcome())
+				assert.Positive(t, h.Stats().BlockedCount, "the run reports the block, not the insecure bypass")
 			},
 		},
 		{

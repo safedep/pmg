@@ -6,6 +6,7 @@ import (
 
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAuditOutcome(t *testing.T) {
@@ -23,9 +24,7 @@ func TestAuditOutcome(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := auditOutcome(tt.uiOutcome); got != tt.auditOutcome {
-			t.Errorf("auditOutcome(%v) = %q, want %q", tt.uiOutcome, got, tt.auditOutcome)
-		}
+		assert.Equal(t, tt.auditOutcome, auditOutcome(tt.uiOutcome), "auditOutcome(%v)", tt.uiOutcome)
 	}
 }
 
@@ -214,11 +213,8 @@ func TestInferOutcome(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			outcome := InferOutcome(tt.insecureMode, tt.dryRun, tt.blockedCount, tt.userCancelledCount, tt.err)
-
-			if outcome != tt.expectedOutcome {
-				t.Errorf("InferOutcome() = %v, want %v", outcome, tt.expectedOutcome)
-			}
+			outcome := inferOutcome(tt.insecureMode, tt.dryRun, tt.blockedCount, tt.userCancelledCount, tt.err)
+			assert.Equal(t, tt.expectedOutcome, outcome)
 		})
 	}
 }
@@ -292,11 +288,8 @@ func TestInferOutcomePrecedence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			insecureMode, dryRun, blockedCount, userCancelledCount, err := tt.setup()
-			outcome := InferOutcome(insecureMode, dryRun, blockedCount, userCancelledCount, err)
-
-			if outcome != tt.expected {
-				t.Errorf("%s: got %v, want %v", tt.description, outcome, tt.expected)
-			}
+			outcome := inferOutcome(insecureMode, dryRun, blockedCount, userCancelledCount, err)
+			assert.Equal(t, tt.expected, outcome, tt.description)
 		})
 	}
 }

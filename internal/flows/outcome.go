@@ -24,7 +24,7 @@ func auditOutcome(outcome ui.ExecutionOutcome) audit.Outcome {
 	}
 }
 
-// InferOutcome determines the execution outcome based on configuration and execution data.
+// inferOutcome determines the execution outcome based on configuration and execution data.
 //
 // Outcome precedence:
 //  1. Error (if no packages were blocked)
@@ -37,7 +37,7 @@ func auditOutcome(outcome ui.ExecutionOutcome) audit.Outcome {
 // Insecure mode skips the malware analysis, but a package rule and the
 // dependency cooldown still block. A blocked run must report the block, so
 // the bypass outcome applies only when nothing was blocked.
-func InferOutcome(insecureMode, dryRun bool, blockedCount, userCancelledCount int, err error) ui.ExecutionOutcome {
+func inferOutcome(insecureMode, dryRun bool, blockedCount, userCancelledCount int, err error) ui.ExecutionOutcome {
 	// Error takes precedence unless we have blocked packages
 	if err != nil && blockedCount == 0 {
 		return ui.OutcomeError
