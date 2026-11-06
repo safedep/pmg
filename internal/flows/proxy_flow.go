@@ -341,7 +341,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.AdvisoryMessage = cfg.Config.AdvisoryMessage
 
 	// Set outcome based on execution result using shared inference logic
-	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
+	reportData.Outcome = InferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
 	sessionOutcome = auditOutcome(reportData.Outcome)
 
 	// Show the report

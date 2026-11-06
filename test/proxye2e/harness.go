@@ -19,6 +19,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudpolicy"
+	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/models"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy"
@@ -283,6 +284,14 @@ func (h *Harness) Go() GoDriver       { return GoDriver{h: h} }
 func (h *Harness) Cargo() CargoDriver { return CargoDriver{h: h} }
 
 func (h *Harness) Stats() interceptors.AnalysisStats { return h.stats.GetStats() }
+
+// Outcome is the outcome that the proxy flow reports for the traffic so far,
+// with the insecure and dry run switches of the global config.
+func (h *Harness) Outcome() ui.ExecutionOutcome {
+	cfg := config.Get()
+	stats := h.stats.GetStats()
+	return flows.InferOutcome(cfg.InsecureInstallation, cfg.DryRun, stats.BlockedCount, stats.UserCancelledCount, nil)
+}
 
 func (h *Harness) BlockedPackages() []*analyzer.PackageVersionAnalysisResult {
 	return h.stats.GetBlockedPackages()

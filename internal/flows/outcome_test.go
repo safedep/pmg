@@ -85,13 +85,13 @@ func TestInferOutcome(t *testing.T) {
 			expectedOutcome:    ui.OutcomeError,
 		},
 		{
-			name:               "insecure mode with blocked packages",
+			name:               "insecure mode with blocked packages reports the block",
 			insecureMode:       true,
 			dryRun:             false,
 			blockedCount:       3,
 			userCancelledCount: 0,
 			err:                nil,
-			expectedOutcome:    ui.OutcomeInsecureBypass,
+			expectedOutcome:    ui.OutcomeBlocked,
 		},
 		{
 			name:               "dry run mode",
@@ -175,13 +175,13 @@ func TestInferOutcome(t *testing.T) {
 			expectedOutcome:    ui.OutcomeInsecureBypass,
 		},
 		{
-			name:               "precedence test - insecure overrides blocked",
+			name:               "precedence test - blocked overrides insecure",
 			insecureMode:       true,
 			dryRun:             false,
 			blockedCount:       5,
 			userCancelledCount: 0,
 			err:                nil,
-			expectedOutcome:    ui.OutcomeInsecureBypass,
+			expectedOutcome:    ui.OutcomeBlocked,
 		},
 		{
 			name:               "precedence test - dry run overrides user cancelled",
@@ -214,10 +214,10 @@ func TestInferOutcome(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			outcome := inferOutcome(tt.insecureMode, tt.dryRun, tt.blockedCount, tt.userCancelledCount, tt.err)
+			outcome := InferOutcome(tt.insecureMode, tt.dryRun, tt.blockedCount, tt.userCancelledCount, tt.err)
 
 			if outcome != tt.expectedOutcome {
-				t.Errorf("inferOutcome() = %v, want %v", outcome, tt.expectedOutcome)
+				t.Errorf("InferOutcome() = %v, want %v", outcome, tt.expectedOutcome)
 			}
 		})
 	}
@@ -240,12 +240,20 @@ func TestInferOutcomePrecedence(t *testing.T) {
 			description: "Error should be returned when blockedCount is 0",
 		},
 		{
-			name: "2. insecure mode overrides everything",
+			name: "2. insecure mode overrides everything when nothing was blocked",
 			setup: func() (bool, bool, int, int, error) {
-				return true, true, 5, 2, errors.New("error")
+				return true, true, 0, 2, nil
 			},
 			expected:    ui.OutcomeInsecureBypass,
-			description: "Insecure mode is highest priority after error check",
+			description: "Insecure mode is highest priority after error check when blockedCount is 0",
+		},
+		{
+			name: "2a. a block in insecure mode is not a bypass",
+			setup: func() (bool, bool, int, int, error) {
+				return true, false, 5, 0, errors.New("error")
+			},
+			expected:    ui.OutcomeBlocked,
+			description: "A package rule or the cooldown still blocks in insecure mode",
 		},
 		{
 			name: "3. dry run overrides user actions",
@@ -284,7 +292,7 @@ func TestInferOutcomePrecedence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			insecureMode, dryRun, blockedCount, userCancelledCount, err := tt.setup()
-			outcome := inferOutcome(insecureMode, dryRun, blockedCount, userCancelledCount, err)
+			outcome := InferOutcome(insecureMode, dryRun, blockedCount, userCancelledCount, err)
 
 			if outcome != tt.expected {
 				t.Errorf("%s: got %v, want %v", tt.description, outcome, tt.expected)

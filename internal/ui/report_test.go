@@ -370,3 +370,22 @@ func TestReportRendersRuleBlocks(t *testing.T) {
 		})
 	}
 }
+
+func TestReportInsecureModeShowsRuleAndCooldownBlocks(t *testing.T) {
+	for _, level := range []VerbosityLevel{VerbosityLevelNormal, VerbosityLevelVerbose} {
+		t.Run(fmt.Sprint(level), func(t *testing.T) {
+			withVerbosity(t, level)
+
+			data := ruleBlockedData()
+			data.InsecureMode = true
+			data.BlockedCount = 2
+			data.CooldownBlockedPackages = []models.CooldownBlock{{Name: "fresh", Version: "2.0.0", DaysAgo: 1, DaysLeft: 4, CooldownDays: 5}}
+
+			out := captureStdout(t, func() { Report(data) })
+
+			assert.Contains(t, out, "INSECURE MODE - Malware protection bypassed")
+			assert.Contains(t, out, "pmg: blocked pkg:npm/evil@1.2.4 by the policy of your tenant")
+			assert.Contains(t, out, "fresh@2.0.0")
+		})
+	}
+}
