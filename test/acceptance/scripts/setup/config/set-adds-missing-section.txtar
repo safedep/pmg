@@ -1,0 +1,19 @@
+# guarantee: pmg config set sets a key of the template when the config file
+# does not have its section. pmg adds the missing keys from the template and
+# keeps the other values and comments of the file.
+
+env HOME=$WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+mkdir $WORK/home
+
+exec pmg config set cloud.enabled true
+exec pmg config get cloud.enabled
+stdout '^true$'
+exec pmg config get paranoid
+stdout '^true$'
+grep '^# my settings$' $WORK/config/config.yml
+grep '^paranoid: true$' $WORK/config/config.yml
+
+-- config/config.yml --
+# my settings
+paranoid: true

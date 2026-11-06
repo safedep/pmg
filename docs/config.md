@@ -174,10 +174,12 @@ Under a [globally managed config](#globally-managed-configuration) with `global_
 
 **Limitation**
 
-- `config set` can only update keys that are present and uncommented in the config file.
-  If a key is commented out (e.g. `# some_key: value`) or missing entirely, `set` will
-  return a "key not found" error. To fix this, uncomment or add the key manually via `pmg config edit`,
-  or run `pmg setup install` to merge missing template keys into your config.
+- `config set` can set a key of the template that the config file does not have.
+  It merges the missing keys of the template into the file, as `pmg setup install` does.
+  It keeps your other values and comments. A key that the template does not have returns
+  a "key not found" error.
+- `config set --system` does not merge the template into the managed config. It adds a missing
+  key only under a section that the managed config has. Add other keys with `pmg config edit --system`.
 - Lists and maps need `config edit`. `config set` updates existing scalar nodes only.
   Boolean values must be `true` or `false`. Integer nodes require integers.
   A string assignment does not validate the setting's semantics before writing it.

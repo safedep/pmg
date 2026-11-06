@@ -81,7 +81,7 @@ pmg config set analysis_cache.malysis.ttl 24h
 pmg config edit   # open the config file directly
 ```
 
-If a key is missing, add it with `pmg config edit` or merge template keys with `pmg setup install`.
+If the config file does not have a key, `pmg config set` adds it from the template.
 See [Configuration](config.md) for managed files and overrides.
 
 `enabled` defaults to `false`. Disabling it retains the stored entries.

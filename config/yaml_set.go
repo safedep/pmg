@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -29,7 +30,29 @@ func SetConfigValue(key, value string) error {
 	if err := ensureConfigFileExists(configPath); err != nil {
 		return err
 	}
+
+	err = setConfigValueInFile(configPath, key, value)
+	if !errors.Is(err, errKeyNotFound) || !templateHasKey(key) {
+		return err
+	}
+
+	// A config file that an older PMG wrote can miss a whole section of the
+	// template, such as cloud. pmg setup install merges the template into the
+	// file. Do the same merge here, so the user does not have to run setup,
+	// which also writes shell aliases and PATH shims.
+	if err := writeTemplateConfigFile(configPath); err != nil {
+		return fmt.Errorf("failed to add the missing keys of the template: %w", err)
+	}
 	return setConfigValueInFile(configPath, key, value)
+}
+
+// errKeyNotFound is the error of a set when the file has no such key.
+var errKeyNotFound = errors.New("key not found")
+
+// templateHasKey reports whether the template has key.
+func templateHasKey(key string) bool {
+	v, err := newFileViper("")
+	return err == nil && v.IsSet(key)
 }
 
 // SetSystemConfigValue updates a value in the managed config, the file a
@@ -202,7 +225,7 @@ func setValueAtPath(node *ast.MappingNode, segments []string, value string, temp
 		return replaceScalarValue(mv, value)
 	}
 
-	return fmt.Errorf("key not found: %q", target)
+	return fmt.Errorf("%w: %q", errKeyNotFound, target)
 }
 
 // newMappingValue returns the mapping value "key: value" at column, the

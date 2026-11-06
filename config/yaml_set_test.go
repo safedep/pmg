@@ -232,6 +232,33 @@ func TestSetConfigValue(t *testing.T) {
 		assert.Contains(t, string(data), "paranoid: true")
 	})
 
+	t.Run("adds a section that the file does not have from the template", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("# my settings\nparanoid: true\nverbosity: verbose\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("cloud.policy", "false")
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "# my settings")
+		assert.Contains(t, string(data), "paranoid: true")
+		assert.Contains(t, string(data), "verbosity: verbose")
+
+		initConfig()
+		val, err := GetConfigValue("cloud.policy")
+		require.NoError(t, err)
+		assert.Equal(t, false, val)
+		val, err = GetConfigValue("paranoid")
+		require.NoError(t, err)
+		assert.Equal(t, true, val)
+	})
+
 	t.Run("returns error for nonexistent key", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
