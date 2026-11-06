@@ -144,6 +144,7 @@ func TestPolicyFetchFailureError(t *testing.T) {
 			applied:       52,
 			expectedCode:  errcodes.Network,
 			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. The last policy still applies (revision 52)",
+			expectedHelp:  "Check your network connectivity and ensure SafeDep Cloud is reachable",
 		},
 		{
 			name:          "offline with no applied policy says so",
@@ -157,6 +158,29 @@ func TestPolicyFetchFailureError(t *testing.T) {
 			applied:       52,
 			expectedCode:  usefulerror.ErrGatewayTimeout,
 			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. The last policy still applies (revision 52)",
+		},
+		{
+			name:          "a server error says which policy applies and keeps its help",
+			err:           status.Error(codes.Internal, "server closed the stream without sending trailers"),
+			applied:       52,
+			expectedCode:  usefulerror.ErrInternalServerError,
+			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. The last policy still applies (revision 52)",
+			expectedHelp:  "Retry the operation. If the error continues, contact SafeDep support.",
+		},
+		{
+			name:          "a server outage keeps its help",
+			err:           status.Error(codes.Unavailable, "service unavailable"),
+			applied:       52,
+			expectedCode:  usefulerror.ErrServiceUnavailable,
+			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. The last policy still applies (revision 52)",
+			expectedHelp:  "The service is temporarily unavailable. Retry after a short delay.",
+		},
+		{
+			name:          "a missing entitlement keeps its own text",
+			err:           entitlementStatusErr(t, 0),
+			applied:       52,
+			expectedCode:  usefulerror.ErrMissingEntitlements,
+			expectedHuman: "Permission denied",
 		},
 		{
 			name:          "an authentication failure gets credential guidance",

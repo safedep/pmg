@@ -75,17 +75,22 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 // policyFetchFailureError maps a failed policy fetch to a user-facing error.
 // pmg keeps the last policy that it applied. applied is the revision of that
-// policy, or 0 when no policy applies. An offline machine gets a network or
-// timeout error, so the message says which policy still applies.
+// policy, or 0 when no policy applies. A credential or entitlement error keeps
+// its own text, because the user must fix the login. Every other error says
+// which policy still applies.
 func policyFetchFailureError(err error, applied uint64) error {
 	usefulErr, ok := usefulerror.AsUsefulError(err)
-	if ok && !isOfflineCode(usefulErr.Code()) {
+	if ok && isCredentialCode(usefulErr.Code()) {
 		return withCredentialGuidance(usefulErr, err)
 	}
 
 	code := errcodes.Network
+	help := "Check your network connectivity and ensure SafeDep Cloud is reachable"
 	if ok {
 		code = usefulErr.Code()
+		if !isNetworkCode(code) && usefulErr.Help() != "" {
+			help = usefulErr.Help()
+		}
 	}
 	human := "Cannot fetch the cloud policy from SafeDep Cloud. No cloud policy applies yet"
 	if applied > 0 {
@@ -95,16 +100,21 @@ func policyFetchFailureError(err error, applied uint64) error {
 		Wrap(err).
 		WithCode(code).
 		WithHumanError(human).
-		WithHelp("Check your network connectivity and ensure SafeDep Cloud is reachable").
+		WithHelp(help).
 		WithAdditionalHelp("Run 'pmg setup doctor' to see the policy that pmg applies")
 }
 
-// isOfflineCode reports whether code is a network or timeout error, which
-// a machine without a connection to SafeDep Cloud gets.
-func isOfflineCode(code string) bool {
+func isCredentialCode(code string) bool {
 	switch code {
-	case errcodes.Network, errcodes.Timeout,
-		usefulerror.ErrNetworkError, usefulerror.ErrGatewayTimeout, usefulerror.ErrServiceUnavailable:
+	case usefulerror.ErrAuthenticationFailed, usefulerror.ErrAuthorizationFailed, usefulerror.ErrMissingEntitlements:
+		return true
+	}
+	return false
+}
+
+func isNetworkCode(code string) bool {
+	switch code {
+	case errcodes.Network, errcodes.Timeout, usefulerror.ErrNetworkError:
 		return true
 	}
 	return false
