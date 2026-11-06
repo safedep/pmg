@@ -1,6 +1,6 @@
-# guarantee: cloud.enabled is the one opt-in for the cloud policy. With no
-# cloud.policy key, pmg applies the policy cache. With the cloud off and no
-# cloud.policy key, doctor does not warn about the cloud policy.
+# guarantee: cloud.enabled is the one opt-in for the cloud policy. A config
+# file that pmg wrote from the template turns the policy on with no other
+# change. With the cloud off, doctor does not warn about the cloud policy.
 
 env HOME=$WORK/home
 env PMG_CONFIG_DIR=$WORK/config
@@ -10,21 +10,21 @@ env PMG_CLOUD_ENABLED=
 env PMG_CLOUD_ENDPOINT_ID=acceptance-policy
 mkdir $WORK/home
 
+# pmg writes the config file from the template, as pmg setup install does.
+! exists $WORK/config/config.yml
+exec pmg config set cloud.auto_sync.enabled false
+grep '^  policy: true$' $WORK/config/config.yml
+
+exec pmg setup info --json
+! stdout '"name": "cloud-policy"'
+
+exec pmg config set cloud.enabled true
 policy-cache $WORK/config policy.textproto
 
 exec pmg setup info --json
 stdout '"enabled": true,\s+"state": "applied"'
 stdout '"revision": 48'
 
-exec pmg config set cloud.enabled false
-exec pmg setup info --json
-! stdout '"name": "cloud-policy"'
-
--- config/config.yml --
-cloud:
-  enabled: true
-  auto_sync:
-    enabled: false
 -- policy.textproto --
 spec {
   core {

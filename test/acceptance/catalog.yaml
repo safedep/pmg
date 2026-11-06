@@ -438,7 +438,7 @@
   title: "cloud.enabled turns the cloud policy on"
   category: cloud
   tier: P1
-  guarantee: "With cloud.enabled true and no cloud.policy key, pmg applies the cloud policy. With the cloud off and no cloud.policy key, doctor does not warn about the cloud policy."
+  guarantee: "A config file that pmg wrote from the template applies the cloud policy when cloud.enabled is true. With the cloud off, doctor does not warn about the cloud policy."
   labels: [cloud, policy, offline]
 - id: cloud/policy/doctor-shows-revision
   title: "doctor shows the applied policy revision"

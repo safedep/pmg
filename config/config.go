@@ -524,22 +524,6 @@ func (r *RuntimeConfig) CloudPolicyEnabled() bool {
 	return r.Config.Cloud.Enabled && r.Config.Cloud.Policy
 }
 
-// CloudPolicySetInFile reports whether the active config file sets
-// cloud.policy itself. The template sets it to true, so only a value in the
-// file shows that a person turned the policy on or off.
-func (r *RuntimeConfig) CloudPolicySetInFile() bool {
-	raw, err := readConfigFileKeys(r.configFilePath)
-	if err != nil {
-		return false
-	}
-	cloud, ok := raw["cloud"].(map[string]any)
-	if !ok {
-		return false
-	}
-	_, ok = cloud["policy"]
-	return ok
-}
-
 // ConfigFilePath returns the path to the active config file (the globally
 // managed file when present, otherwise the per-user file).
 func (r *RuntimeConfig) ConfigFilePath() string {

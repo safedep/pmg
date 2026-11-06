@@ -84,10 +84,9 @@ func TestCloudSyncPathHelpers(t *testing.T) {
 
 func TestCloudPolicyDefaultsToOn(t *testing.T) {
 	tests := []struct {
-		name          string
-		configYAML    string
-		wantApplies   bool
-		wantSetInFile bool
+		name        string
+		configYAML  string
+		wantApplies bool
 	}{
 		{
 			name:        "cloud.enabled with no policy key applies the policy",
@@ -95,15 +94,8 @@ func TestCloudPolicyDefaultsToOn(t *testing.T) {
 			wantApplies: true,
 		},
 		{
-			name:          "policy: false turns the policy off",
-			configYAML:    "cloud:\n  enabled: true\n  policy: false\n",
-			wantSetInFile: true,
-		},
-		{
-			name:          "policy: true in the file is set in the file",
-			configYAML:    "cloud:\n  enabled: true\n  policy: true\n",
-			wantApplies:   true,
-			wantSetInFile: true,
+			name:       "policy: false turns the policy off",
+			configYAML: "cloud:\n  enabled: true\n  policy: false\n",
 		},
 		{
 			name:       "no cloud section keeps the cloud off",
@@ -121,7 +113,6 @@ func TestCloudPolicyDefaultsToOn(t *testing.T) {
 			initConfig()
 
 			assert.Equal(t, tt.wantApplies, Get().CloudPolicyEnabled())
-			assert.Equal(t, tt.wantSetInFile, Get().CloudPolicySetInFile())
 		})
 	}
 }
