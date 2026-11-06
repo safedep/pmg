@@ -99,6 +99,20 @@ func TestProxyPresenterBlockMessage(t *testing.T) {
 			expected: "Package blocked by dependency cooldown: go/example.com/fresh@v1.1.0\n\nPublished 2 day(s) ago; cooldown window is 7 day(s) (5 remaining).\n\nRequest an exemption at go/pmg-exceptions",
 		},
 		{
+			name:   "dependency cooldown of the tenant policy",
+			reason: proxy.BlockReasonDependencyCooldown,
+			blockCtx: &proxy.BlockContext{
+				Ecosystem:              packagev1.Ecosystem_ECOSYSTEM_GO,
+				PackageName:            "example.com/fresh",
+				PackageVersion:         "v1.1.0",
+				CooldownDays:           7,
+				CooldownDaysAgo:        2,
+				CooldownDaysLeft:       5,
+				CooldownPolicyRevision: 48,
+			},
+			expected: "Package blocked by dependency cooldown: go/example.com/fresh@v1.1.0\n\nPublished 2 day(s) ago; cooldown window is 7 day(s) (5 remaining).\n\nCooldown of 7 days set by the policy of your tenant (revision 48)",
+		},
+		{
 			name:     "nil context",
 			reason:   proxy.BlockReasonMalware,
 			blockCtx: nil,

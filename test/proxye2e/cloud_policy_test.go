@@ -322,6 +322,32 @@ func TestCloudPolicy_Cooldown(t *testing.T) {
 				assert.Equal(t, cloudpolicy.PathMinAge, citation.GetPath())
 				assert.Equal(t, uint64(48), citation.GetRevision())
 				assert.Equal(t, 7, events[0].CooldownDays)
+
+				blocks := h.CooldownBlocks()
+				require.NotEmpty(t, blocks)
+				assert.Equal(t, uint64(48), blocks[0].PolicyRevision, "the block report names the policy that set the cooldown")
+			},
+		},
+		{
+			Name:   "a cloud cooldown block of a go zip names the policy",
+			Policy: cpt.WithCooldown(cpt.Policy(), 7*24*time.Hour),
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/fresh",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: recent()}}})
+				h.Analyzer.SetGo("example.com/fresh", "v1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Go().DownloadZip("example.com/fresh", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.True(t, res.Blocked())
+				assert.Contains(t, res.Requests[0].Body, "Cooldown of 7 days set by the policy of your tenant (revision 48)")
+
+				blocks := h.CooldownBlocks()
+				require.Len(t, blocks, 1)
+				assert.Equal(t, uint64(48), blocks[0].PolicyRevision)
 			},
 		},
 		{
@@ -356,6 +382,10 @@ func TestCloudPolicy_Cooldown(t *testing.T) {
 				events := h.Audit.Events(audit.EventTypeDependencyCooldown)
 				require.NotEmpty(t, events)
 				assert.Nil(t, events[0].Citation)
+
+				blocks := h.CooldownBlocks()
+				require.NotEmpty(t, blocks)
+				assert.Zero(t, blocks[0].PolicyRevision, "the local config set the cooldown")
 			},
 		},
 	})

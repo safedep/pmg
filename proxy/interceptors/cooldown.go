@@ -174,24 +174,26 @@ func cooldownCheckDownload(
 	log.Infof("[%s] Cooldown: blocking %s@%s published %d day(s) ago (%d day cooldown, %d remaining)",
 		ctx.RequestID, name, version, daysAgo, cooldownDays, daysLeft)
 
+	citation := policy.CooldownCitation()
 	if statsCollector != nil {
-		statsCollector.RecordCooldownBlocked(name, version, published, daysAgo, daysLeft, cooldownDays)
+		statsCollector.RecordCooldownBlocked(name, version, published, daysAgo, daysLeft, cooldownDays, citation.GetRevision())
 	}
 
 	audit.LogDependencyCooldown(cooldownPackageVersion(ecosystem, name, version), published, cooldownDays, daysAgo, daysLeft,
-		policy.CooldownCitation())
+		citation)
 
 	return &proxy.InterceptorResponse{
 		Action:      proxy.ActionBlock,
 		BlockCode:   http.StatusForbidden,
 		BlockReason: proxy.BlockReasonDependencyCooldown,
 		BlockContext: &proxy.BlockContext{
-			Ecosystem:        ecosystem,
-			PackageName:      name,
-			PackageVersion:   version,
-			CooldownDays:     cooldownDays,
-			CooldownDaysAgo:  daysAgo,
-			CooldownDaysLeft: daysLeft,
+			Ecosystem:              ecosystem,
+			PackageName:            name,
+			PackageVersion:         version,
+			CooldownDays:           cooldownDays,
+			CooldownDaysAgo:        daysAgo,
+			CooldownDaysLeft:       daysLeft,
+			CooldownPolicyRevision: citation.GetRevision(),
 		},
 	}, true
 }
@@ -302,7 +304,7 @@ func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packa
 	}
 
 	logCooldown := func(version string, publishDate time.Time, daysAgo, daysLeft int) {
-		statsCollector.RecordCooldownBlocked(packageName, version, publishDate, daysAgo, daysLeft, cooldownDays)
+		statsCollector.RecordCooldownBlocked(packageName, version, publishDate, daysAgo, daysLeft, cooldownDays, citation.GetRevision())
 		audit.LogDependencyCooldown(cooldownPackageVersion(ecosystem, packageName, version), publishDate, cooldownDays, daysAgo, daysLeft, citation)
 	}
 

@@ -10,6 +10,10 @@ type CooldownBlock struct {
 	DaysAgo      int
 	DaysLeft     int
 	CooldownDays int
+
+	// PolicyRevision is the revision of the cloud policy of the tenant that
+	// set the cooldown. It is 0 when the local config set the cooldown.
+	PolicyRevision uint64
 }
 
 // CooldownWithheldVersion is one version stripped from registry metadata by the

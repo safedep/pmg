@@ -389,3 +389,39 @@ func TestReportInsecureModeShowsRuleAndCooldownBlocks(t *testing.T) {
 		})
 	}
 }
+
+func TestReportCooldownBlockNamesThePolicy(t *testing.T) {
+	tests := []struct {
+		name     string
+		revision uint64
+		expected string
+	}{
+		{name: "the tenant policy", revision: 48, expected: "Cooldown of 5 days set by the policy of your tenant (revision 48)"},
+		{name: "the local config"},
+	}
+
+	for _, tt := range tests {
+		for _, level := range []VerbosityLevel{VerbosityLevelNormal, VerbosityLevelVerbose} {
+			t.Run(fmt.Sprint(tt.name, "/", level), func(t *testing.T) {
+				withVerbosity(t, level)
+
+				data := NewReportData()
+				data.TotalAnalyzed = 1
+				data.BlockedCount = 1
+				data.Outcome = OutcomeBlocked
+				data.CooldownBlockedPackages = []models.CooldownBlock{{
+					Name: "fresh", Version: "2.0.0", DaysAgo: 1, DaysLeft: 4, CooldownDays: 5, PolicyRevision: tt.revision,
+				}}
+
+				out := captureStdout(t, func() { Report(data) })
+
+				assert.Contains(t, out, "fresh@2.0.0")
+				if tt.expected == "" {
+					assert.NotContains(t, out, "set by the policy of your tenant")
+				} else {
+					assert.Contains(t, out, tt.expected)
+				}
+			})
+		}
+	}
+}

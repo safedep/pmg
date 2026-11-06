@@ -60,6 +60,9 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 		message = fmt.Sprintf("Package blocked by dependency cooldown: %s/%s@%s\n\nPublished %d day(s) ago; cooldown window is %d day(s) (%d remaining).",
 			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion,
 			blockCtx.CooldownDaysAgo, blockCtx.CooldownDays, blockCtx.CooldownDaysLeft)
+		if line := CooldownPolicyLine(blockCtx.CooldownDays, blockCtx.CooldownPolicyRevision); line != "" {
+			message += "\n\n" + line
+		}
 
 	case proxy.BlockReasonNetworkPolicy:
 		message = NetworkDenialMessage(blockCtx.Destination, blockCtx.Rule)
@@ -80,6 +83,16 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 		}
 	}
 	return message
+}
+
+// CooldownPolicyLine names the cloud policy that set a cooldown, so a
+// developer knows that the tenant policy and not the local config blocked the
+// package. It is empty when the local config set the cooldown (revision 0).
+func CooldownPolicyLine(days int, revision uint64) string {
+	if revision == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Cooldown of %s set by the policy of your tenant (revision %d)", pluralizeDays(days), revision)
 }
 
 // NetworkDenialMessage is the one sentence for a connection the network
