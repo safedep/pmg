@@ -212,10 +212,16 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 		wantMessage string
 	}{
 		{
-			name:        "load error fails",
-			loadErr:     assert.AnError,
+			name:        "registries load error fails",
+			loadErr:     config.NewInvalidProxyRegistriesError(&config.ProxyRegistriesError{}),
 			wantStatus:  doctor.StatusFail,
 			wantMessage: "fail closed",
+		},
+		{
+			name:        "blocked_packages load error does not blame the registries",
+			loadErr:     config.NewInvalidBlockedPackagesError(&config.BlockedPackagesError{}),
+			wantStatus:  doctor.StatusPass,
+			wantMessage: "No custom registries",
 		},
 		{
 			name:        "no registries passes",
@@ -284,6 +290,57 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 			result := checkProxyRegistriesResult(tt.loadErr, tt.registries)
 			assert.Equal(t, tt.wantStatus, result.Status)
 			assert.Contains(t, result.Message, tt.wantMessage)
+		})
+	}
+}
+
+func TestCheckConfigFileResult(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("blocked_packages: []\n"), 0o600))
+
+	tests := []struct {
+		name        string
+		path        string
+		loadErr     error
+		wantStatus  doctor.CheckStatus
+		wantMessage string
+		wantFix     string
+	}{
+		{
+			name:        "a missing file fails",
+			path:        filepath.Join(t.TempDir(), "missing.yml"),
+			wantStatus:  doctor.StatusFail,
+			wantMessage: "Config file not found",
+		},
+		{
+			name:        "a file that loads passes",
+			path:        path,
+			wantStatus:  doctor.StatusPass,
+			wantMessage: "Config file found",
+		},
+		{
+			name:        "a blocked_packages error fails with its text and help",
+			path:        path,
+			loadErr:     config.NewInvalidBlockedPackagesError(&config.BlockedPackagesError{}),
+			wantStatus:  doctor.StatusFail,
+			wantMessage: "invalid blocked_packages configuration",
+			wantFix:     "Fix the blocked_packages entries",
+		},
+		{
+			name:        "a registries error belongs to the registries check",
+			path:        path,
+			loadErr:     config.NewInvalidProxyRegistriesError(&config.ProxyRegistriesError{}),
+			wantStatus:  doctor.StatusPass,
+			wantMessage: "Config file found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := checkConfigFileResult(tt.path, tt.loadErr)
+			assert.Equal(t, tt.wantStatus, result.Status)
+			assert.Contains(t, result.Message, tt.wantMessage)
+			assert.Contains(t, result.Fix, tt.wantFix)
 		})
 	}
 }
