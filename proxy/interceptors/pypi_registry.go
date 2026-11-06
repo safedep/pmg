@@ -51,7 +51,7 @@ func newPypiRegistryInterceptor(
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
-		cooldownHandler:        newPypiCooldownHandler(statsCollector),
+		cooldownHandler:        withCooldownPolicy(newPypiCooldownHandler(statsCollector), execContext.Policy),
 	}
 }
 
@@ -74,7 +74,7 @@ func (i *PypiRegistryInterceptor) handleMetadataRequest(
 	_ *registryMatch,
 	pkgInfo packageInfo,
 ) (*proxy.InterceptorResponse, error) {
-	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
+	depCooldownConfig := i.policy().Cooldown
 	if !depCooldownConfig.Enabled || !pypiIsSimpleAPIMetadataRequest(pkgInfo) ||
 		pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(pkgInfo.GetName())) {
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
@@ -99,6 +99,10 @@ func pypiIsSimpleAPIMetadataRequest(pkgInfo packageInfo) bool {
 // name is used for the trust check; the parsed name is kept for
 // analyzePackage.
 func (i *PypiRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, _ *registryMatch, name, version string) (*proxy.InterceptorResponse, error) {
+	if resp, ok := i.policyBlock(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, name, version); ok {
+		return resp, nil
+	}
+
 	canonicalName := denormalizePyPIPackageName(name)
 	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, version); ok {
 		return resp, nil

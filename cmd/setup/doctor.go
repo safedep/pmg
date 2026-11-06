@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -280,7 +281,13 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 		})
 	}
 
-	return doctor.RunChecks(checks)
+	results := doctor.RunChecks(checks)
+	for _, r := range cloudPolicyResults(cloudPolicyStatus(cfg), time.Now()) {
+		r.Name = checkCloudPolicy
+		r.Category = categoryCloud
+		results = append(results, r)
+	}
+	return results
 }
 
 func checkSystemBinaryResult() doctor.CheckResult {
@@ -578,6 +585,7 @@ var checkDisplayNames = map[string]string{
 	checkSystemBinary:       "System binary",
 	checkManagedConfig:      "Managed config",
 	checkProxyEnforce:       "Proxy enforcement",
+	checkCloudPolicy:        "Cloud policy",
 }
 
 var checkFixes = map[string]string{
@@ -594,6 +602,7 @@ var checkFixes = map[string]string{
 	checkProtectionPip:      "pmg setup install",
 	checkCA:                 "pmg setup cert install",
 	checkProxyEnforce:       "Run as root on Linux 5.15+ with kernel BTF and cgroup v2",
+	checkCloudPolicy:        "pmg cloud sync",
 }
 
 // evaluateSandboxCheck is the testable core of the sandbox doctor check. An

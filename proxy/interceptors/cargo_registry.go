@@ -53,7 +53,7 @@ func newCargoRegistryInterceptor(
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
-		cooldownHandler:        newCargoCooldownHandler(statsCollector, registries, execContext.CargoUpstreamOrigin),
+		cooldownHandler:        withCooldownPolicy(newCargoCooldownHandler(statsCollector, registries, execContext.CargoUpstreamOrigin), execContext.Policy),
 	}
 }
 
@@ -79,7 +79,7 @@ func (i *CargoRegistryInterceptor) handleMetadataRequest(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
+	depCooldownConfig := i.policy().Cooldown
 	if !depCooldownConfig.Enabled ||
 		pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_CARGO, info.name) {
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, ctx.URL.Path)
@@ -92,7 +92,12 @@ func (i *CargoRegistryInterceptor) handleMetadataRequest(
 // handleArtifact runs the cooldown, trust, analysis, and verdict pipeline
 // for a .crate download.
 func (i *CargoRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, match *registryMatch, name, version string) (*proxy.InterceptorResponse, error) {
-	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
+	// A block entry needs no publish time and no verdict, so it runs first.
+	if resp, ok := i.policyBlock(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, name, version); ok {
+		return resp, nil
+	}
+
+	depCooldownConfig := i.policy().Cooldown
 	if depCooldownConfig.Enabled {
 		if resp, handled := i.cooldownHandler.CheckCrateDownload(ctx, match.Endpoint, name, version, depCooldownConfig.Days); handled {
 			return resp, nil

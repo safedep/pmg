@@ -3,8 +3,10 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/api/pb"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -61,6 +63,12 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 	case proxy.BlockReasonNetworkPolicy:
 		message = NetworkDenialMessage(blockCtx.Destination, blockCtx.Rule)
 
+	case proxy.BlockReasonPolicyRule:
+		message = PolicyRuleBlockMessage(blockCtx)
+		if message == "" {
+			return ""
+		}
+
 	default:
 		return ""
 	}
@@ -78,4 +86,69 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 // record carries it as the rule label.
 func NetworkDenialMessage(destination, rule string) string {
 	return fmt.Sprintf("Connection to %s denied by the network policy (rule %s)", destination, rule)
+}
+
+// policyRuleIndent aligns the lines after the first with the text after
+// "pmg: ".
+const policyRuleIndent = "     "
+
+// PolicyRuleBlockMessage is the message for a package that a block entry of
+// the cloud policy or of blocked_packages blocked. It names the rule, so a
+// developer can ask for an exception.
+func PolicyRuleBlockMessage(blockCtx *proxy.BlockContext) string {
+	if blockCtx == nil || blockCtx.PolicyRule == nil {
+		return ""
+	}
+	rule := blockCtx.PolicyRule
+	pkg := packagePurl(blockCtx)
+	ruleID := removeControlChars(rule.RuleID)
+
+	details := []string{"rule " + ruleID}
+	var lines []string
+	if rule.Cloud {
+		lines = append(lines, fmt.Sprintf("pmg: blocked %s by the policy of your tenant", pkg))
+		details = append(details,
+			fmt.Sprintf("policy revision %d", rule.Revision),
+			fmt.Sprintf("default policy revision %d", rule.DefaultPolicyRevision))
+	} else {
+		lines = append(lines, fmt.Sprintf("pmg: blocked %s by blocked_packages in %s", pkg, removeControlChars(rule.File)))
+	}
+	if reason := removeControlChars(rule.Reason); reason != "" {
+		details = append(details, reason)
+	}
+	lines = append(lines, policyRuleIndent+strings.Join(details, " · "))
+
+	if rule.Cloud {
+		lines = append(lines,
+			policyRuleIndent+"To ask for an exception, send the rule id and the reason to your security admin.",
+			policyRuleIndent+"They can run: safedep policy rule show "+ruleID)
+	} else {
+		lines = append(lines, policyRuleIndent+"The owner of that file can change the list")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// packagePurl names the blocked package as a PURL, the form of the rule
+// selectors.
+func packagePurl(blockCtx *proxy.BlockContext) string {
+	purl, err := pb.Purl(&packagev1.PackageVersion{
+		Package: &packagev1.Package{Ecosystem: blockCtx.Ecosystem, Name: blockCtx.PackageName},
+		Version: blockCtx.PackageVersion,
+	})
+	if err != nil {
+		purl = fmt.Sprintf("%s/%s@%s", ecosystemLabel(blockCtx.Ecosystem), blockCtx.PackageName, blockCtx.PackageVersion)
+	}
+	return removeControlChars(purl)
+}
+
+// removeControlChars removes control characters from text that an admin or
+// a config file wrote, so the text cannot move the cursor or change the
+// terminal.
+func removeControlChars(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, text)
 }

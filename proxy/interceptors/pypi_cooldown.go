@@ -21,6 +21,7 @@ const pypiSimpleAPIContentType = "application/vnd.pypi.simple.v1+json"
 // It strips recently-published file entries from PEP 691 Simple API responses
 // so pip's resolver naturally falls back to the latest eligible version.
 type pypiCooldownHandler struct {
+	cooldownPolicy
 	statsCollector *AnalysisStatsCollector
 }
 
@@ -34,6 +35,7 @@ func newPypiCooldownHandler(statsCollector *AnalysisStatsCollector) *pypiCooldow
 // returning a content type the client cannot parse. Skip-list semantics are
 // handled here so callers do not need to consult the config.
 func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
+	policy := h.current()
 	// Skip-list entries use the canonical (lowercase, _/. → -) name to match
 	// the same form used for pinned-version lookups.
 	canonical := denormalizePyPIPackageName(packageName)
@@ -70,14 +72,14 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 
 		log.Debugf("[%s] Cooldown: parsed %d versions for %s", ctx.RequestID, len(dates), packageName)
 
-		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, skip, dates, cooldownDays)
+		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, skip, policy, dates, cooldownDays)
 		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, exempt)
 		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays, exempt.all)
 		if len(stripped) > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, len(stripped), packageName, cooldownDays, remaining)
 
-			recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_PYPI, packageName, pinnedVersion, dates, stripped, remaining, cooldownDays)
+			recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_PYPI, packageName, pinnedVersion, dates, stripped, remaining, cooldownDays, policy.CooldownCitation())
 
 			headers.Set("Cache-Control", "no-store")
 			return statusCode, headers, strippedBody, nil

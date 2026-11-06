@@ -44,7 +44,7 @@ func newNpmRegistryInterceptor(
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
-		cooldownHandler:        newNpmCooldownHandler(statsCollector),
+		cooldownHandler:        withCooldownPolicy(newNpmCooldownHandler(statsCollector), execContext.Policy),
 	}
 }
 
@@ -65,7 +65,7 @@ func (i *NpmRegistryInterceptor) handleMetadataRequest(
 	_ *registryMatch,
 	pkgInfo packageInfo,
 ) (*proxy.InterceptorResponse, error) {
-	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
+	depCooldownConfig := i.policy().Cooldown
 	if pkgInfo.GetName() == "" || !depCooldownConfig.Enabled ||
 		pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName()) {
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
@@ -75,9 +75,13 @@ func (i *NpmRegistryInterceptor) handleMetadataRequest(
 	return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
 }
 
-// handleArtifact runs the trust, analysis, and verdict pipeline for an
-// artifact download identified by canonical URL parsing.
+// handleArtifact runs the package rules, the trust, analysis, and verdict
+// pipeline for an artifact download identified by canonical URL parsing.
 func (i *NpmRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, _ *registryMatch, name, version string) (*proxy.InterceptorResponse, error) {
+	if resp, ok := i.policyBlock(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version); ok {
+		return resp, nil
+	}
+
 	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version); ok {
 		return resp, nil
 	}

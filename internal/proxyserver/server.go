@@ -19,6 +19,8 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
+	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/safedep/pmg/internal/container"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/flows"
@@ -320,7 +322,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 
 	// Periodically flush events to the cloud while serving so the shutdown flush
 	// stays small. See startCloudSyncLoop for the stop-function contract.
-	stopSyncLoop := startCloudSyncLoop(cfg)
+	stopSyncLoop := startCloudSyncLoop(cfg, cloudpolicy.Global())
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -436,7 +438,7 @@ func buildInterceptors(
 		cache,
 		statsCollector,
 		confirmationChan,
-		interceptors.InterceptorContext{},
+		interceptors.InterceptorContext{Policy: cloudpolicy.Global()},
 		registries,
 	)
 	if err != nil {
@@ -489,7 +491,7 @@ func logSessionSummary(cfg *config.RuntimeConfig, stats interceptors.AnalysisSta
 // cloudFlush drains whatever the periodic sync left and returns the outcome
 // (total delivered, including periodicSynced). Returns nil when automatic cloud
 // delivery is off (cloud or auto-sync disabled) — same gate as the periodic
-// ticker, so auto_sync consistently controls all daemon-driven cloud delivery.
+// ticker, so auto_sync consistently controls all daemon-driven event delivery.
 // The daemon does this itself rather than `pmg proxy stop` because, unlike stop,
 // it has no proxy env vars and so dials SafeDep directly instead of routing
 // through the proxy that is now shutting down. Uses a fresh context since the
@@ -499,26 +501,44 @@ func cloudFlush(cfg *config.RuntimeConfig, periodicSynced int) *CloudSyncResult 
 		return nil
 	}
 
-	synced, err := audit.DrainToCloud(context.Background(), cfg, cloudFlushLockWait, cloudFlushTimeout)
-	res := &CloudSyncResult{Synced: periodicSynced + synced}
+	res, err := cloudsync.Run(context.Background(), cfg, cloudsync.Plan{
+		Events:      cloudsync.StepForce,
+		LockTimeout: cloudFlushLockWait,
+		Timeout:     cloudFlushTimeout,
+	})
+	if err == nil {
+		err = res.EventsErr
+	}
+	out := &CloudSyncResult{Synced: periodicSynced}
+	if res != nil {
+		out.Synced += res.Synced
+	}
 	if err != nil {
-		res.Error = err.Error()
+		out.Error = err.Error()
 		log.Warnf("cloud event flush failed: %v", err)
 	} else {
-		log.Infof("Flushed %d events to SafeDep Cloud (%d during the run)", res.Synced, periodicSynced)
+		log.Infof("Flushed %d events to SafeDep Cloud (%d during the run)", out.Synced, periodicSynced)
 	}
-	return res
+	return out
 }
 
-// startCloudSyncLoop periodically drains pending audit events to SafeDep Cloud
-// while the daemon runs. It returns a stop function that halts the ticker, waits
-// for any in-flight drain to finish, and returns the running total of events
-// delivered. The stop function must be called before the daemon's final flush so
-// the two never hold the sync lock at once. A no-op when cloud sync or auto-sync
-// is disabled; the daemon's automatic cloud delivery (periodic ticker and
-// shutdown flush alike) honors the auto_sync flag.
-func startCloudSyncLoop(cfg *config.RuntimeConfig) func() int {
-	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {
+// startCloudSyncLoop periodically fetches the cloud policy and drains pending
+// audit events to SafeDep Cloud while the daemon runs. It returns a stop
+// function that halts the ticker, waits for any in-flight tick to finish,
+// and returns the running total of events delivered. The stop function must
+// be called before the daemon's final flush so the two never hold the sync
+// lock at once.
+//
+// The event drain honors auto_sync. The policy fetch runs when cloud.policy
+// is on, also with auto_sync off, at the policy pacing. After a fetch that
+// commits a new policy, the daemon swaps in the new policy, so a new rule or
+// min_age applies with no restart. A no-op when neither runs.
+func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) func() int {
+	events := cloudsync.StepOff
+	if cfg.Config.Cloud.AutoSync.Enabled {
+		events = cloudsync.StepForce
+	}
+	if !cfg.Config.Cloud.Enabled || (events == cloudsync.StepOff && !cfg.CloudPolicyEnabled()) {
 		return func() int { return 0 }
 	}
 
@@ -536,7 +556,14 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig) func() int {
 			case <-stop:
 				return
 			case <-ticker.C:
-				synced, err := audit.DrainToCloud(context.Background(), cfg, cloudSyncTickLockWait, cloudSyncTickTimeout)
+				res, err := cloudsync.Run(context.Background(), cfg, cloudsync.Plan{
+					Policy:      cloudsync.StepDue,
+					Events:      events,
+					LockTimeout: cloudSyncTickLockWait,
+					Timeout:     cloudSyncTickTimeout,
+					AfterPolicy: func() { reloadIfCacheMoved(cfg, policy) },
+				})
+				reloadIfCacheMoved(cfg, policy)
 				if err != nil {
 					if errors.Is(err, audit.ErrSyncInProgress) {
 						log.Debugf("periodic cloud sync skipped: another sync in progress")
@@ -545,9 +572,13 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig) func() int {
 					}
 					continue
 				}
-				total += synced
-				if synced > 0 {
-					log.Infof("Periodic cloud sync: flushed %d events", synced)
+				if res.EventsErr != nil {
+					log.Warnf("periodic cloud sync failed: %v", res.EventsErr)
+					continue
+				}
+				total += res.Synced
+				if res.Synced > 0 {
+					log.Infof("Periodic cloud sync: flushed %d events", res.Synced)
 				}
 			}
 		}
@@ -558,6 +589,25 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig) func() int {
 		<-done
 		return total
 	}
+}
+
+// reloadIfCacheMoved reloads the policy when the cache holds another policy
+// than the one that the last load read. Another pmg process, such as pmg
+// cloud sync or a background child, can commit a new policy and report it on
+// check-in. The daemon checks at each tick, not only after its own fetch, so
+// it applies that policy within one tick. It reports whether it reloaded.
+func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) bool {
+	if !policy.Status().CacheMoved() {
+		return false
+	}
+
+	st := policy.Reload(cfg)
+	var revision uint64
+	if st.Applied != nil {
+		revision = st.Applied.Revision
+	}
+	log.Infof("Periodic cloud sync: cloud policy state %s, revision %d", st.State, revision)
+	return true
 }
 
 // listenAddr resolves the proxy's bind address from config (host) and the

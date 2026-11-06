@@ -1,0 +1,31 @@
+# guarantee: when the cloud policy sets the dependency cooldown, the flag
+# --skip-dependency-cooldown fails with a usage error that names the policy
+# field and the revision. The command does not run the package manager.
+
+env HOME=$WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+env SAFEDEP_API_KEY=
+env SAFEDEP_TENANT_ID=
+env PMG_CLOUD_ENABLED=
+env PMG_CLOUD_ENDPOINT_ID=acceptance-policy
+mkdir $WORK/home
+
+policy-cache $WORK/config policy.textproto
+
+! exec pmg --skip-dependency-cooldown npm install left-pad
+stderr '--skip-dependency-cooldown is not allowed\. The policy of your tenant sets the dependency cooldown \(package_admission\.cooldown\.min_age, policy revision 48\)'
+! exists node_modules
+
+-- config/config.yml --
+cloud:
+  enabled: true
+  policy: true
+  auto_sync:
+    enabled: false
+-- policy.textproto --
+spec {
+  package_admission {
+    # 3 days
+    cooldown { min_age { seconds: 259200 } }
+  }
+}

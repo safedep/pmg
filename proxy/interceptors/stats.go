@@ -7,6 +7,7 @@ import (
 
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy"
 )
 
 // AnalysisStats contains aggregated statistics from analysis results
@@ -28,6 +29,7 @@ type AnalysisStatsCollector struct {
 	blockedPackages   []*analyzer.PackageVersionAnalysisResult
 	confirmedPackages []*analyzer.PackageVersionAnalysisResult
 	cooldownBlocks    []models.CooldownBlock
+	ruleBlocks        []*proxy.BlockContext
 
 	// cooldownWithheld is keyed by package name, then version, holding days
 	// left. Metadata for one package can be fetched several times during an
@@ -145,6 +147,26 @@ func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, pub
 		DaysLeft:     daysLeft,
 		CooldownDays: cooldownDays,
 	})
+}
+
+// RecordRuleBlocked records a package that a block entry of the cloud policy
+// or of blocked_packages blocked.
+func (c *AnalysisStatsCollector) RecordRuleBlocked(block *proxy.BlockContext) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.stats.BlockedCount++
+	c.ruleBlocks = append(c.ruleBlocks, block)
+}
+
+// GetRuleBlocks returns the packages that a package rule blocked.
+func (c *AnalysisStatsCollector) GetRuleBlocks() []*proxy.BlockContext {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make([]*proxy.BlockContext, len(c.ruleBlocks))
+	copy(result, c.ruleBlocks)
+	return result
 }
 
 // GetCooldownBlocks returns all packages blocked by the cooldown policy.

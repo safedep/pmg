@@ -22,6 +22,7 @@ import (
 // comma only on 404 or 410, so the 403 is terminal for the default
 // "https://proxy.golang.org,direct". `pmg go` also removes `direct`.
 type goCooldownHandler struct {
+	cooldownPolicy
 	statsCollector *AnalysisStatsCollector
 
 	// upstreamOrigin replaces the scheme and host of the out-of-band .info
@@ -82,7 +83,7 @@ func (h *goCooldownHandler) HandleInfoRequest(ctx *proxy.RequestContext, module,
 // before PMG), it is fetched out-of-band from the module proxy that serves the
 // zip under basePath.
 func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, basePath, module, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
-	return cooldownCheckDownload(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, module, version, cooldownDays, h.statsCollector,
+	return cooldownCheckDownload(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, module, version, cooldownDays, h.statsCollector, h.current(),
 		func() (time.Time, bool) {
 			h.mu.Lock()
 			publishTime, ok := h.publishTimes[goModuleVersionKey(module, version)]

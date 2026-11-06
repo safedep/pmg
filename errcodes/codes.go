@@ -43,6 +43,10 @@ const (
 	ProxyPolicyViolation   = "ProxyPolicyViolation"
 	InvalidProxyRegistries = "InvalidProxyRegistries"
 
+	// InvalidBlockedPackages is returned when an entry of blocked_packages
+	// does not parse. PMG aborts, because a block it drops does not apply.
+	InvalidBlockedPackages = "InvalidBlockedPackages"
+
 	// Enforce error codes. EnforceRequirements is returned when the host
 	// cannot attach the kernel programs: a missing capability, no kernel
 	// BTF, or no cgroup v2. EnforceRequiresTrustedCA is returned when the

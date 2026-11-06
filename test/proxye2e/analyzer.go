@@ -59,6 +59,18 @@ func Excluded(reason string) Verdict {
 	return v
 }
 
+// SuspiciousExcluded reports a suspicious verdict that carries a tenant
+// exclusion. With cloud.policy off it downgrades to allow. With cloud.policy
+// on, pmg drops the exclusion and the verdict prompts.
+func SuspiciousExcluded(reason string) Verdict {
+	v := Suspicious()
+	v.resp.MaliciousPackageExclusion = &malysisv1.QueryPackageAnalysisResponse_MaliciousPackageExclusion{
+		ExclusionId: "e2e-exclusion",
+		Reason:      reason,
+	}
+	return v
+}
+
 // NotFound reports the package is absent from the analysis DB (treated as allow,
 // not a failure).
 func NotFound() Verdict {

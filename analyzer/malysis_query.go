@@ -105,6 +105,9 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 
 	analytics.TrackMalysisQuery()
 
+	cfg := config.Get()
+	dropExclusionUnderCloudPolicy(cfg, packageVersion, res)
+
 	// By default, the analyzer allows the package version
 	analysisResult := &PackageVersionAnalysisResult{
 		PackageVersion: packageVersion,
@@ -115,7 +118,6 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 		Data:           res.GetReport(),
 	}
 
-	cfg := config.Get()
 	// Mark the package version to be confirmed if it is malicious (not confirmed)
 	if res.GetReport().GetInference().GetIsMalware() {
 		analysisResult.IsMalware = true
@@ -142,6 +144,23 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 	a.applyExclusion(analysisResult, res)
 
 	return analysisResult, nil
+}
+
+// dropExclusionUnderCloudPolicy removes the tenant exclusion from the reply
+// when the cloud policy applies. Trust entries with scope MALWARE replace
+// exclusions, and pmg never honors a server-side exclusion then. The drop
+// happens before the result exists, so no verdict cache holds tenant data.
+func dropExclusionUnderCloudPolicy(cfg *config.RuntimeConfig, packageVersion *packagev1.PackageVersion,
+	res *malysisv1.QueryPackageAnalysisResponse) {
+	if !cfg.CloudPolicyEnabled() || res.GetMaliciousPackageExclusion() == nil {
+		return
+	}
+
+	log.Debugf("Dropping tenant exclusion %q for package %s@%s: cloud.policy is on",
+		res.GetMaliciousPackageExclusion().GetExclusionId(),
+		packageVersion.GetPackage().GetName(),
+		packageVersion.GetVersion())
+	res.ClearMaliciousPackageExclusion()
 }
 
 // applyExclusion downgrades a flagged package to ActionAllow when the

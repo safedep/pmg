@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	goyaml "github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
@@ -104,6 +105,20 @@ func Test_setValueInYAML(t *testing.T) {
 			key:     "cloud.nonexistent",
 			value:   "true",
 			wantErr: "key not found",
+		},
+		{
+			name:     "add a template key that an older file does not hold",
+			input:    "cloud:\n  enabled: true\n  auto_sync:\n    enabled: true\nparanoid: false\n",
+			key:      "cloud.policy",
+			value:    "true",
+			expected: "cloud:\n  enabled: true\n  auto_sync:\n    enabled: true\n  policy: true\nparanoid: false\n",
+		},
+		{
+			name:    "an added template key keeps its type",
+			input:   "cloud:\n  enabled: true\n",
+			key:     "cloud.policy",
+			value:   "yes",
+			wantErr: "expected true or false",
 		},
 		{
 			name:    "error when setting non-leaf node",
@@ -431,4 +446,39 @@ func TestSetThenGetRoundTrip(t *testing.T) {
 	val, err = GetConfigValue("verbosity")
 	require.NoError(t, err)
 	assert.Equal(t, "silent", val)
+}
+
+func TestSetValueInYAMLAddsATemplateKeyToAFlowMapping(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  map[string]any
+	}{
+		{
+			name:  "a flow mapping",
+			input: "cloud: {enabled: true}\nparanoid: true\n",
+			want: map[string]any{
+				"cloud":    map[string]any{"enabled": true, "policy": true},
+				"paranoid": true,
+			},
+		},
+		{
+			name:  "a flow mapping with more keys",
+			input: "cloud: {enabled: true, endpoint_id: ep-1}\n",
+			want: map[string]any{
+				"cloud": map[string]any{"enabled": true, "endpoint_id": "ep-1", "policy": true},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := setValueInYAML([]byte(tt.input), "cloud.policy", "true")
+			require.NoError(t, err)
+
+			var got map[string]any
+			require.NoError(t, goyaml.Unmarshal(out, &got), "the result is valid YAML: %s", out)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

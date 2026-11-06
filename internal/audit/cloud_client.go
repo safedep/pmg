@@ -14,65 +14,9 @@ import (
 	appVersion "github.com/safedep/pmg/internal/version"
 )
 
-// ErrSyncInProgress is returned by DrainToCloud when another process already
-// holds the cloud sync lock.
+// ErrSyncInProgress is returned when another process already holds the
+// cloud sync lock.
 var ErrSyncInProgress = errors.New("another cloud sync is already in progress")
-
-// DrainToCloud acquires the cross-process sync lock and drains pending audit
-// events from the WAL to SafeDep Cloud, returning the number synced. It records
-// the attempt (so a failing endpoint does not make every run retry). Callers
-// are responsible for gating on cloud.enabled and for surfacing errors;
-// ErrSyncInProgress is returned when the lock is held elsewhere.
-//
-// lockTimeout bounds acquiring the shared lock; syncTimeout bounds the drain.
-func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, syncTimeout time.Duration) (int, error) {
-	lock := NewSyncLock(cfg.CloudSyncLockPath())
-
-	lockCtx, lockCancel := context.WithTimeout(ctx, lockTimeout)
-	defer lockCancel()
-
-	locked, err := lock.TryLockContext(lockCtx, 250*time.Millisecond)
-	if err != nil {
-		return 0, fmt.Errorf("acquire cloud sync lock: %w", err)
-	}
-	if !locked {
-		return 0, ErrSyncInProgress
-	}
-	defer func() {
-		if uerr := lock.Unlock(); uerr != nil {
-			log.Warnf("failed to release cloud sync lock: %v", uerr)
-		}
-	}()
-
-	bundle, err := NewSyncClientBundle(cfg)
-	if err != nil {
-		return 0, fmt.Errorf("init cloud sync client: %w", err)
-	}
-	defer func() {
-		if cerr := bundle.Close(); cerr != nil {
-			log.Warnf("failed to close cloud sync client: %v", cerr)
-		}
-	}()
-
-	syncCtx, cancel := context.WithTimeout(ctx, syncTimeout)
-	defer cancel()
-
-	synced, syncErr := bundle.Sync(syncCtx)
-
-	// Record the attempt on every outcome so a stuck endpoint does not make the
-	// background auto-sync refire on the next invocation.
-	if werr := WriteLastSyncAttempt(cfg.CloudSyncLastRunPath()); werr != nil {
-		log.Warnf("failed to update cloud sync lastrun: %v", werr)
-	}
-
-	if syncErr == nil {
-		if cerr := bundle.CheckIn(syncCtx); cerr != nil {
-			log.Warnf("cloud check-in failed: %v", cerr)
-		}
-	}
-
-	return synced, syncErr
-}
 
 // SyncClientBundle holds a SyncClient and its underlying cloud client.
 // Callers must call Close() when done.
@@ -88,9 +32,12 @@ func (b *SyncClientBundle) Sync(ctx context.Context) (int, error) {
 }
 
 // CheckIn reports endpoint presence, rate limited by the auto-sync interval.
-// Callers invoke it after a successful sync.
-func (b *SyncClientBundle) CheckIn(ctx context.Context) error {
-	return checkInWithRateLimit(ctx, b.cfg, b.syncClient.CheckIn)
+// opts add the cloud policy state and the labels. Callers invoke it after a
+// successful sync.
+func (b *SyncClientBundle) CheckIn(ctx context.Context, opts ...endpointsync.CheckInOption) error {
+	return checkInWithRateLimit(ctx, b.cfg, func(ctx context.Context) error {
+		return b.syncClient.CheckInWithOptions(ctx, opts...)
+	})
 }
 
 // checkInWithRateLimit uses its own lastrun file: the proxy ticker keeps
@@ -149,6 +96,12 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 		}
 	}()
 
+	return NewSyncClientBundleWithCredentials(cfg, creds)
+}
+
+// NewSyncClientBundleWithCredentials creates a SyncClient with credentials
+// that the caller resolved, so one sync resolves them once.
+func NewSyncClientBundleWithCredentials(cfg *config.RuntimeConfig, creds *cloud.Credentials) (*SyncClientBundle, error) {
 	cloudClient, err := cloud.NewDataPlaneClient("pmg", creds)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create data plane client: %w", err)
@@ -156,16 +109,7 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 
 	transport := endpointsync.NewGrpcTransport(cloudClient.Connection())
 
-	endpointID := resolveCloudEndpointID(cfg.Config.Cloud.EndpointID)
-
-	var identityOpts []endpointsync.EndpointIdentityOption
-	if endpointID != "" {
-		identityOpts = append(identityOpts, endpointsync.WithEndpointID(endpointID))
-	}
-
-	identity := endpointsync.NewEndpointIdentityResolver(identityOpts...)
-
-	syncClient, err := endpointsync.NewSyncClient("pmg", pmgToolVersion(), transport, identity,
+	syncClient, err := endpointsync.NewSyncClient("pmg", pmgToolVersion(), transport, NewEndpointIdentityResolver(cfg),
 		cloudSyncOptions(cfg.CloudSyncDBPath())...)
 	if err != nil {
 		if closeErr := cloudClient.Close(); closeErr != nil {
@@ -179,6 +123,22 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 		cloudClient: cloudClient,
 		cfg:         cfg,
 	}, nil
+}
+
+// NewEndpointIdentityResolver returns the endpoint identity that the
+// check-in and the policy fetch send, so both name one endpoint.
+func NewEndpointIdentityResolver(cfg *config.RuntimeConfig) endpointsync.EndpointIdentityResolver {
+	var identityOpts []endpointsync.EndpointIdentityOption
+	if endpointID := resolveCloudEndpointID(cfg.Config.Cloud.EndpointID); endpointID != "" {
+		identityOpts = append(identityOpts, endpointsync.WithEndpointID(endpointID))
+	}
+	return endpointsync.NewEndpointIdentityResolver(identityOpts...)
+}
+
+// ToolVersion returns the version of pmg that cloud events and the policy
+// fetch carry.
+func ToolVersion() string {
+	return pmgToolVersion()
 }
 
 // pmgToolVersion returns the tool version stamped on cloud events, defaulting

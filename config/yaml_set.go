@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	goyaml "github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
@@ -146,14 +147,31 @@ func setValueInYAML(data []byte, key, value string) ([]byte, error) {
 	}
 
 	segments := strings.Split(key, ".")
-	if err := setValueAtPath(root, segments, value); err != nil {
+	if err := setValueAtPath(root, segments, value, templateScalarDefault(key)); err != nil {
 		return nil, err
 	}
 
 	return []byte(file.String()), nil
 }
 
-func setValueAtPath(node *ast.MappingNode, segments []string, value string) error {
+// templateScalarDefault returns the template value of a scalar key. A config
+// file that an older PMG wrote does not hold a key that a newer template adds,
+// such as cloud.policy. pmg config set adds such a key with this value as the
+// type, and then sets it.
+func templateScalarDefault(key string) any {
+	v, err := newFileViper("")
+	if err != nil || !v.IsSet(key) {
+		return nil
+	}
+	switch value := v.Get(key); value.(type) {
+	case bool, int, string:
+		return value
+	default:
+		return nil
+	}
+}
+
+func setValueAtPath(node *ast.MappingNode, segments []string, value string, templateDefault any) error {
 	if len(segments) == 0 {
 		return fmt.Errorf("key cannot be empty")
 	}
@@ -172,10 +190,39 @@ func setValueAtPath(node *ast.MappingNode, segments []string, value string) erro
 		if !ok {
 			return fmt.Errorf("key not found: intermediate key %q is not a mapping", target)
 		}
-		return setValueAtPath(childMapping, segments[1:], value)
+		return setValueAtPath(childMapping, segments[1:], value, templateDefault)
+	}
+
+	if len(segments) == 1 && templateDefault != nil && len(node.Values) > 0 {
+		mv, err := newMappingValue(target, templateDefault, node.Values[0].Key.GetToken().Position.Column)
+		if err != nil {
+			return err
+		}
+		node.Values = append(node.Values, mv)
+		return replaceScalarValue(mv, value)
 	}
 
 	return fmt.Errorf("key not found: %q", target)
+}
+
+// newMappingValue returns the mapping value "key: value" at column, the
+// column of the other keys of its mapping.
+func newMappingValue(key string, value any, column int) (*ast.MappingValueNode, error) {
+	snippet, err := goyaml.Marshal(map[string]any{key: value})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add key %q: %w", key, err)
+	}
+	file, err := parser.ParseBytes(snippet, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add key %q: %w", key, err)
+	}
+	mapping, ok := file.Docs[0].Body.(*ast.MappingNode)
+	if !ok || len(mapping.Values) != 1 {
+		return nil, fmt.Errorf("failed to add key %q", key)
+	}
+	mv := mapping.Values[0]
+	mv.AddColumn(column - 1)
+	return mv, nil
 }
 
 func replaceScalarValue(mv *ast.MappingValueNode, value string) error {

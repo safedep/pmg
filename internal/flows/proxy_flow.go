@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/internal/runner"
@@ -222,6 +223,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		interceptors.InterceptorContext{
 			PinnedVersions: pinnedVersions,
 			GoProxyURLs:    routing.GoProxyURLs,
+			Policy:         cloudpolicy.Global(),
 		},
 	)
 	if err != nil {
@@ -329,6 +331,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.BlockedCount = stats.BlockedCount
 	reportData.BlockedPackages = statsCollector.GetBlockedPackages()
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
+	reportData.RuleBlockedPackages = statsCollector.GetRuleBlocks()
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 	reportData.CooldownWithheldPackages = statsCollector.GetCooldownWithheld()
 	outcome := network.finish()

@@ -72,7 +72,7 @@ func newGoRegistryInterceptor(
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
-		cooldownHandler:        newGoCooldownHandler(statsCollector, execContext.GoProxyUpstreamOrigin),
+		cooldownHandler:        withCooldownPolicy(newGoCooldownHandler(statsCollector, execContext.GoProxyUpstreamOrigin), execContext.Policy),
 		now:                    time.Now,
 		zipVerdicts:            map[string]zipVerdict{},
 	}
@@ -101,7 +101,7 @@ func (i *GoRegistryInterceptor) handleMetadataRequest(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	if !pmgconfig.Get().Config.DependencyCooldown.Enabled {
+	if !i.policy().Cooldown.Enabled {
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
@@ -115,6 +115,14 @@ func (i *GoRegistryInterceptor) handleArtifact(
 	match *registryMatch,
 	name, version string,
 ) (*proxy.InterceptorResponse, error) {
+	// A package rule decides at each request, so a block that arrives
+	// within the reuse window applies at once. The checksum database proves
+	// that a toolchain is the real one, not that an admin allows it, so a
+	// block also applies to the toolchain.
+	if resp, ok := i.policyBlock(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version); ok {
+		return resp, nil
+	}
+
 	if name == goToolchainModule {
 		log.Infof("[%s] Allowing Go toolchain download %s@%s (verified by Go's checksum database)",
 			ctx.RequestID, name, version)
@@ -138,16 +146,20 @@ func (i *GoRegistryInterceptor) handleArtifact(
 }
 
 // handleZipDownload runs dependency cooldown, then trusted/insecure
-// fast-allow, then malware analysis. memoize is false only when the outcome is
-// a fail-open allow after an analyzer error, so a retried request gets another
-// chance to be analyzed.
+// fast-allow, then malware analysis. memoize is false when the outcome is a
+// fail-open allow after an analyzer error, so a retried request gets another
+// chance to be analyzed. It is also false when a package rule decided the
+// outcome, because pmg keeps no rule result.
 func (i *GoRegistryInterceptor) handleZipDownload(
 	ctx *proxy.RequestContext,
 	match *registryMatch,
 	name, version string,
 ) (*proxy.InterceptorResponse, bool, error) {
-	cooldown := pmgconfig.Get().Config.DependencyCooldown
+	policy := i.policy()
+	cooldown := policy.Cooldown
+	var cooldownTrusted bool
 	if cooldown.Enabled {
+		_, cooldownTrusted = policy.TrustCooldown(packagev1.Ecosystem_ECOSYSTEM_GO, name, version)
 		if resp, handled := i.cooldownHandler.CheckZipDownload(ctx, match.Endpoint.BasePath, name, version, cooldown.Days); handled {
 			return resp, true, nil
 		}
@@ -163,8 +175,8 @@ func (i *GoRegistryInterceptor) handleZipDownload(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, false, nil
 	}
 
-	resp, err := i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, result)
-	return resp, err == nil, err
+	resp, ruleDecided, err := i.handleVerdict(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, result)
+	return resp, err == nil && !ruleDecided && !cooldownTrusted, err
 }
 
 func (i *GoRegistryInterceptor) recentZipVerdict(key string) *proxy.InterceptorResponse {
