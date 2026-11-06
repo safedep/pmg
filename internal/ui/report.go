@@ -297,8 +297,8 @@ func reportNormal(data *ReportData) {
 	fmt.Printf("%s %s\n", icon, Colors.Dim(message))
 }
 
-// printInsecureWarning prints the insecure mode line. installed is the
-// number of packages that installed without analysis, or 0 to omit it.
+const insecureModeMessage = "INSECURE MODE - Malware protection bypassed"
+
 func printInsecureWarning(installed int) {
 	icon := Colors.Red("⚠")
 	message := insecureModeMessage
@@ -310,8 +310,6 @@ func printInsecureWarning(installed int) {
 		fmt.Printf("%s %s\n", icon, Colors.Red(message))
 	}
 }
-
-const insecureModeMessage = "INSECURE MODE - Malware protection bypassed"
 
 // reportVerbose shows detailed debugging information
 func reportVerbose(data *ReportData) {

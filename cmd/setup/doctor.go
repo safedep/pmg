@@ -740,8 +740,6 @@ func printResults(results []doctor.CheckResult) {
 	printSummaryLine(results)
 }
 
-// doctorSummaryWidth is the number of characters of the summary that the
-// doctor table shows.
 const doctorSummaryWidth = 60
 
 func statusBadge(s doctor.CheckStatus) string {
