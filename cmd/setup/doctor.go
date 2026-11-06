@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -736,11 +737,33 @@ func printResults(results []doctor.CheckResult) {
 		fmt.Fprintf(os.Stderr, "render error: %v\n", err)
 	}
 
+	if details := cutSummaryDetails(results); len(details) > 0 {
+		fmt.Println()
+		fmt.Println(ui.Colors.Bold("Details"))
+		for _, line := range details {
+			fmt.Println(line)
+		}
+	}
+
 	fmt.Println()
 	printSummaryLine(results)
 }
 
 const doctorSummaryWidth = 60
+
+// cutSummaryDetails returns the full message of each check that did not pass
+// and whose summary the table cuts. The fix of such a check often names a
+// field that only the full message shows.
+func cutSummaryDetails(results []doctor.CheckResult) []string {
+	var details []string
+	for _, r := range results {
+		if r.Status == doctor.StatusPass || utf8.RuneCountInString(r.Message) <= doctorSummaryWidth {
+			continue
+		}
+		details = append(details, fmt.Sprintf("%s: %s", displayName(r.Name), r.Message))
+	}
+	return details
+}
 
 func statusBadge(s doctor.CheckStatus) string {
 	switch s {

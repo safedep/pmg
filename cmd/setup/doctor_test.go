@@ -359,3 +359,32 @@ func TestEvaluateSandboxCheckWithoutASandbox(t *testing.T) {
 	assert.Equal(t, doctor.StatusFail, got.Status)
 	assert.Equal(t, "Set sandbox.enabled: false in config", got.Fix)
 }
+
+func TestCutSummaryDetails(t *testing.T) {
+	long := "invalid blocked_packages configuration: entry 1 (not-a-purl): invalid purl: purl scheme is not \"pkg\""
+
+	tests := []struct {
+		name    string
+		results []doctor.CheckResult
+		want    []string
+	}{
+		{
+			name:    "a failed check with a cut summary shows the full message",
+			results: []doctor.CheckResult{{Name: checkConfigFile, Status: doctor.StatusFail, Message: long}},
+			want:    []string{"Config file: " + long},
+		},
+		{
+			name:    "a passed check with a long summary shows nothing",
+			results: []doctor.CheckResult{{Name: checkConfigFile, Status: doctor.StatusPass, Message: long}},
+		},
+		{
+			name:    "a failed check with a short summary shows nothing",
+			results: []doctor.CheckResult{{Name: checkConfigFile, Status: doctor.StatusFail, Message: "Config file not found"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, cutSummaryDetails(tt.results))
+		})
+	}
+}
