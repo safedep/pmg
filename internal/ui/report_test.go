@@ -370,3 +370,58 @@ func TestReportRendersRuleBlocks(t *testing.T) {
 		})
 	}
 }
+
+func TestReportInsecureModeShowsRuleAndCooldownBlocks(t *testing.T) {
+	for _, level := range []VerbosityLevel{VerbosityLevelNormal, VerbosityLevelVerbose} {
+		t.Run(fmt.Sprint(level), func(t *testing.T) {
+			withVerbosity(t, level)
+
+			data := ruleBlockedData()
+			data.InsecureMode = true
+			data.BlockedCount = 2
+			data.CooldownBlockedPackages = []models.CooldownBlock{{Name: "fresh", Version: "2.0.0", DaysAgo: 1, DaysLeft: 4, CooldownDays: 5}}
+
+			out := captureStdout(t, func() { Report(data) })
+
+			assert.Contains(t, out, "INSECURE MODE - Malware protection bypassed")
+			assert.Contains(t, out, "pmg: blocked pkg:npm/evil@1.2.4 by the policy of your tenant")
+			assert.Contains(t, out, "fresh@2.0.0")
+		})
+	}
+}
+
+func TestReportCooldownBlockNamesThePolicy(t *testing.T) {
+	tests := []struct {
+		name     string
+		revision uint64
+		expected string
+	}{
+		{name: "the tenant policy", revision: 48, expected: "The policy of your tenant (revision 48) sets a cooldown of 5 days"},
+		{name: "the local config"},
+	}
+
+	for _, tt := range tests {
+		for _, level := range []VerbosityLevel{VerbosityLevelNormal, VerbosityLevelVerbose} {
+			t.Run(fmt.Sprint(tt.name, "/", level), func(t *testing.T) {
+				withVerbosity(t, level)
+
+				data := NewReportData()
+				data.TotalAnalyzed = 1
+				data.BlockedCount = 1
+				data.Outcome = OutcomeBlocked
+				data.CooldownBlockedPackages = []models.CooldownBlock{{
+					Name: "fresh", Version: "2.0.0", DaysAgo: 1, DaysLeft: 4, CooldownDays: 5, PolicyRevision: tt.revision,
+				}}
+
+				out := captureStdout(t, func() { Report(data) })
+
+				assert.Contains(t, out, "fresh@2.0.0")
+				if tt.expected == "" {
+					assert.NotContains(t, out, "The policy of your tenant")
+				} else {
+					assert.Contains(t, out, tt.expected)
+				}
+			})
+		}
+	}
+}

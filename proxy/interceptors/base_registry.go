@@ -62,7 +62,7 @@ func (b *baseRegistryInterceptor) policy() *cloudpolicy.Policy {
 
 // policyBlock runs before every other step, because a block entry needs no
 // verdict and wins over every trust entry, trusted_packages and
-// --insecure-installation. Its result is never cached, so a block that
+// PMG_INSECURE_INSTALLATION. Its result is never cached, so a block that
 // arrives later applies to a package that pmg screened before.
 func (b *baseRegistryInterceptor) policyBlock(
 	ctx *proxy.RequestContext,
@@ -147,7 +147,7 @@ func (b *baseRegistryInterceptor) trustedByPolicy(
 }
 
 // fastAllow short-circuits the request when no security control should run for
-// this concrete version: insecure-installation mode (analysis globally off) or a
+// this concrete version: insecure mode (PMG_INSECURE_INSTALLATION, analysis globally off) or a
 // trusted package (waives every control). It returns (response, true) when it
 // handled the request; (nil, false) otherwise. Insecure is checked first to
 // preserve the previous ordering inside analyzePackage.

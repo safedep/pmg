@@ -65,6 +65,9 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 
 	cfg := config.Get()
 	cfg.Config.Cloud.Enabled = true
+	// The policy fetch spawns the child on a schedule of its own. These tests
+	// cover the event sync alone, so the policy is off.
+	cfg.Config.Cloud.Policy = false
 	cfg.Config.Cloud.AutoSync.Enabled = true
 	cfg.Config.Cloud.AutoSync.MinInterval = 15 * time.Minute
 	cfg.Config.Cloud.AutoSync.Timeout = time.Minute

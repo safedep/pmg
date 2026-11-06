@@ -140,6 +140,21 @@ func stateDigest(dir string) string {
 	return state.Digest
 }
 
+// RejectedRevision returns the revision of the policy that pmg did not
+// apply, or 0 when the cache names no such revision.
+func (s *Status) RejectedRevision() uint64 {
+	if s == nil || s.CacheState == nil {
+		return 0
+	}
+	if s.CacheState.LastFetchRejected() {
+		return s.CacheState.Rejected.Revision
+	}
+	if s.FromPrevious {
+		return s.CacheState.Revision
+	}
+	return 0
+}
+
 // RejectedReason tells why pmg did not apply the last policy that it
 // fetched, when the state is REJECTED.
 func (s *Status) RejectedReason() string {

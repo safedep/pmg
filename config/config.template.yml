@@ -154,7 +154,7 @@ trusted_packages:
 
 # Blocked packages are packages that PMG blocks at download, whatever the
 # malware analysis says. A blocked package wins over trusted_packages and over
-# --insecure-installation.
+# the PMG_INSECURE_INSTALLATION environment variable.
 #
 # The purl selects one package, one version, or every package under a prefix
 # that ends with "/*" or ".*". The optional vers is a version range in the vers
@@ -379,8 +379,8 @@ cloud:
     timeout: 5m
 
   # Policy applies the cloud policy of your tenant: package rules and the
-  # dependency cooldown that your security admin sets in SafeDep Cloud. It
-  # applies only when cloud.enabled is true. PMG fetches the policy in the
-  # background, also when auto_sync is off, and keeps the last policy when it
-  # is offline.
-  policy: false
+  # dependency cooldown that your security admin sets in SafeDep Cloud. The
+  # policy applies when cloud.enabled is true. Set policy: false to turn it
+  # off. PMG fetches the policy in the background, also when auto_sync is off,
+  # and keeps the last policy when it is offline.
+  policy: true

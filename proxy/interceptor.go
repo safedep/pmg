@@ -75,6 +75,9 @@ type BlockContext struct {
 	CooldownDays     int
 	CooldownDaysAgo  int
 	CooldownDaysLeft int
+	// CooldownPolicyRevision is the revision of the cloud policy of the
+	// tenant that set the cooldown. It is 0 when the local config set it.
+	CooldownPolicyRevision uint64
 
 	// For BlockReasonNetworkPolicy: the denied host:port and the rule.
 	Destination string

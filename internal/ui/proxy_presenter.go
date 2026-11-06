@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"unicode"
 
@@ -59,6 +60,9 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 		message = fmt.Sprintf("Package blocked by dependency cooldown: %s/%s@%s\n\nPublished %d day(s) ago; cooldown window is %d day(s) (%d remaining).",
 			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion,
 			blockCtx.CooldownDaysAgo, blockCtx.CooldownDays, blockCtx.CooldownDaysLeft)
+		if line := CooldownPolicyLine(blockCtx.CooldownDays, blockCtx.CooldownPolicyRevision); line != "" {
+			message += "\n\n" + line
+		}
 
 	case proxy.BlockReasonNetworkPolicy:
 		message = NetworkDenialMessage(blockCtx.Destination, blockCtx.Rule)
@@ -79,6 +83,16 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 		}
 	}
 	return message
+}
+
+// CooldownPolicyLine names the cloud policy that set a cooldown, so a
+// developer knows that the tenant policy and not the local config blocked the
+// package. It is empty when the local config set the cooldown (revision 0).
+func CooldownPolicyLine(days int, revision uint64) string {
+	if revision == 0 {
+		return ""
+	}
+	return fmt.Sprintf("The policy of your tenant (revision %d) sets a cooldown of %s", revision, pluralizeDays(days))
 }
 
 // NetworkDenialMessage is the one sentence for a connection the network
@@ -129,7 +143,8 @@ func PolicyRuleBlockMessage(blockCtx *proxy.BlockContext) string {
 }
 
 // packagePurl names the blocked package as a PURL, the form of the rule
-// selectors.
+// selectors. An admin writes a selector in the decoded form, for example
+// pkg:npm/@types/ms, so the message decodes the wire form for display only.
 func packagePurl(blockCtx *proxy.BlockContext) string {
 	purl, err := pb.Purl(&packagev1.PackageVersion{
 		Package: &packagev1.Package{Ecosystem: blockCtx.Ecosystem, Name: blockCtx.PackageName},
@@ -137,6 +152,8 @@ func packagePurl(blockCtx *proxy.BlockContext) string {
 	})
 	if err != nil {
 		purl = fmt.Sprintf("%s/%s@%s", ecosystemLabel(blockCtx.Ecosystem), blockCtx.PackageName, blockCtx.PackageVersion)
+	} else if decoded, decodeErr := url.PathUnescape(purl); decodeErr == nil {
+		purl = decoded
 	}
 	return removeControlChars(purl)
 }

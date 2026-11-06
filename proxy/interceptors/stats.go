@@ -131,8 +131,10 @@ func (c *AnalysisStatsCollector) GetConfirmedPackages() []*analyzer.PackageVersi
 	return result
 }
 
-// RecordCooldownBlocked records a package blocked by the dependency cooldown policy.
-func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, publishDate time.Time, daysAgo, daysLeft, cooldownDays int) {
+// RecordCooldownBlocked records a package blocked by the dependency cooldown
+// policy. policyRevision is the revision of the cloud policy that set the
+// cooldown, or 0 when the local config set it.
+func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, publishDate time.Time, daysAgo, daysLeft, cooldownDays int, policyRevision uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -140,12 +142,13 @@ func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, pub
 	c.stats.BlockedCount++
 	c.stats.CooldownBlockedCount++
 	c.cooldownBlocks = append(c.cooldownBlocks, models.CooldownBlock{
-		Name:         name,
-		Version:      version,
-		PublishDate:  publishDate,
-		DaysAgo:      daysAgo,
-		DaysLeft:     daysLeft,
-		CooldownDays: cooldownDays,
+		Name:           name,
+		Version:        version,
+		PublishDate:    publishDate,
+		DaysAgo:        daysAgo,
+		DaysLeft:       daysLeft,
+		CooldownDays:   cooldownDays,
+		PolicyRevision: policyRevision,
 	})
 }
 

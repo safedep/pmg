@@ -227,19 +227,15 @@ func reportNormal(data *ReportData) {
 		return
 	}
 
+	// Security-sensitive: always show a warning when protection is bypassed.
+	// A package rule and the cooldown still block in insecure mode, so the
+	// block sections below still show for a blocked run.
 	if data.Outcome == OutcomeInsecureBypass {
-		// Security-sensitive: Always show warning when protection is bypassed
-		icon := Colors.Red("⚠")
-		message := "INSECURE MODE - Malware protection bypassed"
-
-		if data.TotalAnalyzed > 0 {
-			fmt.Printf("%s %s (%d packages installed without analysis)\n",
-				icon, Colors.Red(message), data.TotalAnalyzed)
-		} else {
-			fmt.Printf("%s %s\n", icon, Colors.Red(message))
-		}
-
+		printInsecureWarning(data.TotalAnalyzed)
 		return
+	}
+	if data.InsecureMode {
+		printInsecureWarning(0)
 	}
 
 	// A package rule blocks with no analysis, so a run can block and
@@ -301,6 +297,20 @@ func reportNormal(data *ReportData) {
 	fmt.Printf("%s %s\n", icon, Colors.Dim(message))
 }
 
+const insecureModeMessage = "INSECURE MODE - Malware protection bypassed"
+
+func printInsecureWarning(installed int) {
+	icon := Colors.Red("⚠")
+	message := insecureModeMessage
+
+	if installed > 0 {
+		fmt.Printf("%s %s (%d packages installed without analysis)\n",
+			icon, Colors.Red(message), installed)
+	} else {
+		fmt.Printf("%s %s\n", icon, Colors.Red(message))
+	}
+}
+
 // reportVerbose shows detailed debugging information
 func reportVerbose(data *ReportData) {
 	fmt.Println()
@@ -309,6 +319,9 @@ func reportVerbose(data *ReportData) {
 
 	// Outcome summary line
 	printOutcomeLine(data)
+	if data.InsecureMode && data.Outcome != OutcomeInsecureBypass {
+		fmt.Printf("  %s %s\n", Colors.Red("⚠"), Colors.Red(insecureModeMessage))
+	}
 
 	// Statistics section
 	fmt.Println()
@@ -386,6 +399,9 @@ func reportVerbose(data *ReportData) {
 				"Published %s ago%s — cooldown: %d days, available in %s",
 				pluralizeDays(pkg.DaysAgo), dateStr, pkg.CooldownDays, pluralizeDays(pkg.DaysLeft),
 			)))
+			if line := CooldownPolicyLine(pkg.CooldownDays, pkg.PolicyRevision); line != "" {
+				fmt.Printf("      %s\n", Colors.Dim(line))
+			}
 			fmt.Printf("      %s\n", Colors.Dim(fmt.Sprintf(
 				"Tip: wait %s for cooldown to expire",
 				pluralizeDays(pkg.DaysLeft),

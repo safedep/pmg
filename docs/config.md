@@ -69,7 +69,8 @@ See [Custom Registries](proxy-mode.md#custom-registries).
 ## Blocked Packages
 
 `blocked_packages` lists packages that PMG blocks at download, whatever the malware analysis says. A
-blocked package wins over `trusted_packages` and over `--insecure-installation`:
+blocked package wins over `trusted_packages` and over the `PMG_INSECURE_INSTALLATION` environment
+variable:
 
 ```yaml
 blocked_packages:
@@ -83,19 +84,23 @@ endpoint only the managed config sets the list.
 
 ## Cloud Policy
 
-With `cloud.policy: true` inside `cloud.enabled: true`, PMG applies the policy that your security
-admin sets in SafeDep Cloud: block entries, trust entries and the dependency cooldown.
+With `cloud.enabled: true`, PMG applies the policy that your security admin sets in SafeDep Cloud:
+block entries, trust entries and the dependency cooldown. `cloud.policy` defaults to `true`. To turn
+the policy off and keep the other cloud features, set it to `false`:
 
 ```bash
-pmg config set cloud.policy true
+pmg config set cloud.policy false
 ```
+
+With the policy on, PMG reads your SafeDep Cloud credentials when a command starts, and fetches the
+policy in the background at most every 5 minutes. Set `cloud.policy: false` to stop both.
 
 - PMG fetches the policy in the background after a command, at most every 5 minutes, also when
   `cloud.auto_sync.enabled` is false. `pmg cloud sync` fetches it at once.
 - PMG keeps the policy in `cloud-policy/` in the config directory. When the fetch fails or you log
   out, PMG keeps the last policy that it applied.
 - A block entry of the policy wins over every trust entry, `trusted_packages` and
-  `--insecure-installation`. A trust entry never skips the malware analysis and never allows
+  `PMG_INSECURE_INSTALLATION`. A trust entry never skips the malware analysis and never allows
   verified malware.
 - When the policy sets the dependency cooldown, PMG ignores `PMG_DEPENDENCY_COOLDOWN_*` and refuses
   `--skip-dependency-cooldown`.
@@ -174,10 +179,12 @@ Under a [globally managed config](#globally-managed-configuration) with `global_
 
 **Limitation**
 
-- `config set` can only update keys that are present and uncommented in the config file.
-  If a key is commented out (e.g. `# some_key: value`) or missing entirely, `set` will
-  return a "key not found" error. To fix this, uncomment or add the key manually via `pmg config edit`,
-  or run `pmg setup install` to merge missing template keys into your config.
+- `config set` can set a key of the template that the config file does not have.
+  It adds the top-level section of that key from the template, such as `cloud`, and only that section.
+  It keeps your other values and comments. A key that the template does not have returns
+  a "key not found" error.
+- `config set --system` does not merge the template into the managed config. It adds a missing
+  key only under a section that the managed config has. Add other keys with `pmg config edit --system`.
 - Lists and maps need `config edit`. `config set` updates existing scalar nodes only.
   Boolean values must be `true` or `false`. Integer nodes require integers.
   A string assignment does not validate the setting's semantics before writing it.

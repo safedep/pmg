@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -561,9 +563,9 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 					Events:      events,
 					LockTimeout: cloudSyncTickLockWait,
 					Timeout:     cloudSyncTickTimeout,
-					AfterPolicy: func() { reloadIfCacheMoved(cfg, policy) },
+					AfterPolicy: func() { reloadIfCacheMoved(cfg, policy, os.Stderr) },
 				})
-				reloadIfCacheMoved(cfg, policy)
+				reloadIfCacheMoved(cfg, policy, os.Stderr)
 				if err != nil {
 					if errors.Is(err, audit.ErrSyncInProgress) {
 						log.Debugf("periodic cloud sync skipped: another sync in progress")
@@ -596,7 +598,11 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 // cloud sync or a background child, can commit a new policy and report it on
 // check-in. The daemon checks at each tick, not only after its own fetch, so
 // it applies that policy within one tick. It reports whether it reloaded.
-func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) bool {
+//
+// It writes one line for each reload to out. The daemon passes stderr, which
+// is the proxy log of a detached daemon, because the logger is off without
+// --debug.
+func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime, out io.Writer) bool {
 	if !policy.Status().CacheMoved() {
 		return false
 	}
@@ -607,7 +613,31 @@ func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 		revision = st.Applied.Revision
 	}
 	log.Infof("Periodic cloud sync: cloud policy state %s, revision %d", st.State, revision)
+
+	if _, err := fmt.Fprintln(out, reloadLine(st)); err != nil {
+		log.Warnf("failed to write the cloud policy reload line: %v", err)
+	}
 	return true
+}
+
+// reloadLine tells the operator which policy the daemon applies after a
+// reload. A rejected policy keeps the last applied revision, so the line
+// names both revisions and does not claim that a new policy applies.
+func reloadLine(st *cloudpolicy.Status) string {
+	if st.State == recordv1.ApplyState_APPLY_STATE_REJECTED {
+		rejected := "the cloud policy cache"
+		if revision := st.RejectedRevision(); revision > 0 {
+			rejected = fmt.Sprintf("cloud policy revision %d", revision)
+		}
+		if st.Applied != nil {
+			return fmt.Sprintf("Rejected %s. Revision %d still applies", rejected, st.Applied.Revision)
+		}
+		return fmt.Sprintf("Rejected %s. pmg applies the tool baseline", rejected)
+	}
+	if st.Applied != nil {
+		return fmt.Sprintf("Applied cloud policy revision %d", st.Applied.Revision)
+	}
+	return "No cloud policy applies. pmg applies the tool baseline"
 }
 
 // listenAddr resolves the proxy's bind address from config (host) and the

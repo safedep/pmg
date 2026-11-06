@@ -29,22 +29,17 @@ func cloudPolicyStatus(cfg *config.RuntimeConfig) *cloudpolicy.Status {
 }
 
 // cloudPolicyResults returns the doctor results of the cloud policy. The
-// check runs only when cloud.policy is on. It passes when the state is
-// APPLIED with no exception. It warns for every other state, for each
-// exception, and for a key that global_lockdown kept.
+// check runs only when the policy applies: cloud.enabled and cloud.policy
+// are on. It passes when the state is APPLIED with no exception. It warns
+// for every other state, for each exception, and for a key that
+// global_lockdown kept.
 func cloudPolicyResults(st *cloudpolicy.Status, now time.Time) []doctor.CheckResult {
-	if st == nil || !st.PolicyOn {
+	if st == nil || !st.PolicyOn || !st.CloudOn {
 		return nil
 	}
 
 	warn := func(message, fix string) doctor.CheckResult {
 		return doctor.CheckResult{Status: doctor.StatusWarn, Message: message, Fix: fix}
-	}
-
-	if !st.CloudOn {
-		return []doctor.CheckResult{warn(
-			"cloud.policy is on, but cloud.enabled is false. pmg does not fetch the policy",
-			"Set cloud.enabled: true in config")}
 	}
 
 	var results []doctor.CheckResult
@@ -85,20 +80,21 @@ func cloudPolicyResults(st *cloudpolicy.Status, now time.Time) []doctor.CheckRes
 	return results
 }
 
-// cloudPolicySummary is the main line of the check, as in "on · tenant
-// acme.safedep.io · revision 52 applied · cache 12m old".
+// cloudPolicySummary is the main line of the check, as in "on · revision
+// 52 applied · cache 12m old · tenant acme.safedep.io". The doctor table
+// cuts a long line, so the revision comes first and the tenant domain,
+// which has no length limit, comes last.
 func cloudPolicySummary(st *cloudpolicy.Status, now time.Time) string {
-	parts := []string{"on"}
+	parts := []string{"on", fmt.Sprintf("revision %d applied", st.Applied.Revision)}
+	if age := st.CacheAge(now); age > 0 {
+		parts = append(parts, "cache "+formatAge(age)+" old")
+	}
 	tenant := st.Tenant
 	if tenant == "" {
 		tenant = st.Applied.Tenant
 	}
 	if tenant != "" {
 		parts = append(parts, "tenant "+tenant)
-	}
-	parts = append(parts, fmt.Sprintf("revision %d applied", st.Applied.Revision))
-	if age := st.CacheAge(now); age > 0 {
-		parts = append(parts, "cache "+formatAge(age)+" old")
 	}
 	return strings.Join(parts, " · ")
 }
@@ -109,15 +105,15 @@ func rejectedMessage(st *cloudpolicy.Status) string {
 		applies = fmt.Sprintf("revision %d", st.Applied.Revision)
 	}
 
-	state := st.CacheState
-	if state.LastFetchRejected() {
-		return fmt.Sprintf("revision %d was rejected: %s. pmg applies %s",
-			state.Rejected.Revision, state.Rejected.Reason, applies)
+	subject := "the policy cache"
+	if revision := st.RejectedRevision(); revision > 0 {
+		subject = fmt.Sprintf("revision %d", revision)
 	}
-	if state != nil && st.FromPrevious {
-		return fmt.Sprintf("revision %d failed its check: %s. pmg applies %s", state.Revision, st.RejectedReason(), applies)
+	verb := "failed its check"
+	if st.CacheState.LastFetchRejected() {
+		verb = "was rejected"
 	}
-	return fmt.Sprintf("the policy cache failed its check: %s. pmg applies %s", st.RejectedReason(), applies)
+	return fmt.Sprintf("%s %s: %s. pmg applies %s", subject, verb, st.RejectedReason(), applies)
 }
 
 // exceptionLines groups the exceptions of the policy for people: the

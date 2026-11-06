@@ -39,6 +39,12 @@
   tier: P1
   guarantee: "pmg setup install provisions shims for supported package managers."
   labels: [shims, offline]
+- id: setup/config/set-adds-missing-section
+  title: "pmg config set adds a missing section from the template"
+  category: setup
+  tier: P1
+  guarantee: "pmg config set sets a key of the template when the config file does not have its section, and keeps the other values and comments of the file."
+  labels: [config, offline]
 - id: cloud/analyzer/authenticated-query-blocks-malware
   title: "authenticated (cloud-mode) query blocks known malware"
   category: cloud
@@ -428,6 +434,12 @@
   tier: P1
   guarantee: "With cloud.policy off, pmg ignores the policy cache and installs as it does today."
   labels: [cloud, policy]
+- id: cloud/policy/on-by-default
+  title: "cloud.enabled turns the cloud policy on"
+  category: cloud
+  tier: P1
+  guarantee: "A config file that pmg wrote from the template applies the cloud policy when cloud.enabled is true. With the cloud off, doctor does not warn about the cloud policy."
+  labels: [cloud, policy, offline]
 - id: cloud/policy/doctor-shows-revision
   title: "doctor shows the applied policy revision"
   category: cloud

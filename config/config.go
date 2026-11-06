@@ -165,7 +165,8 @@ type CloudConfig struct {
 	AutoSync   CloudAutoSyncConfig `mapstructure:"auto_sync"`
 
 	// Policy applies the cloud policy of the tenant. It applies only when
-	// Enabled is true.
+	// Enabled is true. It defaults to true, so Enabled is the one opt-in for
+	// the cloud. Set it to false to turn the policy off.
 	Policy bool `mapstructure:"policy"`
 }
 
@@ -518,7 +519,7 @@ func (r *RuntimeConfig) CloudPolicyLastRunPath() string {
 }
 
 // CloudPolicyEnabled reports whether PMG applies the cloud policy:
-// cloud.policy is on inside cloud.enabled.
+// cloud.policy is on inside cloud.enabled. cloud.policy defaults to true.
 func (r *RuntimeConfig) CloudPolicyEnabled() bool {
 	return r.Config.Cloud.Enabled && r.Config.Cloud.Policy
 }
@@ -746,6 +747,7 @@ func DefaultConfig() RuntimeConfig {
 			},
 			Cloud: CloudConfig{
 				Enabled: false,
+				Policy:  true,
 				AutoSync: CloudAutoSyncConfig{
 					Enabled:     true,
 					MinInterval: 15 * time.Minute,

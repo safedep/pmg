@@ -28,11 +28,15 @@ func auditOutcome(outcome ui.ExecutionOutcome) audit.Outcome {
 //
 // Outcome precedence:
 //  1. Error (if no packages were blocked)
-//  2. Insecure installation bypass
+//  2. Insecure installation bypass (if no packages were blocked)
 //  3. Dry run mode
 //  4. User cancellation
 //  5. Packages blocked
 //  6. Success (default)
+//
+// Insecure mode skips the malware analysis, but a package rule and the
+// dependency cooldown still block. A blocked run must report the block, so
+// the bypass outcome applies only when nothing was blocked.
 func inferOutcome(insecureMode, dryRun bool, blockedCount, userCancelledCount int, err error) ui.ExecutionOutcome {
 	// Error takes precedence unless we have blocked packages
 	if err != nil && blockedCount == 0 {
@@ -40,7 +44,7 @@ func inferOutcome(insecureMode, dryRun bool, blockedCount, userCancelledCount in
 	}
 
 	// Config-based outcomes
-	if insecureMode {
+	if insecureMode && blockedCount == 0 {
 		return ui.OutcomeInsecureBypass
 	}
 
