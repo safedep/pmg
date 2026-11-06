@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -561,9 +562,9 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 					Events:      events,
 					LockTimeout: cloudSyncTickLockWait,
 					Timeout:     cloudSyncTickTimeout,
-					AfterPolicy: func() { reloadIfCacheMoved(cfg, policy) },
+					AfterPolicy: func() { reloadIfCacheMoved(cfg, policy, os.Stderr) },
 				})
-				reloadIfCacheMoved(cfg, policy)
+				reloadIfCacheMoved(cfg, policy, os.Stderr)
 				if err != nil {
 					if errors.Is(err, audit.ErrSyncInProgress) {
 						log.Debugf("periodic cloud sync skipped: another sync in progress")
@@ -596,7 +597,11 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 // cloud sync or a background child, can commit a new policy and report it on
 // check-in. The daemon checks at each tick, not only after its own fetch, so
 // it applies that policy within one tick. It reports whether it reloaded.
-func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) bool {
+//
+// It writes one line for each reload to out. The daemon passes stderr, which
+// is the proxy log of a detached daemon, because the logger is off without
+// --debug.
+func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime, out io.Writer) bool {
 	if !policy.Status().CacheMoved() {
 		return false
 	}
@@ -607,6 +612,14 @@ func reloadIfCacheMoved(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 		revision = st.Applied.Revision
 	}
 	log.Infof("Periodic cloud sync: cloud policy state %s, revision %d", st.State, revision)
+
+	line := "No cloud policy applies. pmg applies the tool baseline"
+	if st.Applied != nil {
+		line = fmt.Sprintf("Applied cloud policy revision %d", revision)
+	}
+	if _, err := fmt.Fprintln(out, line); err != nil {
+		log.Warnf("failed to write the cloud policy reload line: %v", err)
+	}
 	return true
 }
 
