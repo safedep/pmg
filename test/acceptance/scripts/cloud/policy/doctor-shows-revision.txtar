@@ -17,7 +17,7 @@ stdout '"name": "cloud-policy",\s+"category": "Cloud",\s+"status": "warn",\s+"me
 policy-cache $WORK/config policy.textproto
 
 exec pmg setup info --json
-stdout '"status": "pass",\s+"message": "on · tenant acceptance\.safedep\.io · revision 48 applied · cache [0-9]+m old"'
+stdout '"status": "pass",\s+"message": "on · revision 48 applied · cache [0-9]+m old · tenant acceptance\.safedep\.io"'
 stdout '"state": "applied"'
 stdout '"revision": 48'
 stdout '"default_policy_revision": 12'

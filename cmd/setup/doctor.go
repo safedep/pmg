@@ -727,7 +727,7 @@ func printResults(results []doctor.CheckResult) {
 		rows = append(rows, []string{
 			statusBadge(r.Status),
 			displayName(r.Name),
-			ui.Truncate(r.Message, 60),
+			ui.Truncate(r.Message, doctorSummaryWidth),
 			fix,
 		})
 	}
@@ -739,6 +739,10 @@ func printResults(results []doctor.CheckResult) {
 	fmt.Println()
 	printSummaryLine(results)
 }
+
+// doctorSummaryWidth is the number of characters of the summary that the
+// doctor table shows.
+const doctorSummaryWidth = 60
 
 func statusBadge(s doctor.CheckStatus) string {
 	switch s {

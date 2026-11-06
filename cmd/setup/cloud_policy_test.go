@@ -14,6 +14,7 @@ import (
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	cpt "github.com/safedep/pmg/internal/cloudpolicy/cloudpolicytest"
 	"github.com/safedep/pmg/internal/doctor"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -102,7 +103,7 @@ func TestCloudPolicyResults(t *testing.T) {
 				ageCache(t, cfg, 12*time.Minute)
 			},
 			want: []doctorLine{{doctor.StatusPass,
-				"on · tenant " + doctorTenant + " · revision 52 applied · cache 12m old"}},
+				"on · revision 52 applied · cache 12m old · tenant " + doctorTenant}},
 		},
 		{
 			name: "an old cache warns",
@@ -111,7 +112,7 @@ func TestCloudPolicyResults(t *testing.T) {
 				ageCache(t, cfg, 9*24*time.Hour)
 			},
 			want: []doctorLine{
-				{doctor.StatusWarn, "on · tenant " + doctorTenant + " · revision 52 applied · cache 9d old"},
+				{doctor.StatusWarn, "on · revision 52 applied · cache 9d old · tenant " + doctorTenant},
 				{doctor.StatusWarn, "the policy cache is 9d old. The last policy still applies"},
 			},
 		},
@@ -122,7 +123,7 @@ func TestCloudPolicyResults(t *testing.T) {
 				writeDoctorCache(t, cfg, cpt.Policy(), 53, "another-machine")
 			},
 			want: []doctorLine{
-				{doctor.StatusWarn, "on · tenant " + doctorTenant + " · revision 52 applied"},
+				{doctor.StatusWarn, "on · revision 52 applied"},
 				{doctor.StatusWarn, "revision 53 failed its check"},
 			},
 		},
@@ -135,7 +136,7 @@ func TestCloudPolicyResults(t *testing.T) {
 				), 52, "")
 			},
 			want: []doctorLine{
-				{doctor.StatusWarn, "on · tenant " + doctorTenant + " · revision 52 applied"},
+				{doctor.StatusWarn, "on · revision 52 applied"},
 				{doctor.StatusWarn, "2 trust entries dropped ("},
 			},
 			wantInLast: "r_a41, r_b07",
@@ -160,6 +161,24 @@ func TestCloudPolicyResults(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCloudPolicySummaryKeepsTheRevisionInTheTable(t *testing.T) {
+	const tenant = "platform-engineering-and-developer-productivity.acme-corporation.safedep.io"
+	cfg := newCloudPolicyConfig(t)
+	machineID, err := cpt.MachineID(doctorEndpointID)
+	require.NoError(t, err)
+	require.NoError(t, cpt.Write(cfg.CloudPolicyCacheDir(), cpt.Policy(), cpt.Header{
+		Tenant: tenant, MachineID: machineID, Revision: 52, DefaultPolicyRevision: 12,
+	}))
+	ageCache(t, cfg, 12*time.Minute)
+	st := cloudpolicy.Load(cfg, tenant)
+	require.NotNil(t, st.Applied)
+
+	shown := ui.Truncate(cloudPolicySummary(st, time.Now()), doctorSummaryWidth)
+
+	assert.Contains(t, shown, "revision 52 applied")
+	assert.Contains(t, shown, "cache 12m old")
 }
 
 func TestCollectCloudPolicyInfo(t *testing.T) {

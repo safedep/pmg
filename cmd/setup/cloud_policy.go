@@ -85,20 +85,21 @@ func cloudPolicyResults(st *cloudpolicy.Status, now time.Time) []doctor.CheckRes
 	return results
 }
 
-// cloudPolicySummary is the main line of the check, as in "on · tenant
-// acme.safedep.io · revision 52 applied · cache 12m old".
+// cloudPolicySummary is the main line of the check, as in "on · revision
+// 52 applied · cache 12m old · tenant acme.safedep.io". The doctor table
+// cuts a long line, so the revision comes first and the tenant domain,
+// which has no length limit, comes last.
 func cloudPolicySummary(st *cloudpolicy.Status, now time.Time) string {
-	parts := []string{"on"}
+	parts := []string{"on", fmt.Sprintf("revision %d applied", st.Applied.Revision)}
+	if age := st.CacheAge(now); age > 0 {
+		parts = append(parts, "cache "+formatAge(age)+" old")
+	}
 	tenant := st.Tenant
 	if tenant == "" {
 		tenant = st.Applied.Tenant
 	}
 	if tenant != "" {
 		parts = append(parts, "tenant "+tenant)
-	}
-	parts = append(parts, fmt.Sprintf("revision %d applied", st.Applied.Revision))
-	if age := st.CacheAge(now); age > 0 {
-		parts = append(parts, "cache "+formatAge(age)+" old")
 	}
 	return strings.Join(parts, " · ")
 }
