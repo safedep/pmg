@@ -318,6 +318,23 @@ func TestSetConfigValue(t *testing.T) {
 		assert.Equal(t, 8080, Get().Config.Proxy.Server.ListenPort)
 	})
 
+	t.Run("keeps an explicit proxy.install_only when it adds a nested proxy key", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy:\n  install_only: false\nproxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("proxy.server.listen_port", "8080")
+		require.NoError(t, err)
+
+		initConfig()
+		assert.False(t, Get().Config.Proxy.InstallOnly)
+		assert.Equal(t, 8080, Get().Config.Proxy.Server.ListenPort)
+	})
+
 	t.Run("keeps an unrelated empty section when it adds a section", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
