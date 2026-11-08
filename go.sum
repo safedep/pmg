@@ -1,9 +1,9 @@
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2 h1:NbnlmV26O7oZ1iM5tsCI+GEx+3ZSdrhvnKQ/eWSrLiY=
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2/go.mod h1:TCt1lluMFnctISJXvkIQ4x3ABrPuUKCWKyjKdkJNBpw=
-buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261102185708-d3b7f26a56c8.1 h1:Gaisxl35R8aWb75KOyDWAOTz9EYDPI1Ou1QEi+tsFdM=
-buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261102185708-d3b7f26a56c8.1/go.mod h1:k6a1rNKlbcpk0pQbJieafyRN24kS/eWNWCV6fyV9Qc8=
-buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261102185708-d3b7f26a56c8.2 h1:sxHseybtKJleCIGoD/jIkaSCe2WvkI5lmI07KGfF3Hs=
-buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261102185708-d3b7f26a56c8.2/go.mod h1:LfbopTmazyAppwhYT2vdRDLDH8ZTm4QNbp9yFjGRbHs=
+buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261107111754-29a1adb160aa.1 h1:4uXBhgLhLEn7IOW9avcfYIYKNOI77vOcYm9XQbvfRHo=
+buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261107111754-29a1adb160aa.1/go.mod h1:4i7HWcBq17WJ1/i+2RMe/hFwUloX8o4PaviS3I9gd5I=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261107111754-29a1adb160aa.2 h1:1VyJgN+9Z4T+dEVSffnJV/ETVLPsqKkYEvWHguZ/jzc=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261107111754-29a1adb160aa.2/go.mod h1:LfbopTmazyAppwhYT2vdRDLDH8ZTm4QNbp9yFjGRbHs=
 buf.build/go/protovalidate v1.2.0 h1:DQVrUWkmGTBij+kOYv/x2LLxwcLaGKMdzShj1/6/3H0=
 buf.build/go/protovalidate v1.2.0/go.mod h1:7rYiQEhqvAipoazpVNBBH2S2f8bjG4huMVy1V2Yofn4=
 cel.dev/expr v0.25.2 h1:K6j46C81hXtZQfuX60cVWQFBJahKSE2gfRbNuvr5bFs=
@@ -174,8 +174,8 @@ github.com/rodaine/protogofakeit v0.1.1/go.mod h1:pXn/AstBYMaSfc1/RqH3N82pBuxtWg
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
-github.com/safedep/dry v0.0.0-20261103045111-1a710214c0cd h1:u+tsjmQ5MFZ8IlB+zpC1WEjY88MBxGBgqGhajuWmuzk=
-github.com/safedep/dry v0.0.0-20261103045111-1a710214c0cd/go.mod h1:9P4zF2CTsog/sNs3NGYAmiQ7enOVCh5ipYWtzZAXl7g=
+github.com/safedep/dry v0.0.0-20261108100514-739d1bfc2092 h1:lMVWPeh1L1iSr15e9K6QzNloC8VsL1npBCnKvM3no4Q=
+github.com/safedep/dry v0.0.0-20261108100514-739d1bfc2092/go.mod h1:UItnKbe5E1KKwv6Rg3bBE+PQRIAlq/DvnCtNPPp1R7w=
 github.com/safedep/ptyx v0.2.1-0.20260930140859-2a30ff447821 h1:3/YEQGHD9b2IgDOBOMjophl5gYDqiHJjtoFX+P8ktSk=
 github.com/safedep/ptyx v0.2.1-0.20260930140859-2a30ff447821/go.mod h1:fyt+PACz6dtEoqsnE0BPPv/lHpuBG/8zkDqeIVcyRY4=
 github.com/sagikazarmark/locafero v0.12.0 h1:/NQhBAkUb4+fH1jivKHWusDYFjMOOKU88eegjfxfHb4=
