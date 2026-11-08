@@ -102,9 +102,10 @@ policy in the background at most every 5 minutes. Set `cloud.policy: false` to s
 - A block entry of the policy wins over every trust entry, `trusted_packages` and
   `PMG_INSECURE_INSTALLATION`. A trust entry never skips the malware analysis and never allows
   verified malware.
-- PMG applies the trust scopes MALWARE and COOLDOWN. It keeps a trust entry with the scope
-  VULNERABILITY, LICENSE or NAMED_VULNERABILITY and ignores it. PMG drops a trust entry that has
-  no scope it knows, and a NAMED_VULNERABILITY entry that lists no vulnerability ids.
+- PMG applies the trust scopes MALWARE and COOLDOWN. PMG ignores the scopes VULNERABILITY,
+  LICENSE and NAMED_VULNERABILITY, but it keeps the trust entry. A trust entry with MALWARE and
+  LICENSE still waives a malware verdict. PMG drops a trust entry that has no scope it knows, and
+  a NAMED_VULNERABILITY entry that lists no vulnerability ids.
 - When the policy sets the dependency cooldown, PMG ignores `PMG_DEPENDENCY_COOLDOWN_*` and refuses
   `--skip-dependency-cooldown`.
 - Under `global_lockdown: true`, the policy does not change a key that the managed config sets. To
