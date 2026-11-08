@@ -13,8 +13,8 @@ import (
 
 // TestPolicyConformance runs the shared corpus through the projection and
 // the package rule index of pmg, with the identity that the interceptors
-// use for a request. pmg decides only the malware and cooldown controls, so
-// the test skips the checks of the other controls.
+// use for a request. pmg decides only the malware and cooldown controls. The
+// test skips the checks of the other controls.
 func TestPolicyConformance(t *testing.T) {
 	kind := specv1.SubjectKind_SUBJECT_KIND_ENDPOINT
 	conformance.Run(t, kind, func(raw []byte, q conformance.Query) (conformance.Decision, error) {

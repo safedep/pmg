@@ -18,6 +18,8 @@ var (
 	scopeMalware       = corev1.TrustScope_TRUST_SCOPE_MALWARE
 	scopeCooldown      = corev1.TrustScope_TRUST_SCOPE_COOLDOWN
 	scopeVulnerability = corev1.TrustScope_TRUST_SCOPE_VULNERABILITY
+	scopeLicense       = corev1.TrustScope_TRUST_SCOPE_LICENSE
+	scopeNamedVuln     = corev1.TrustScope_TRUST_SCOPE_NAMED_VULNERABILITY
 )
 
 func inAMonth() time.Time { return time.Now().Add(30 * 24 * time.Hour) }
@@ -242,8 +244,10 @@ func TestCloudPolicy_TrustEntries(t *testing.T) {
 		},
 		{
 			Name: "a trust entry with every scope does not allow verified malware",
+			// NAMED_VULNERABILITY cannot share an entry with another scope.
+			// These four scopes are all the scopes that one entry can hold.
 			Policy: cpt.Policy(cpt.Trust("r_all", "pkg:npm/evil", "", inAMonth(),
-				scopeMalware, scopeCooldown, scopeVulnerability)),
+				scopeMalware, scopeCooldown, scopeVulnerability, scopeLicense)),
 			Setup: func(h *Harness) { addEvil(h, VerifiedMalware()) },
 			Exec:  func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.2.4") },
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
@@ -287,6 +291,35 @@ func TestCloudPolicy_TrustEntries(t *testing.T) {
 			},
 			Exec: func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.2.4") },
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Len(t, h.Confirm.Prompts(), 1)
+			},
+		},
+		{
+			Name:   "a trust entry with only LICENSE does not apply",
+			Policy: cpt.Policy(cpt.Trust("r_license", "pkg:npm/evil", "", inAMonth(), scopeLicense)),
+			Setup: func(h *Harness) {
+				addEvil(h, Suspicious())
+				h.Confirm.AutoDeny()
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.2.4") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRuleLoaded(t, "r_license")
+				assert.True(t, res.Blocked())
+				assert.Len(t, h.Confirm.Prompts(), 1)
+			},
+		},
+		{
+			Name: "a trust entry with only NAMED_VULNERABILITY does not apply",
+			Policy: cpt.Policy(cpt.WithVulnerabilities(
+				cpt.Trust("r_named", "pkg:npm/evil", "", inAMonth(), scopeNamedVuln), "CVE-2024-1234")),
+			Setup: func(h *Harness) {
+				addEvil(h, Suspicious())
+				h.Confirm.AutoDeny()
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.2.4") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRuleLoaded(t, "r_named")
 				assert.True(t, res.Blocked())
 				assert.Len(t, h.Confirm.Prompts(), 1)
 			},
@@ -418,6 +451,18 @@ func TestCloudPolicy_Exclusions(t *testing.T) {
 			},
 		},
 	})
+}
+
+// assertRuleLoaded checks that the policy of the case holds the rule. A case
+// for a trust entry that does not apply must not pass because the loader
+// dropped the entry.
+func assertRuleLoaded(t *testing.T, id string) {
+	t.Helper()
+	var ids []string
+	for _, rule := range loadedPolicy(t).Rules() {
+		ids = append(ids, rule.ID)
+	}
+	assert.Contains(t, ids, id)
 }
 
 // switchSource is a policy source that a case swaps, as the proxy daemon
