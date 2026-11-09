@@ -67,16 +67,67 @@ If you wish to install this binary on your system, make sure to copy it to a dir
 
 ## Review tiers
 
-The change sets the tier. The author does not. If a pull request touches paths in more than one
-tier, the highest tier applies. State the tier in the `Risk` section of the pull request.
+The change sets the tier. The author does not.
 
 | Tier | Change | Human review |
 | --- | --- | --- |
-| Low | `docs/`, other Markdown files, test-only changes, dependency updates from Dependabot | Read the description and the `Testing` evidence. |
+| Low | Only docs, tests or dependency updates from Dependabot | Read the description and the `Testing` evidence. |
 | Medium | All other changes | Review the diff. |
-| High | `proxy/`, `analyzer/`, `internal/flows/`, `sandbox/`, `internal/netenforce/`, `config/`, `truststore/`, `.github/workflows/`, `action/`, `action.yml`, `install.sh`, `.goreleaser.yaml` | Read each changed line. Apply the `Always check` list in `REVIEW.md`. |
+| High | The code that a Yes answer names | Read each changed line. Apply the `Always check` list in `REVIEW.md`. |
+
+A pull request that is not Low answers the five questions below in its `Risk` section. For each
+Yes, the author names the file and the function. Only the named code is High. The remaining diff
+is Medium.
 
 A change to `REVIEW.md`, `CLAUDE.md` or `AGENTS.md` is Medium, because these files control the
 automated review.
 
 All tiers need one approval from a person. An approval from a bot does not count.
+
+### 1. Decision
+
+Does the change alter when PMG allows, blocks or prompts for a package?
+
+- Yes: the mapping from an analyzer verdict to allow, confirm or block.
+- Yes: what PMG does without a verdict, for example a timeout, an analyzer error or a cache miss.
+- Yes: how PMG matches a trusted package, a blocked package, a cooldown or the insecure bypass.
+- Yes: a refactor of the code that makes the decision. The reviewer confirms that the decision
+  did not change.
+- No: the text of a block message. A log line or a metric near the decision.
+
+### 2. Access
+
+Does the change widen what a sandboxed or enforced install can read, write, run or connect to?
+
+- Yes: a new allowed path, a broader glob or a new allowed host in a profile or a preset.
+- Yes: a removed mandatory deny. A fallback that runs the install without the sandbox.
+- Yes: a new way for a user to add an allow rule.
+- No: a change that narrows access. A change to how PMG reports a violation.
+
+### 3. Precedence
+
+Does the change alter which config source wins?
+
+- Yes: the merge order of the cloud, managed, user and project config.
+- Yes: an environment variable, a flag or a user config that overrides a managed config.
+- Yes: a new default that turns a control off or makes it weaker.
+- No: a new key that no decision reads. A comment in the config template.
+
+### 4. Data
+
+Can the change put a secret or private data into a log, an event or a cloud payload?
+
+- Yes: a new field in an event or in a cloud sync payload.
+- Yes: a log line that prints a URL, a header, an environment variable or a command line. Each of
+  these can hold a token.
+- Yes: a new host that PMG itself connects to.
+- No: a log line that prints a package name, a version or a verdict.
+
+### 5. Supply chain
+
+Does the change alter how PMG is built, signed, released or installed on a machine?
+
+- Yes: `.goreleaser.yaml`, `install.sh`, the installer packages or the download step of the Action.
+- Yes: a workflow that holds a secret or has write permission.
+- Yes: what `pmg setup` installs, for example a certificate or a shim.
+- No: a test workflow that has read permission only.
