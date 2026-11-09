@@ -53,7 +53,7 @@ Style, names, comments and refactors are Nit at most. Report at most five Nits i
 9. **Risk answers.** The `Risk` section of the pull request answers the five questions in the
    `Review tiers` section of `CONTRIBUTING.md`. Compare each answer with the diff. A No where the
    diff shows a Yes is Important. A pull request that says Low but changes code other than tests is
-   Important. A Yes that does not name the file and the function is a Nit.
+   Important. A Yes that does not name the code is a Nit.
 
 ## Evidence
 

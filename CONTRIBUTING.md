@@ -71,13 +71,15 @@ The change sets the tier. The author does not.
 
 | Tier | Change | Human review |
 | --- | --- | --- |
-| Low | Only docs, tests or dependency updates from Dependabot | Read the description and the `Testing` evidence. |
+| Low | Only docs or tests | Read the description and the `Testing` evidence. |
 | Medium | All other changes | Review the diff. |
 | High | The code that a Yes answer names | Read each changed line. Apply the `Always check` list in `REVIEW.md`. |
 
 A pull request that is not Low answers the five questions below in its `Risk` section. For each
-Yes, the author names the file and the function. Only the named code is High. The remaining diff
-is Medium.
+Yes, the author names the file and the function. If the file has no functions, the author names
+the key or the lines. Only the named code is High. The remaining diff is Medium.
+
+Dependabot does not answer the questions. The reviewer answers them for an update from Dependabot.
 
 A change to `REVIEW.md`, `CLAUDE.md` or `AGENTS.md` is Medium, because these files control the
 automated review.
@@ -128,6 +130,8 @@ Can the change put a secret or private data into a log, an event or a cloud payl
 Does the change alter how PMG is built, signed, released or installed on a machine?
 
 - Yes: `.goreleaser.yaml`, `install.sh`, the installer packages or the download step of the Action.
-- Yes: a workflow that holds a secret or has write permission.
+- Yes: a workflow that holds a secret or has write permission. This includes a new version of an
+  action in that workflow.
+- Yes: a new version of the base image in the `Dockerfile`.
 - Yes: what `pmg setup` installs, for example a certificate or a shim.
 - No: a test workflow that has read permission only.
