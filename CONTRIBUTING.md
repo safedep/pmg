@@ -64,3 +64,19 @@ If you wish to install this binary on your system, make sure to copy it to a dir
    ```shell
    git push origin feature/your-feature
    ```
+
+## Review tiers
+
+The change sets the tier. The author does not. If a pull request touches paths in more than one
+tier, the highest tier applies. State the tier in the `Risk` section of the pull request.
+
+| Tier | Change | Human review |
+| --- | --- | --- |
+| Low | `docs/`, other Markdown files, test-only changes, dependency updates from Dependabot | Read the description and the `Testing` evidence. |
+| Medium | All other changes | Review the diff. |
+| High | `proxy/`, `analyzer/`, `internal/flows/`, `sandbox/`, `internal/netenforce/`, `config/`, `truststore/`, `.github/workflows/`, `action/`, `action.yml`, `install.sh`, `.goreleaser.yaml` | Read each changed line. Apply the `Always check` list in `REVIEW.md`. |
+
+A change to `REVIEW.md`, `CLAUDE.md` or `AGENTS.md` is Medium, because these files control the
+automated review.
+
+All tiers need one approval from a person. An approval from a bot does not count.
