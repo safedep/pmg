@@ -65,6 +65,18 @@ func Trust(id, purl, vers string, expires time.Time, scopes ...corev1.TrustScope
 	}.Build()
 }
 
+// WithVulnerabilities sets the vulnerabilities that a trust entry with the
+// scope TRUST_SCOPE_NAMED_VULNERABILITY waives. The contract drops such an
+// entry when it has no ids.
+func WithVulnerabilities(rule *corev1.PackageRule, ids ...string) *corev1.PackageRule {
+	var waived []*corev1.WaivedVulnerability
+	for _, id := range ids {
+		waived = append(waived, corev1.WaivedVulnerability_builder{Id: id}.Build())
+	}
+	rule.SetVulnerabilities(waived)
+	return rule
+}
+
 func selector(purl, vers string) *corev1.PackageSelector {
 	b := corev1.PackageSelector_builder{Purl: purl}
 	if vers != "" {

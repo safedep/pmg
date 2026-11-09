@@ -210,6 +210,20 @@ func TestLoadReportsDroppedRules(t *testing.T) {
 	assert.Zero(t, st.TrustEntries)
 }
 
+func TestLoadKeepsATrustEntryOfAnIgnoredScope(t *testing.T) {
+	cfg := newTestConfig(t)
+	writeCache(t, cfg, cloudpolicytest.Policy(
+		blockEvil(),
+		cloudpolicytest.Trust("r_license", "pkg:npm/x", "", time.Now().Add(time.Hour), corev1.TrustScope_TRUST_SCOPE_LICENSE),
+	), 48)
+
+	st := Load(cfg, testTenant)
+
+	assert.Empty(t, st.Exceptions())
+	assert.Equal(t, 1, st.BlockEntries)
+	assert.Equal(t, 1, st.TrustEntries)
+}
+
 func TestApplyCooldown(t *testing.T) {
 	cfg := newTestConfig(t)
 	writeCache(t, cfg, cloudpolicytest.WithCooldown(cloudpolicytest.Policy(), 72*time.Hour), 48)

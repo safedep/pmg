@@ -23,11 +23,20 @@ func TestPolicyDecisions(t *testing.T) {
 		cloudpolicytest.Trust("r_malware", "pkg:npm/fp", "", soon, corev1.TrustScope_TRUST_SCOPE_MALWARE),
 		cloudpolicytest.Trust("r_cooldown", "pkg:pypi/Fresh_Pkg", "", soon, corev1.TrustScope_TRUST_SCOPE_COOLDOWN),
 		cloudpolicytest.Trust("r_vuln", "pkg:npm/vuln", "", soon, corev1.TrustScope_TRUST_SCOPE_VULNERABILITY),
+		cloudpolicytest.Trust("r_license", "pkg:npm/licensed", "", soon, corev1.TrustScope_TRUST_SCOPE_LICENSE),
+		cloudpolicytest.WithVulnerabilities(cloudpolicytest.Trust("r_named", "pkg:npm/named", "", soon,
+			corev1.TrustScope_TRUST_SCOPE_NAMED_VULNERABILITY), "CVE-2024-1234"),
 		cloudpolicytest.Trust("r_expired", "pkg:npm/old", "", time.Now().Add(-time.Hour), corev1.TrustScope_TRUST_SCOPE_MALWARE),
 	), 48)
 	cfg.Config.BlockedPackages = []config.BlockedPackage{{Purl: "pkg:npm/@local/*", Reason: "local"}}
 	require.NoError(t, config.PreprocessPackageRefs(&cfg.Config))
 	p := newPolicy(Load(cfg, testTenant), cfg.Config.DependencyCooldown)
+
+	var ids []string
+	for _, rule := range p.Rules() {
+		ids = append(ids, rule.ID)
+	}
+	require.Subset(t, ids, []string{"r_license", "r_named"}, "the index keeps the entries of the scopes that pmg ignores")
 
 	pypi := packagev1.Ecosystem_ECOSYSTEM_PYPI
 	tests := []struct {
@@ -46,6 +55,8 @@ func TestPolicyDecisions(t *testing.T) {
 		{name: "a malware trust entry", ecosystem: npm, pkg: "fp", version: "1.0.0", wantMalware: "r_malware"},
 		{name: "a cooldown trust entry folds the name", ecosystem: pypi, pkg: "fresh-pkg", version: "1.0", wantCool: "r_cooldown"},
 		{name: "a vulnerability trust entry changes no pmg decision", ecosystem: npm, pkg: "vuln", version: "1.0.0"},
+		{name: "a license trust entry changes no pmg decision", ecosystem: npm, pkg: "licensed", version: "1.0.0"},
+		{name: "a named vulnerability trust entry changes no pmg decision", ecosystem: npm, pkg: "named", version: "1.0.0"},
 		{name: "an expired trust entry does not apply", ecosystem: npm, pkg: "old", version: "1.0.0"},
 		{name: "no rule", ecosystem: npm, pkg: "left-pad", version: "1.0.0"},
 	}
