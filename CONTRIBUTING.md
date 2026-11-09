@@ -76,8 +76,9 @@ The change sets the tier. The author does not.
 | High | The code that a Yes answer names | Read each changed line. Apply the `Always check` list in `REVIEW.md`. |
 
 A pull request that is not Low answers the five questions below in its `Risk` section. For each
-Yes, the author names the file and the function. If the file has no functions, the author names
-the key or the lines. Only the named code is High. The remaining diff is Medium.
+Yes, the author names each changed location that makes the answer Yes. A location is a file
+together with a function, a declaration, a key or a line range. Only the named code is High. The
+remaining diff is Medium. The reviewer checks that the list is complete.
 
 Dependabot does not answer the questions. The reviewer answers them for an update from Dependabot.
 
