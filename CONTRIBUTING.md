@@ -136,3 +136,13 @@ Does the change alter how PMG is built, signed, released or installed on a machi
 - Yes: a new version of the base image in the `Dockerfile`.
 - Yes: what `pmg setup` installs, for example a certificate or a shim.
 - No: a test workflow that has read permission only.
+
+## Review rounds
+
+An automated reviewer starts a new review for each commit. These rules keep the number of rounds
+small.
+
+- Fix a finding if it changes what a person does or if it closes a real hole. If it does not,
+  resolve the thread with a reason.
+- Push one commit for each review, not one commit for each finding.
+- After three rounds, stop. Change the approach or divide the pull request.

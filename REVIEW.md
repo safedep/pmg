@@ -60,6 +60,31 @@ Style, names, comments and refactors are Nit at most. Report at most five Nits i
 A claim about behavior needs a `file:line` citation in the source. Do not infer behavior from a
 name. For a fail-open or sandbox finding, show the path from the input to the decision.
 
+## Report
+
+Start the summary with the number of Important findings and the number of Nits. If there is
+nothing to fix, write "No findings" and stop.
+
+If the same problem occurs in more than one place, report it one time. Name the class of the
+problem and list each location.
+
+## Review after a new commit
+
+A new commit starts a new review. Without a limit, each review finds different problems in the
+same old lines. Each finding causes a commit, and each commit causes a review. These rules stop
+that cycle.
+
+- Review the full pull request one time. After that, review the lines that changed since the last
+  review and the behavior that those lines change. Follow each changed function to its callers
+  and to the code that it calls.
+- Outside that scope, report a new problem only if it is Important. Do not report a Nit there.
+- Do not repeat a finding from an earlier review. This includes a finding that the author
+  resolved with a reason.
+- If the pull request did not change the code, label the problem Pre-existing. A Pre-existing
+  problem does not block the pull request.
+- After three reviews with Important findings, do not list more fixes. Tell the author to change
+  the approach or to divide the pull request.
+
 ## Do not report
 
 CI already checks these. Do not report them, with one exception:
