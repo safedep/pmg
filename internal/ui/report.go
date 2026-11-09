@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/netpolicy"
 )
 
@@ -81,6 +82,10 @@ type ReportData struct {
 	BlockedPackages   []*analyzer.PackageVersionAnalysisResult
 	ConfirmedPackages []*analyzer.PackageVersionAnalysisResult
 
+	// Packages that a block entry of the cloud policy or of blocked_packages
+	// blocked (proxy mode only)
+	RuleBlockedPackages []*proxy.BlockContext
+
 	// Packages blocked by the dependency cooldown policy (proxy mode only)
 	CooldownBlockedPackages []models.CooldownBlock
 
@@ -131,7 +136,7 @@ func (r *ReportData) Finalize() {
 
 // HasIssues returns true if any packages were blocked or required confirmation
 func (r *ReportData) HasIssues() bool {
-	return r.BlockedCount > 0 || r.ConfirmedCount > 0 || len(r.CooldownBlockedPackages) > 0
+	return r.BlockedCount > 0 || r.ConfirmedCount > 0 || len(r.CooldownBlockedPackages) > 0 || len(r.RuleBlockedPackages) > 0
 }
 
 // WasSuccessful returns true if execution completed without blocks or errors
@@ -173,14 +178,34 @@ func printMalwareBlockSection(data *ReportData) {
 	fmt.Println()
 }
 
-// reportSilent shows output only when the install was blocked: silent mode
-// hides PMG except for errors and malicious package detection. Cooldown-only
-// blocks stay hidden, matching the documented silent contract.
-func reportSilent(data *ReportData) {
-	if data.Outcome != OutcomeBlocked || len(data.BlockedPackages) == 0 {
+// PolicyRuleBlockedHeadline is the headline printed when a block entry of the
+// cloud policy or of blocked_packages blocked a package. The lines below it
+// name each package and say which policy blocked it.
+const PolicyRuleBlockedHeadline = "Blocked by policy"
+
+func printRuleBlockSection(data *ReportData) {
+	if len(data.RuleBlockedPackages) == 0 {
 		return
 	}
 
+	fmt.Println()
+	fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red(PolicyRuleBlockedHeadline))
+	for _, block := range data.RuleBlockedPackages {
+		fmt.Println(PolicyRuleBlockMessage(block))
+	}
+	fmt.Println()
+}
+
+// reportSilent shows output only when the install was blocked: silent mode
+// hides PMG except for errors, malicious package detection and package rule
+// blocks. Cooldown-only blocks stay hidden, matching the documented silent
+// contract.
+func reportSilent(data *ReportData) {
+	if data.Outcome != OutcomeBlocked || (len(data.BlockedPackages) == 0 && len(data.RuleBlockedPackages) == 0) {
+		return
+	}
+
+	printRuleBlockSection(data)
 	printMalwareBlockSection(data)
 	printAdvisoryMessage(data.AdvisoryMessage)
 }
@@ -202,22 +227,20 @@ func reportNormal(data *ReportData) {
 		return
 	}
 
+	// Security-sensitive: always show a warning when protection is bypassed.
+	// A package rule and the cooldown still block in insecure mode, so the
+	// block sections below still show for a blocked run.
 	if data.Outcome == OutcomeInsecureBypass {
-		// Security-sensitive: Always show warning when protection is bypassed
-		icon := Colors.Red("⚠")
-		message := "INSECURE MODE - Malware protection bypassed"
-
-		if data.TotalAnalyzed > 0 {
-			fmt.Printf("%s %s (%d packages installed without analysis)\n",
-				icon, Colors.Red(message), data.TotalAnalyzed)
-		} else {
-			fmt.Printf("%s %s\n", icon, Colors.Red(message))
-		}
-
+		printInsecureWarning(data.TotalAnalyzed)
 		return
 	}
+	if data.InsecureMode {
+		printInsecureWarning(0)
+	}
 
-	if data.TotalAnalyzed == 0 {
+	// A package rule blocks with no analysis, so a run can block and
+	// analyze nothing.
+	if data.TotalAnalyzed == 0 && len(data.RuleBlockedPackages) == 0 {
 		// No packages analyzed (e.g., npm install with no new packages)
 		return
 	}
@@ -227,6 +250,7 @@ func reportNormal(data *ReportData) {
 
 	switch data.Outcome {
 	case OutcomeBlocked:
+		printRuleBlockSection(data)
 		printMalwareBlockSection(data)
 
 		if len(data.CooldownBlockedPackages) > 0 {
@@ -244,33 +268,47 @@ func reportNormal(data *ReportData) {
 			fmt.Println()
 		}
 
-		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.CooldownBlockedPackages) > 0
+		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.RuleBlockedPackages) == 0 && len(data.CooldownBlockedPackages) > 0
 		if onlyCooldown {
 			icon = Colors.Yellow("⊘")
 			message = fmt.Sprintf("PMG: %s analyzed, %s blocked by cooldown",
 				pluralizePackages(data.TotalAnalyzed), pluralizePackages(data.BlockedCount))
 		} else {
 			icon = Colors.Red("✗")
-			message = fmt.Sprintf("PMG: %d packages analyzed, %d blocked",
-				data.TotalAnalyzed, data.BlockedCount)
+			message = fmt.Sprintf("PMG: %s analyzed, %d blocked",
+				pluralizePackages(data.TotalAnalyzed), data.BlockedCount)
 		}
 	case OutcomeUserCancelled:
 		icon = Colors.Yellow("✗")
-		message = fmt.Sprintf("PMG: %d packages analyzed, installation cancelled",
-			data.TotalAnalyzed)
+		message = fmt.Sprintf("PMG: %s analyzed, installation cancelled",
+			pluralizePackages(data.TotalAnalyzed))
 	default:
 		// Success case
 		if data.HasIssues() {
 			icon = Colors.Yellow("!")
-			message = fmt.Sprintf("PMG: %d packages analyzed (%d confirmed)",
-				data.TotalAnalyzed, data.ConfirmedCount)
+			message = fmt.Sprintf("PMG: %s analyzed (%d confirmed)",
+				pluralizePackages(data.TotalAnalyzed), data.ConfirmedCount)
 		} else {
 			icon = Colors.Green("✓")
-			message = fmt.Sprintf("PMG: %d packages analyzed", data.TotalAnalyzed)
+			message = fmt.Sprintf("PMG: %s analyzed", pluralizePackages(data.TotalAnalyzed))
 		}
 	}
 
 	fmt.Printf("%s %s\n", icon, Colors.Dim(message))
+}
+
+const insecureModeMessage = "INSECURE MODE - Malware protection bypassed"
+
+func printInsecureWarning(installed int) {
+	icon := Colors.Red("⚠")
+	message := insecureModeMessage
+
+	if installed > 0 {
+		fmt.Printf("%s %s (%d packages installed without analysis)\n",
+			icon, Colors.Red(message), installed)
+	} else {
+		fmt.Printf("%s %s\n", icon, Colors.Red(message))
+	}
 }
 
 // reportVerbose shows detailed debugging information
@@ -281,6 +319,9 @@ func reportVerbose(data *ReportData) {
 
 	// Outcome summary line
 	printOutcomeLine(data)
+	if data.InsecureMode && data.Outcome != OutcomeInsecureBypass {
+		fmt.Printf("  %s %s\n", Colors.Red("⚠"), Colors.Red(insecureModeMessage))
+	}
 
 	// Statistics section
 	fmt.Println()
@@ -321,6 +362,14 @@ func reportVerbose(data *ReportData) {
 	}
 
 	// Show blocked/confirmed package details in verbose mode
+	if len(data.RuleBlockedPackages) > 0 {
+		fmt.Println()
+		fmt.Println(Colors.Red("  " + PolicyRuleBlockedHeadline + ":"))
+		for _, block := range data.RuleBlockedPackages {
+			fmt.Println(PolicyRuleBlockMessage(block))
+		}
+	}
+
 	if len(data.BlockedPackages) > 0 {
 		fmt.Println()
 		fmt.Println(Colors.Red("  Blocked packages:"))
@@ -350,6 +399,9 @@ func reportVerbose(data *ReportData) {
 				"Published %s ago%s — cooldown: %d days, available in %s",
 				pluralizeDays(pkg.DaysAgo), dateStr, pkg.CooldownDays, pluralizeDays(pkg.DaysLeft),
 			)))
+			if line := CooldownPolicyLine(pkg.CooldownDays, pkg.PolicyRevision); line != "" {
+				fmt.Printf("      %s\n", Colors.Dim(line))
+			}
 			fmt.Printf("      %s\n", Colors.Dim(fmt.Sprintf(
 				"Tip: wait %s for cooldown to expire",
 				pluralizeDays(pkg.DaysLeft),
@@ -556,9 +608,12 @@ func printOutcomeLine(data *ReportData) {
 	case OutcomeBlocked:
 		hasMalware := len(data.BlockedPackages) > 0
 		hasCooldown := len(data.CooldownBlockedPackages) > 0
+		hasRule := len(data.RuleBlockedPackages) > 0
 		switch {
 		case hasMalware && hasCooldown:
 			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — malicious package detected + cooldown policy"))
+		case hasRule && !hasMalware:
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — policy"))
 		case hasCooldown:
 			fmt.Printf("  %s %s\n", Colors.Yellow("⊘"), Colors.Yellow("Installation blocked — dependency cooldown policy"))
 		default:

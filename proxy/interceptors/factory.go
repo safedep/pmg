@@ -7,6 +7,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -29,6 +30,21 @@ type InterceptorContext struct {
 	// <origin>/<endpoint host><base path>. Empty means the endpoint itself.
 	// Set by the hermetic proxy E2E tests.
 	CargoUpstreamOrigin string
+
+	// Policy gives the package rule index and the cooldown that apply to a
+	// request. The interceptors read it for each request, so the proxy daemon
+	// can swap in a new policy with no restart. nil means the policy of the
+	// process, cloudpolicy.Global.
+	Policy cloudpolicy.Source
+}
+
+// currentPolicy returns the policy of src, or the policy of the process when
+// src is nil.
+func currentPolicy(src cloudpolicy.Source) *cloudpolicy.Policy {
+	if src == nil {
+		return cloudpolicy.Global().Current()
+	}
+	return src.Current()
 }
 
 // InterceptorFactory creates ecosystem-specific interceptors for the proxy

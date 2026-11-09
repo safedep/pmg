@@ -212,10 +212,17 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 		wantMessage string
 	}{
 		{
-			name:        "load error fails",
-			loadErr:     assert.AnError,
+			name:        "registries load error fails",
+			loadErr:     config.NewInvalidProxyRegistriesError(&config.ProxyRegistriesError{}),
 			wantStatus:  doctor.StatusFail,
 			wantMessage: "fail closed",
+		},
+		{
+			name:        "blocked_packages load error does not blame the registries",
+			loadErr:     config.NewInvalidBlockedPackagesError(&config.BlockedPackagesError{}),
+			registries:  []config.ProxyRegistryConfig{httpRegistry},
+			wantStatus:  doctor.StatusWarn,
+			wantMessage: "Not checked",
 		},
 		{
 			name:        "no registries passes",
@@ -288,6 +295,57 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 	}
 }
 
+func TestCheckConfigFileResult(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("blocked_packages: []\n"), 0o600))
+
+	tests := []struct {
+		name        string
+		path        string
+		loadErr     error
+		wantStatus  doctor.CheckStatus
+		wantMessage string
+		wantFix     string
+	}{
+		{
+			name:        "a missing file fails",
+			path:        filepath.Join(t.TempDir(), "missing.yml"),
+			wantStatus:  doctor.StatusFail,
+			wantMessage: "Config file not found",
+		},
+		{
+			name:        "a file that loads passes",
+			path:        path,
+			wantStatus:  doctor.StatusPass,
+			wantMessage: "Config file found",
+		},
+		{
+			name:        "a blocked_packages error fails with its text and help",
+			path:        path,
+			loadErr:     config.NewInvalidBlockedPackagesError(&config.BlockedPackagesError{}),
+			wantStatus:  doctor.StatusFail,
+			wantMessage: "invalid blocked_packages configuration",
+			wantFix:     "Fix the blocked_packages entries",
+		},
+		{
+			name:        "a registries error belongs to the registries check",
+			path:        path,
+			loadErr:     config.NewInvalidProxyRegistriesError(&config.ProxyRegistriesError{}),
+			wantStatus:  doctor.StatusPass,
+			wantMessage: "Config file found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := checkConfigFileResult(tt.path, tt.loadErr)
+			assert.Equal(t, tt.wantStatus, result.Status)
+			assert.Contains(t, result.Message, tt.wantMessage)
+			assert.Contains(t, result.Fix, tt.wantFix)
+		})
+	}
+}
+
 // The Windows branches of the sandbox check. The OS has no sandbox, so a
 // disabled sandbox passes with nothing to fix, and only a config that asks
 // for one fails. The supported-OS branches are the ones the live check
@@ -300,4 +358,33 @@ func TestEvaluateSandboxCheckWithoutASandbox(t *testing.T) {
 	got = evaluateSandboxCheck(nil, false, true)
 	assert.Equal(t, doctor.StatusFail, got.Status)
 	assert.Equal(t, "Set sandbox.enabled: false in config", got.Fix)
+}
+
+func TestCutSummaryDetails(t *testing.T) {
+	long := "invalid blocked_packages configuration: entry 1 (not-a-purl): invalid purl: purl scheme is not \"pkg\""
+
+	tests := []struct {
+		name    string
+		results []doctor.CheckResult
+		want    []string
+	}{
+		{
+			name:    "a failed check with a cut summary shows the full message",
+			results: []doctor.CheckResult{{Name: checkConfigFile, Status: doctor.StatusFail, Message: long}},
+			want:    []string{"Config file: " + long},
+		},
+		{
+			name:    "a passed check with a long summary shows nothing",
+			results: []doctor.CheckResult{{Name: checkConfigFile, Status: doctor.StatusPass, Message: long}},
+		},
+		{
+			name:    "a failed check with a short summary shows nothing",
+			results: []doctor.CheckResult{{Name: checkConfigFile, Status: doctor.StatusFail, Message: "Config file not found"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, cutSummaryDetails(tt.results))
+		})
+	}
 }

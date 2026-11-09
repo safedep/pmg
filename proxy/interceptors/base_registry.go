@@ -8,9 +8,11 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/policy/match"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/proxy"
 	gobreaker "github.com/sony/gobreaker/v2"
 	"golang.org/x/sync/singleflight"
@@ -54,8 +56,98 @@ func newAnalyzerCircuitBreakerWithTimeout(name string, cooldown time.Duration) *
 	})
 }
 
+func (b *baseRegistryInterceptor) policy() *cloudpolicy.Policy {
+	return currentPolicy(b.execContext.Policy)
+}
+
+// policyBlock runs before every other step, because a block entry needs no
+// verdict and wins over every trust entry, trusted_packages and
+// PMG_INSECURE_INSTALLATION. Its result is never cached, so a block that
+// arrives later applies to a package that pmg screened before.
+func (b *baseRegistryInterceptor) policyBlock(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	name, version string,
+) (*proxy.InterceptorResponse, bool) {
+	m, ok := b.policy().Block(ecosystem, name, version)
+	if !ok {
+		return nil, false
+	}
+
+	log.Warnf("[%s] Blocking %s/%s@%s by package rule %s", ctx.RequestID, ecosystem.String(), name, version, m.Rule.ID)
+
+	rule := &proxy.PolicyRuleBlock{
+		RuleID: m.Rule.ID,
+		Reason: m.Rule.Reason,
+		Cloud:  m.Cloud(),
+		File:   m.Rule.Origin.Path,
+	}
+	if m.Applied != nil {
+		rule.Revision = m.Applied.Revision
+		rule.DefaultPolicyRevision = m.Applied.DefaultPolicyRevision
+	}
+	blockCtx := &proxy.BlockContext{
+		Ecosystem:      ecosystem,
+		PackageName:    name,
+		PackageVersion: version,
+		PolicyRule:     rule,
+	}
+
+	audit.LogRuleBlocked(&packagev1.PackageVersion{
+		Package: &packagev1.Package{Ecosystem: ecosystem, Name: name},
+		Version: version,
+	}, m.Rule.ID, m.Rule.Reason, m.Citation)
+
+	if b.statsCollector != nil {
+		b.statsCollector.RecordRuleBlocked(blockCtx)
+	}
+
+	return &proxy.InterceptorResponse{
+		Action:       proxy.ActionBlock,
+		BlockCode:    http.StatusForbidden,
+		BlockReason:  proxy.BlockReasonPolicyRule,
+		BlockContext: blockCtx,
+	}, true
+}
+
+// trustedByPolicy runs only after the malware query, so a trust entry never
+// skips the query. It also waives a verdict that paranoid turned into a
+// block.
+func (b *baseRegistryInterceptor) trustedByPolicy(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	name, version string,
+	result *analyzer.PackageVersionAnalysisResult,
+) (*proxy.InterceptorResponse, bool) {
+	if !result.IsMalware {
+		return nil, false
+	}
+	if result.Action != analyzer.ActionConfirm && result.Action != analyzer.ActionBlock {
+		return nil, false
+	}
+
+	// match refuses every trust entry for verified malware. pmg checks the
+	// verdict again, so a bug in one place cannot allow verified malware.
+	m, ok := b.policy().TrustMalware(ecosystem, name, version, result.IsVerified)
+	if !ok || result.IsVerified {
+		return nil, false
+	}
+
+	log.Warnf("[%s] Allowing flagged package %s/%s@%s by trust entry %s of the cloud policy",
+		ctx.RequestID, ecosystem.String(), name, version, m.Rule.ID)
+
+	audit.LogRuleTrusted(result.PackageVersion, m.Rule.ID, match.ScopeMalware.String(), m.Citation)
+	audit.LogInstallAllowed(result.PackageVersion, 1)
+
+	if b.statsCollector != nil {
+		b.statsCollector.RecordAllowed(result)
+	}
+
+	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, true
+}
+
 // fastAllow short-circuits the request when no security control should run for
-// this concrete version: insecure-installation mode (analysis globally off) or a
+// this concrete version: insecure mode (PMG_INSECURE_INSTALLATION, analysis globally off) or a
 // trusted package (waives every control). It returns (response, true) when it
 // handled the request; (nil, false) otherwise. Insecure is checked first to
 // preserve the previous ordering inside analyzePackage.
@@ -161,6 +253,34 @@ func (b *baseRegistryInterceptor) analyzePackage(
 // handleAnalysisResult processes the analysis result and returns appropriate response action
 // This method is ecosystem agnostic and handles the analysis result uniformly
 func (b *baseRegistryInterceptor) handleAnalysisResult(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	packageName string,
+	packageVersion string,
+	result *analyzer.PackageVersionAnalysisResult,
+) (*proxy.InterceptorResponse, error) {
+	resp, _, err := b.handleVerdict(ctx, ecosystem, packageName, packageVersion, result)
+	return resp, err
+}
+
+// handleVerdict is handleAnalysisResult that also reports whether a package
+// rule decided the outcome. A caller that reuses an outcome must not reuse
+// one that a rule decided, because the policy can change at any time.
+func (b *baseRegistryInterceptor) handleVerdict(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	packageName string,
+	packageVersion string,
+	result *analyzer.PackageVersionAnalysisResult,
+) (*proxy.InterceptorResponse, bool, error) {
+	if resp, ok := b.trustedByPolicy(ctx, ecosystem, packageName, packageVersion, result); ok {
+		return resp, true, nil
+	}
+	resp, err := b.verdictResponse(ctx, ecosystem, packageName, packageVersion, result)
+	return resp, false, err
+}
+
+func (b *baseRegistryInterceptor) verdictResponse(
 	ctx *proxy.RequestContext,
 	ecosystem packagev1.Ecosystem,
 	packageName string,

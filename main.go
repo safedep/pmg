@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -26,6 +27,7 @@ import (
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	appVersion "github.com/safedep/pmg/internal/version"
@@ -136,7 +138,19 @@ func main() {
 				audit.SuppressBackgroundSync()
 			}
 
+			// The cloud layer applies after the config loads and before the
+			// flags are final, so a flag on a key that the cloud policy sets
+			// fails. An internal command loads no policy: it does not touch
+			// the keychain for each run of a sandbox helper.
+			if !isInternalCommand(cmd) {
+				cloudpolicy.Global().LoadAtStart(config.Get())
+			}
+			if err := config.RejectCloudPolicyFlagOverrides(cmd); err != nil {
+				ui.ErrorExit(err)
+			}
+
 			config.FinalizeDependencyCooldownOverride()
+			cloudpolicy.Global().Publish(config.Get())
 
 			// Parse and validate --sandbox-allow flags after all flags are resolved
 			if err := config.FinalizeSandboxAllowOverrides(); err != nil {
@@ -206,22 +220,23 @@ func main() {
 		fmt.Println(command.UsageString())
 	})
 
-	defer func() {
-		if err := eventlog.Close(); err != nil {
-			log.Warnf("failed to close eventlog: %v", err)
-		}
-	}()
-	// Defers run LIFO. The spawn must observe the parent's released SQLite
-	// handle, so we declare it BEFORE audit.Close's defer (it then runs AFTER
-	// audit.Close at exit time).
-	defer func() {
-		audit.MaybeSpawnBackgroundSync(config.Get())
-	}()
-	defer func() {
+	// The exit path of a blocked install goes through ui, which calls
+	// os.Exit and skips the defers. The exit hook runs the same cleanup, so
+	// the background sync child starts on every exit path. The next policy
+	// fetch matters most after a block.
+	cleanup := sync.OnceFunc(func() {
 		if err := audit.Close(); err != nil {
 			log.Warnf("failed to close audit system: %v", err)
 		}
-	}()
+		// The spawn must observe the released SQLite handle of the parent,
+		// so it runs after audit.Close.
+		audit.MaybeSpawnBackgroundSync(config.Get())
+		if err := eventlog.Close(); err != nil {
+			log.Warnf("failed to close eventlog: %v", err)
+		}
+	})
+	ui.SetExitHook(cleanup)
+	defer cleanup()
 
 	// Analytics are best-effort. Do not flush on exit because the PostHog
 	// client can block the CLI while draining its queue.
@@ -229,6 +244,7 @@ func main() {
 	analytics.TrackCI()
 
 	if err := cmd.Execute(); err != nil {
+		cleanup()
 		type exitCoder interface{ ExitCode() int }
 		if ec, ok := err.(exitCoder); ok {
 			os.Exit(ec.ExitCode())
@@ -271,6 +287,17 @@ func logDebugContext() {
 	log.Debugf("Cloud sync enabled: %t, telemetry disabled: %t", cfg.Config.Cloud.Enabled, cfg.Config.DisableTelemetry)
 	log.Debugf("Dry run: %t, insecure installation: %t, trusted packages: %d",
 		cfg.DryRun, cfg.InsecureInstallation, len(cfg.Config.TrustedPackages))
+}
+
+// isInternalCommand reports whether cmd or a parent is a hidden command, such
+// as a sandbox helper or the background sync child.
+func isInternalCommand(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Hidden {
+			return true
+		}
+	}
+	return false
 }
 
 // isProxyCommand reports whether cmd is `pmg proxy` or one of its subcommands.

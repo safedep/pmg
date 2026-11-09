@@ -99,6 +99,20 @@ func TestProxyPresenterBlockMessage(t *testing.T) {
 			expected: "Package blocked by dependency cooldown: go/example.com/fresh@v1.1.0\n\nPublished 2 day(s) ago; cooldown window is 7 day(s) (5 remaining).\n\nRequest an exemption at go/pmg-exceptions",
 		},
 		{
+			name:   "dependency cooldown of the tenant policy",
+			reason: proxy.BlockReasonDependencyCooldown,
+			blockCtx: &proxy.BlockContext{
+				Ecosystem:              packagev1.Ecosystem_ECOSYSTEM_GO,
+				PackageName:            "example.com/fresh",
+				PackageVersion:         "v1.1.0",
+				CooldownDays:           7,
+				CooldownDaysAgo:        2,
+				CooldownDaysLeft:       5,
+				CooldownPolicyRevision: 48,
+			},
+			expected: "Package blocked by dependency cooldown: go/example.com/fresh@v1.1.0\n\nPublished 2 day(s) ago; cooldown window is 7 day(s) (5 remaining).\n\nThe policy of your tenant (revision 48) sets a cooldown of 7 days",
+		},
+		{
 			name:     "nil context",
 			reason:   proxy.BlockReasonMalware,
 			blockCtx: nil,
@@ -128,4 +142,78 @@ func TestProxyPresenterNilAdvisory(t *testing.T) {
 		MalwareSummary: "verified malware",
 	})
 	assert.Equal(t, "Malicious package blocked: npm/evil@1.0.0\n\nReason: verified malware", message)
+}
+
+func TestPolicyRuleBlockMessage(t *testing.T) {
+	blocked := func(rule *proxy.PolicyRuleBlock) *proxy.BlockContext {
+		return &proxy.BlockContext{
+			Ecosystem:      packagev1.Ecosystem_ECOSYSTEM_NPM,
+			PackageName:    "evil",
+			PackageVersion: "1.2.4",
+			PolicyRule:     rule,
+		}
+	}
+
+	tests := []struct {
+		name     string
+		blockCtx *proxy.BlockContext
+		advisory string
+		expected string
+	}{
+		{
+			name: "a cloud rule",
+			blockCtx: blocked(&proxy.PolicyRuleBlock{
+				RuleID: "r_9c1", Reason: "IR-2291 credential stealer", Cloud: true, Revision: 48, DefaultPolicyRevision: 12,
+			}),
+			expected: "pmg: blocked pkg:npm/evil@1.2.4 by the policy of your tenant\n" +
+				"     rule r_9c1 · policy revision 48 · default policy revision 12 · IR-2291 credential stealer\n" +
+				"     To ask for an exception, send the rule id and the reason to your security admin.\n" +
+				"     They can run: safedep policy rule show r_9c1",
+		},
+		{
+			name: "a local rule with the advisory message",
+			blockCtx: blocked(&proxy.PolicyRuleBlock{
+				RuleID: "local:3f9a1c0b2e7d", Reason: "IR-2291 credential stealer", File: "/etc/safedep/pmg/config.yml",
+			}),
+			advisory: "Contact #security-help",
+			expected: "pmg: blocked pkg:npm/evil@1.2.4 by blocked_packages in /etc/safedep/pmg/config.yml\n" +
+				"     rule local:3f9a1c0b2e7d · IR-2291 credential stealer\n" +
+				"     The owner of that file can change the list\n\nContact #security-help",
+		},
+		{
+			name: "control characters of a reason are removed",
+			blockCtx: blocked(&proxy.PolicyRuleBlock{
+				RuleID: "r_\x1b[2J9c1", Reason: "evil\x1b[31m\r\nreason\a", Cloud: true, Revision: 48, DefaultPolicyRevision: 12,
+			}),
+			expected: "pmg: blocked pkg:npm/evil@1.2.4 by the policy of your tenant\n" +
+				"     rule r_[2J9c1 · policy revision 48 · default policy revision 12 · evil[31mreason\n" +
+				"     To ask for an exception, send the rule id and the reason to your security admin.\n" +
+				"     They can run: safedep policy rule show r_[2J9c1",
+		},
+		{
+			name: "a scoped npm package shows the decoded PURL",
+			blockCtx: &proxy.BlockContext{
+				Ecosystem:      packagev1.Ecosystem_ECOSYSTEM_NPM,
+				PackageName:    "@types/ms",
+				PackageVersion: "2.1.0",
+				PolicyRule:     &proxy.PolicyRuleBlock{RuleID: "r_9c1", Cloud: true, Revision: 48, DefaultPolicyRevision: 12},
+			},
+			expected: "pmg: blocked pkg:npm/@types/ms@2.1.0 by the policy of your tenant\n" +
+				"     rule r_9c1 · policy revision 48 · default policy revision 12\n" +
+				"     To ask for an exception, send the rule id and the reason to your security admin.\n" +
+				"     They can run: safedep policy rule show r_9c1",
+		},
+		{
+			name:     "no rule renders nothing",
+			blockCtx: blocked(nil),
+			advisory: "Contact #security-help",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			presenter := ProxyPresenter{Advisory: func() string { return tt.advisory }}
+			assert.Equal(t, tt.expected, presenter.BlockMessage(proxy.BlockReasonPolicyRule, tt.blockCtx))
+		})
+	}
 }

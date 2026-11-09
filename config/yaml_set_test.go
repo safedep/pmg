@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	goyaml "github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
@@ -104,6 +105,20 @@ func Test_setValueInYAML(t *testing.T) {
 			key:     "cloud.nonexistent",
 			value:   "true",
 			wantErr: "key not found",
+		},
+		{
+			name:     "add a template key that an older file does not hold",
+			input:    "cloud:\n  enabled: true\n  auto_sync:\n    enabled: true\nparanoid: false\n",
+			key:      "cloud.policy",
+			value:    "true",
+			expected: "cloud:\n  enabled: true\n  auto_sync:\n    enabled: true\n  policy: true\nparanoid: false\n",
+		},
+		{
+			name:    "an added template key keeps its type",
+			input:   "cloud:\n  enabled: true\n",
+			key:     "cloud.policy",
+			value:   "yes",
+			wantErr: "expected true or false",
 		},
 		{
 			name:    "error when setting non-leaf node",
@@ -215,6 +230,127 @@ func TestSetConfigValue(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(data), "transitive: true")
 		assert.Contains(t, string(data), "paranoid: true")
+	})
+
+	t.Run("adds a section that the file does not have from the template", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("# my settings\nparanoid: true\nverbosity: verbose\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("cloud.policy", "false")
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "# my settings")
+		assert.Contains(t, string(data), "paranoid: true")
+		assert.Contains(t, string(data), "verbosity: verbose")
+
+		initConfig()
+		val, err := GetConfigValue("cloud.policy")
+		require.NoError(t, err)
+		assert.Equal(t, false, val)
+		val, err = GetConfigValue("paranoid")
+		require.NoError(t, err)
+		assert.Equal(t, true, val)
+	})
+
+	t.Run("fills a section that the file leaves empty from the template", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("# my settings\nparanoid: true\ncloud:\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("cloud.policy", "false")
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "# my settings")
+		assert.Contains(t, string(data), "paranoid: true")
+
+		initConfig()
+		val, err := GetConfigValue("cloud.policy")
+		require.NoError(t, err)
+		assert.Equal(t, false, val)
+	})
+
+	t.Run("keeps the legacy proxy_install_only key in effect when it adds a section", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("cloud.policy", "false")
+		require.NoError(t, err)
+
+		initConfig()
+		assert.True(t, Get().Config.Proxy.InstallOnly)
+		val, err := GetConfigValue("cloud.policy")
+		require.NoError(t, err)
+		assert.Equal(t, false, val)
+	})
+
+	t.Run("carries the legacy proxy_install_only key into an added proxy section", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("proxy.server.listen_port", "8080")
+		require.NoError(t, err)
+
+		initConfig()
+		assert.True(t, Get().Config.Proxy.InstallOnly)
+		assert.Equal(t, 8080, Get().Config.Proxy.Server.ListenPort)
+	})
+
+	t.Run("keeps an explicit proxy.install_only when it adds a nested proxy key", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy:\n  install_only: false\nproxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+
+		err = SetConfigValue("proxy.server.listen_port", "8080")
+		require.NoError(t, err)
+
+		initConfig()
+		assert.False(t, Get().Config.Proxy.InstallOnly)
+		assert.Equal(t, 8080, Get().Config.Proxy.Server.ListenPort)
+	})
+
+	t.Run("keeps an unrelated empty section when it adds a section", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		initConfig()
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy:\nproxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+		initConfig()
+		require.False(t, Get().Config.Proxy.InstallOnly)
+
+		err = SetConfigValue("cloud.policy", "false")
+		require.NoError(t, err)
+
+		initConfig()
+		assert.False(t, Get().Config.Proxy.InstallOnly)
 	})
 
 	t.Run("returns error for nonexistent key", func(t *testing.T) {
@@ -431,4 +567,39 @@ func TestSetThenGetRoundTrip(t *testing.T) {
 	val, err = GetConfigValue("verbosity")
 	require.NoError(t, err)
 	assert.Equal(t, "silent", val)
+}
+
+func TestSetValueInYAMLAddsATemplateKeyToAFlowMapping(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  map[string]any
+	}{
+		{
+			name:  "a flow mapping",
+			input: "cloud: {enabled: true}\nparanoid: true\n",
+			want: map[string]any{
+				"cloud":    map[string]any{"enabled": true, "policy": true},
+				"paranoid": true,
+			},
+		},
+		{
+			name:  "a flow mapping with more keys",
+			input: "cloud: {enabled: true, endpoint_id: ep-1}\n",
+			want: map[string]any{
+				"cloud": map[string]any{"enabled": true, "endpoint_id": "ep-1", "policy": true},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := setValueInYAML([]byte(tt.input), "cloud.policy", "true")
+			require.NoError(t, err)
+
+			var got map[string]any
+			require.NoError(t, goyaml.Unmarshal(out, &got), "the result is valid YAML: %s", out)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

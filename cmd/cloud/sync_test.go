@@ -3,6 +3,7 @@ package cloud
 import (
 	"errors"
 	"fmt"
+	"net"
 	"testing"
 
 	"github.com/safedep/dry/cloud"
@@ -115,6 +116,85 @@ func TestSyncFailureError(t *testing.T) {
 			require.Error(t, err)
 
 			usefulErr, ok := usefulerror.AsUsefulError(err)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.expectedCode, usefulErr.Code())
+			assert.Equal(t, tt.expectedHuman, usefulErr.HumanError())
+			if tt.expectedHelp != "" {
+				assert.Equal(t, tt.expectedHelp, usefulErr.Help())
+			}
+		})
+	}
+}
+
+func TestPolicyFetchFailureError(t *testing.T) {
+	offline := fmt.Errorf("fetch policy: %w", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
+
+	tests := []struct {
+		name          string
+		err           error
+		applied       uint64
+		expectedCode  string
+		expectedHuman string
+		expectedHelp  string
+	}{
+		{
+			name:          "offline with an applied policy names its revision",
+			err:           offline,
+			applied:       52,
+			expectedCode:  errcodes.Network,
+			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. The last policy still applies (revision 52)",
+			expectedHelp:  "Check your network connectivity and ensure SafeDep Cloud is reachable",
+		},
+		{
+			name:          "offline with no applied policy says so",
+			err:           offline,
+			expectedCode:  errcodes.Network,
+			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. No cloud policy applies yet",
+		},
+		{
+			name:          "a timeout keeps its code",
+			err:           status.Error(codes.DeadlineExceeded, "deadline exceeded"),
+			applied:       52,
+			expectedCode:  usefulerror.ErrGatewayTimeout,
+			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. The last policy still applies (revision 52)",
+		},
+		{
+			name:          "a server error says which policy applies and keeps its help",
+			err:           status.Error(codes.Internal, "server closed the stream without sending trailers"),
+			applied:       52,
+			expectedCode:  usefulerror.ErrInternalServerError,
+			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. The last policy still applies (revision 52)",
+			expectedHelp:  "Retry the operation. If the error continues, contact SafeDep support.",
+		},
+		{
+			name:          "a server outage keeps its help",
+			err:           status.Error(codes.Unavailable, "service unavailable"),
+			applied:       52,
+			expectedCode:  usefulerror.ErrServiceUnavailable,
+			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. The last policy still applies (revision 52)",
+			expectedHelp:  "The service is temporarily unavailable. Retry after a short delay.",
+		},
+		{
+			name:          "a missing entitlement keeps its own text",
+			err:           entitlementStatusErr(t, 0),
+			applied:       52,
+			expectedCode:  usefulerror.ErrMissingEntitlements,
+			expectedHuman: "Permission denied",
+		},
+		{
+			name:          "an authentication failure gets credential guidance",
+			err:           status.Error(codes.Unauthenticated, "invalid API key"),
+			applied:       52,
+			expectedCode:  usefulerror.ErrAuthenticationFailed,
+			expectedHuman: "SafeDep Cloud rejected your credentials",
+			expectedHelp:  "Run 'pmg cloud login' to update credentials, or check the SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usefulErr, ok := usefulerror.AsUsefulError(policyFetchFailureError(tt.err, tt.applied))
 			require.True(t, ok)
 
 			assert.Equal(t, tt.expectedCode, usefulErr.Code())

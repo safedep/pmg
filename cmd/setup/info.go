@@ -204,6 +204,8 @@ func executeSetupInfo() error {
 		cloudEntries["Auto Sync"] = describeAutoSync(cfg.Config.Cloud.AutoSync)
 		cloudEntries["Last Sync"] = describeLastSync(cfg.CloudSyncLastRunPath())
 		ui.PrintInfoSection("Cloud Sync", cloudEntries)
+
+		ui.PrintInfoSection("Cloud Policy", describeCloudPolicy(cloudPolicyStatus(cfg), time.Now()))
 	}
 
 	return nil

@@ -10,6 +10,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,7 @@ func TestReportNormalMalwareAdvisoryMessage(t *testing.T) {
 
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Malicious package blocked")
+	assert.Contains(t, out, "PMG: 1 package analyzed, 1 blocked")
 	assert.Contains(t, out, "ℹ Contact #security-help")
 	assert.NotContains(t, out, "\n\n\n", "no double blank lines in block output")
 }
@@ -337,4 +339,89 @@ func TestReportNormalNetworkPolicyQuietWithoutDenials(t *testing.T) {
 
 	out := captureStdout(t, func() { reportNormal(data) })
 	assert.NotContains(t, out, "Network policy")
+}
+
+func ruleBlockedData() *ReportData {
+	data := NewReportData()
+	data.BlockedCount = 1
+	data.Outcome = OutcomeBlocked
+	data.RuleBlockedPackages = []*proxy.BlockContext{{
+		Ecosystem:      packagev1.Ecosystem_ECOSYSTEM_NPM,
+		PackageName:    "evil",
+		PackageVersion: "1.2.4",
+		PolicyRule: &proxy.PolicyRuleBlock{
+			RuleID: "r_9c1", Reason: "IR-2291 credential stealer", Cloud: true, Revision: 48, DefaultPolicyRevision: 12,
+		},
+	}}
+	return data
+}
+
+func TestReportRendersRuleBlocks(t *testing.T) {
+	for _, level := range []VerbosityLevel{VerbosityLevelSilent, VerbosityLevelNormal, VerbosityLevelVerbose} {
+		t.Run(fmt.Sprint(level), func(t *testing.T) {
+			withVerbosity(t, level)
+
+			out := captureStdout(t, func() { Report(ruleBlockedData()) })
+
+			assert.Contains(t, out, "Blocked by policy")
+			assert.Contains(t, out, "pmg: blocked pkg:npm/evil@1.2.4 by the policy of your tenant")
+			assert.Contains(t, out, "rule r_9c1 · policy revision 48 · default policy revision 12 · IR-2291 credential stealer")
+			assert.NotContains(t, out, "malicious package detected")
+		})
+	}
+}
+
+func TestReportInsecureModeShowsRuleAndCooldownBlocks(t *testing.T) {
+	for _, level := range []VerbosityLevel{VerbosityLevelNormal, VerbosityLevelVerbose} {
+		t.Run(fmt.Sprint(level), func(t *testing.T) {
+			withVerbosity(t, level)
+
+			data := ruleBlockedData()
+			data.InsecureMode = true
+			data.BlockedCount = 2
+			data.CooldownBlockedPackages = []models.CooldownBlock{{Name: "fresh", Version: "2.0.0", DaysAgo: 1, DaysLeft: 4, CooldownDays: 5}}
+
+			out := captureStdout(t, func() { Report(data) })
+
+			assert.Contains(t, out, "INSECURE MODE - Malware protection bypassed")
+			assert.Contains(t, out, "pmg: blocked pkg:npm/evil@1.2.4 by the policy of your tenant")
+			assert.Contains(t, out, "fresh@2.0.0")
+		})
+	}
+}
+
+func TestReportCooldownBlockNamesThePolicy(t *testing.T) {
+	tests := []struct {
+		name     string
+		revision uint64
+		expected string
+	}{
+		{name: "the tenant policy", revision: 48, expected: "The policy of your tenant (revision 48) sets a cooldown of 5 days"},
+		{name: "the local config"},
+	}
+
+	for _, tt := range tests {
+		for _, level := range []VerbosityLevel{VerbosityLevelNormal, VerbosityLevelVerbose} {
+			t.Run(fmt.Sprint(tt.name, "/", level), func(t *testing.T) {
+				withVerbosity(t, level)
+
+				data := NewReportData()
+				data.TotalAnalyzed = 1
+				data.BlockedCount = 1
+				data.Outcome = OutcomeBlocked
+				data.CooldownBlockedPackages = []models.CooldownBlock{{
+					Name: "fresh", Version: "2.0.0", DaysAgo: 1, DaysLeft: 4, CooldownDays: 5, PolicyRevision: tt.revision,
+				}}
+
+				out := captureStdout(t, func() { Report(data) })
+
+				assert.Contains(t, out, "fresh@2.0.0")
+				if tt.expected == "" {
+					assert.NotContains(t, out, "The policy of your tenant")
+				} else {
+					assert.Contains(t, out, tt.expected)
+				}
+			})
+		}
+	}
 }

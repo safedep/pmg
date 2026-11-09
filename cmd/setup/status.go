@@ -114,6 +114,10 @@ type cloudInfo struct {
 	Credentials string `json:"credentials,omitempty"`
 	AutoSync    string `json:"auto_sync,omitempty"`
 	LastSync    string `json:"last_sync,omitempty"`
+
+	// Policy is the cloud policy that pmg applies. The object is optional, so
+	// the schema version stays.
+	Policy *cloudPolicyInfo `json:"policy,omitempty"`
 }
 
 type statusReport struct {
@@ -318,6 +322,7 @@ func collectCloudInfo(cfg *config.RuntimeConfig) *cloudInfo {
 		Credentials: describeCloudCredentials(),
 		AutoSync:    describeAutoSync(cfg.Config.Cloud.AutoSync),
 		LastSync:    describeLastSync(cfg.CloudSyncLastRunPath()),
+		Policy:      collectCloudPolicyInfo(cloudPolicyStatus(cfg)),
 	}
 }
 

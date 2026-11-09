@@ -7,6 +7,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -102,16 +104,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkConfigFile,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				if _, err := os.Stat(cfg.ConfigFilePath()); err != nil {
-					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Config file not found",
-					}
-				}
-				return doctor.CheckResult{
-					Status:  doctor.StatusPass,
-					Message: "Config file found",
-				}
+				return checkConfigFileResult(cfg.ConfigFilePath(), config.LoadError())
 			},
 		},
 		{
@@ -280,7 +273,13 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 		})
 	}
 
-	return doctor.RunChecks(checks)
+	results := doctor.RunChecks(checks)
+	for _, r := range cloudPolicyResults(cloudPolicyStatus(cfg), time.Now()) {
+		r.Name = checkCloudPolicy
+		r.Category = categoryCloud
+		results = append(results, r)
+	}
+	return results
 }
 
 func checkSystemBinaryResult() doctor.CheckResult {
@@ -578,6 +577,7 @@ var checkDisplayNames = map[string]string{
 	checkSystemBinary:       "System binary",
 	checkManagedConfig:      "Managed config",
 	checkProxyEnforce:       "Proxy enforcement",
+	checkCloudPolicy:        "Cloud policy",
 }
 
 var checkFixes = map[string]string{
@@ -594,6 +594,7 @@ var checkFixes = map[string]string{
 	checkProtectionPip:      "pmg setup install",
 	checkCA:                 "pmg setup cert install",
 	checkProxyEnforce:       "Run as root on Linux 5.15+ with kernel BTF and cgroup v2",
+	checkCloudPolicy:        "pmg cloud sync",
 }
 
 // evaluateSandboxCheck is the testable core of the sandbox doctor check. An
@@ -727,7 +728,7 @@ func printResults(results []doctor.CheckResult) {
 		rows = append(rows, []string{
 			statusBadge(r.Status),
 			displayName(r.Name),
-			ui.Truncate(r.Message, 60),
+			ui.Truncate(r.Message, doctorSummaryWidth),
 			fix,
 		})
 	}
@@ -736,8 +737,32 @@ func printResults(results []doctor.CheckResult) {
 		fmt.Fprintf(os.Stderr, "render error: %v\n", err)
 	}
 
+	if details := cutSummaryDetails(results); len(details) > 0 {
+		fmt.Println()
+		fmt.Println(ui.Colors.Bold("Details"))
+		for _, line := range details {
+			fmt.Println(line)
+		}
+	}
+
 	fmt.Println()
 	printSummaryLine(results)
+}
+
+const doctorSummaryWidth = 60
+
+// cutSummaryDetails returns the full message of each check that did not pass
+// and whose summary the table cuts. The fix of such a check often names a
+// field that only the full message shows.
+func cutSummaryDetails(results []doctor.CheckResult) []string {
+	var details []string
+	for _, r := range results {
+		if r.Status == doctor.StatusPass || utf8.RuneCountInString(r.Message) <= doctorSummaryWidth {
+			continue
+		}
+		details = append(details, fmt.Sprintf("%s: %s", displayName(r.Name), r.Message))
+	}
+	return details
 }
 
 func statusBadge(s doctor.CheckStatus) string {
@@ -760,15 +785,58 @@ func displayName(name string) string {
 	return name
 }
 
+// checkConfigFileResult reports whether the config file exists and loads.
+// A load error that proxy.registries did not cause fails this check, with
+// the text and the help of that error. The proxy.registries check reports
+// a registries error, so this check does not report it again.
+func checkConfigFileResult(path string, loadErr error) doctor.CheckResult {
+	if _, err := os.Stat(path); err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "Config file not found",
+		}
+	}
+	if loadErr == nil || isProxyRegistriesError(loadErr) {
+		return doctor.CheckResult{
+			Status:  doctor.StatusPass,
+			Message: "Config file found",
+		}
+	}
+
+	result := doctor.CheckResult{
+		Status:  doctor.StatusFail,
+		Message: loadErr.Error(),
+	}
+	if usefulErr, ok := usefulerror.AsUsefulError(loadErr); ok {
+		result.Message = usefulErr.HumanError()
+		result.Fix = usefulErr.Help()
+	}
+	return result
+}
+
+func isProxyRegistriesError(err error) bool {
+	var registriesErr *config.ProxyRegistriesError
+	return errors.As(err, &registriesErr)
+}
+
 // checkProxyRegistriesResult reports the state of proxy.registries. A load
-// error fails the check. Installs and proxy start fail closed until the
-// user repairs the config file. A plain-HTTP endpoint gets a warning.
+// error of proxy.registries fails the check. Installs and proxy start fail
+// closed until the user repairs the config file. Other load errors belong to
+// the config file check. The loader then stops before it reads the
+// registries, so the check cannot run. A plain-HTTP endpoint gets a warning.
 // Anyone on the network path can read and change that traffic.
 func checkProxyRegistriesResult(loadErr error, registries []config.ProxyRegistryConfig) doctor.CheckResult {
-	if loadErr != nil {
+	if isProxyRegistriesError(loadErr) {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
 			Message: "proxy.registries is invalid. Installs and proxy start fail closed",
+		}
+	}
+	if loadErr != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: "Not checked. The config file did not load",
+			Fix:     "Repair the config file or the PMG_* environment variables. The Config file check shows the error",
 		}
 	}
 	if len(registries) == 0 {

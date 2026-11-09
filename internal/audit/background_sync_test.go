@@ -65,6 +65,9 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 
 	cfg := config.Get()
 	cfg.Config.Cloud.Enabled = true
+	// The policy fetch spawns the child on a schedule of its own. These tests
+	// cover the event sync alone, so the policy is off.
+	cfg.Config.Cloud.Policy = false
 	cfg.Config.Cloud.AutoSync.Enabled = true
 	cfg.Config.Cloud.AutoSync.MinInterval = 15 * time.Minute
 	cfg.Config.Cloud.AutoSync.Timeout = time.Minute
@@ -171,4 +174,49 @@ func TestMaybeSpawnBackgroundSyncSwallowsSpawnError(t *testing.T) {
 	// neither panics nor blocks when the underlying spawn fails.
 	assert.NotPanics(t, func() { MaybeSpawnBackgroundSync(cfg) })
 	assert.Equal(t, 1, rec.callCount(), "spawner should still be invoked once")
+}
+
+func TestMaybeSpawnBackgroundSyncForThePolicyFetch(t *testing.T) {
+	recent := func(t *testing.T, path string) {
+		require.NoError(t, WriteLastSyncAttempt(path))
+	}
+	old := func(t *testing.T, path string) {
+		at := time.Now().Add(-time.Hour).Unix()
+		require.NoError(t, os.WriteFile(path, []byte(strconv.FormatInt(at, 10)), 0o600))
+	}
+
+	tests := []struct {
+		name      string
+		autoSync  bool
+		policy    bool
+		eventRun  func(*testing.T, string)
+		policyRun func(*testing.T, string)
+		wantSpawn bool
+	}{
+		{name: "the policy fetch is due with auto_sync off", autoSync: false, policy: true, policyRun: old, wantSpawn: true},
+		{name: "the policy fetch is due and never ran", autoSync: false, policy: true, wantSpawn: true},
+		{name: "the policy pacing has not passed", autoSync: false, policy: true, policyRun: recent},
+		{name: "cloud.policy off and auto_sync off", autoSync: false, policy: false},
+		{name: "the event pacing passed and the policy pacing has not", autoSync: true, policy: true, eventRun: old, policyRun: recent, wantSpawn: true},
+		{name: "neither pacing passed", autoSync: true, policy: true, eventRun: recent, policyRun: recent},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := withMockSpawner(t)
+			cfg := newAutoSyncConfig(t)
+			cfg.Config.Cloud.AutoSync.Enabled = tt.autoSync
+			cfg.Config.Cloud.Policy = tt.policy
+			if tt.eventRun != nil {
+				tt.eventRun(t, cfg.CloudSyncLastRunPath())
+			}
+			if tt.policyRun != nil {
+				tt.policyRun(t, cfg.CloudPolicyLastRunPath())
+			}
+
+			MaybeSpawnBackgroundSync(cfg)
+
+			assert.Equal(t, tt.wantSpawn, rec.callCount() == 1)
+		})
+	}
 }

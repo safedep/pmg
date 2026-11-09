@@ -152,6 +152,22 @@ trusted_packages:
   - purl: pkg:npm/@safedep/pmg
     reason: "PMG is a trusted package for PMG"
 
+# Blocked packages are packages that PMG blocks at download, whatever the
+# malware analysis says. A blocked package wins over trusted_packages and over
+# the PMG_INSECURE_INSTALLATION environment variable.
+#
+# The purl selects one package, one version, or every package under a prefix
+# that ends with "/*" or ".*". The optional vers is a version range in the vers
+# form. Do not put a version in the purl together with a vers range. The
+# optional reason shows in the block message.
+#
+# PMG stops when an entry does not parse, because a block that PMG drops does
+# not apply. Example:
+#   - purl: pkg:npm/evil
+#     vers: "vers:npm/>=1.2.0|<2.0.0"
+#     reason: "IR-2291 credential stealer"
+blocked_packages: []
+
 # Sandbox configuration (EXPERIMENTAL)
 # When enabled, package managers run in sandbox environments with restricted
 # filesystem, network, and process execution access. This provides defense-in-depth
@@ -361,3 +377,10 @@ cloud:
 
     # Hard timeout applied to a single background sync attempt.
     timeout: 5m
+
+  # Policy applies the cloud policy of your tenant: package rules and the
+  # dependency cooldown that your security admin sets in SafeDep Cloud. The
+  # policy applies when cloud.enabled is true. Set policy: false to turn it
+  # off. PMG fetches the policy in the background, also when auto_sync is off,
+  # and keeps the last policy when it is offline.
+  policy: true

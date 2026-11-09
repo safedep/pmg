@@ -1,14 +1,17 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
+	goyaml "github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/internal/platform"
 )
 
@@ -28,7 +31,53 @@ func SetConfigValue(key, value string) error {
 	if err := ensureConfigFileExists(configPath); err != nil {
 		return err
 	}
+
+	err = setConfigValueInFile(configPath, key, value)
+	if !errors.Is(err, errKeyNotFound) || !templateHasKey(key) {
+		return err
+	}
+
+	// A config file that an older PMG wrote can miss a whole section of the
+	// template, such as cloud. Add only the section of the key from the
+	// template. A merge of the whole template adds a proxy section to a file
+	// that has the legacy proxy_install_only key, and the legacy key then
+	// stops having an effect.
+	section, _, _ := strings.Cut(key, ".")
+	addsProxySection := section == "proxy" && !hasProxySectionInFile(configPath)
+	if err := mergeTemplateSectionIntoFile(configPath, section); err != nil {
+		return fmt.Errorf("failed to add the missing keys of the template: %w", err)
+	}
+	if addsProxySection {
+		if err := carryLegacyProxyInstallOnly(configPath); err != nil {
+			return err
+		}
+	}
 	return setConfigValueInFile(configPath, key, value)
+}
+
+// carryLegacyProxyInstallOnly copies the legacy proxy_install_only value into
+// the proxy section that the merge added. PMG reads the legacy key only when
+// the file has no proxy section, so the template value of
+// proxy.install_only would otherwise turn install-only mode off. A proxy
+// section that the file had before the merge already overrides the legacy
+// key, so the caller does not call this for it.
+func carryLegacyProxyInstallOnly(configPath string) error {
+	raw, err := readConfigFileKeys(configPath)
+	if err != nil {
+		return err
+	}
+	legacy, ok := raw["proxy_install_only"].(bool)
+	if !ok {
+		return nil
+	}
+	return setConfigValueInFile(configPath, "proxy.install_only", strconv.FormatBool(legacy))
+}
+
+var errKeyNotFound = errors.New("key not found")
+
+func templateHasKey(key string) bool {
+	v, err := newFileViper("")
+	return err == nil && v.IsSet(key)
 }
 
 // SetSystemConfigValue updates a value in the managed config, the file a
@@ -84,6 +133,71 @@ func GetSystemConfigValue(key string) (any, error) {
 		return nil, fmt.Errorf("unknown config key: %s", key)
 	}
 	return v.Get(key), nil
+}
+
+// mergeTemplateSectionIntoFile merges one top-level section of the template
+// into the config file. The merge keeps a key that the file has, also when
+// its value is empty, so a section such as "cloud:" with no keys would stay
+// empty. The merge drops that section first when it is empty, and the section
+// of the template takes its place. Other empty keys stay, because an empty
+// proxy section still turns off the legacy proxy_install_only key.
+func mergeTemplateSectionIntoFile(configPath, section string) error {
+	fi, err := os.Stat(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat config file: %w", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	data, err = filterTopLevelKeys(data, func(mv *ast.MappingValueNode) bool {
+		_, empty := mv.Value.(*ast.NullNode)
+		return !empty || mv.Key.GetToken().Value != section
+	})
+	if err != nil {
+		return err
+	}
+	templateSection, err := filterTopLevelKeys([]byte(templateConfig), func(mv *ast.MappingValueNode) bool {
+		return mv.Key.GetToken().Value == section
+	})
+	if err != nil {
+		return err
+	}
+	merged, err := utils.MergeYAML(data, templateSection)
+	if err != nil {
+		return fmt.Errorf("failed to merge config: %w", err)
+	}
+	if err := os.WriteFile(configPath, merged, fi.Mode()); err != nil {
+		return fmt.Errorf("failed to write merged config: %w", err)
+	}
+	return nil
+}
+
+func filterTopLevelKeys(data []byte, keep func(*ast.MappingValueNode) bool) ([]byte, error) {
+	file, err := parser.ParseBytes(data, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+	if len(file.Docs) == 0 {
+		return data, nil
+	}
+	root, ok := file.Docs[0].Body.(*ast.MappingNode)
+	if !ok {
+		return data, nil
+	}
+
+	kept := make([]*ast.MappingValueNode, 0, len(root.Values))
+	for _, mv := range root.Values {
+		if keep(mv) {
+			kept = append(kept, mv)
+		}
+	}
+	if len(kept) == len(root.Values) {
+		return data, nil
+	}
+	root.Values = kept
+	return []byte(file.String()), nil
 }
 
 func setConfigValueInFile(configPath, key, value string) error {
@@ -146,14 +260,31 @@ func setValueInYAML(data []byte, key, value string) ([]byte, error) {
 	}
 
 	segments := strings.Split(key, ".")
-	if err := setValueAtPath(root, segments, value); err != nil {
+	if err := setValueAtPath(root, segments, value, templateScalarDefault(key)); err != nil {
 		return nil, err
 	}
 
 	return []byte(file.String()), nil
 }
 
-func setValueAtPath(node *ast.MappingNode, segments []string, value string) error {
+// templateScalarDefault returns the template value of a scalar key. A config
+// file that an older PMG wrote does not hold a key that a newer template adds,
+// such as cloud.policy. pmg config set adds such a key with this value as the
+// type, and then sets it.
+func templateScalarDefault(key string) any {
+	v, err := newFileViper("")
+	if err != nil || !v.IsSet(key) {
+		return nil
+	}
+	switch value := v.Get(key); value.(type) {
+	case bool, int, string:
+		return value
+	default:
+		return nil
+	}
+}
+
+func setValueAtPath(node *ast.MappingNode, segments []string, value string, templateDefault any) error {
 	if len(segments) == 0 {
 		return fmt.Errorf("key cannot be empty")
 	}
@@ -168,14 +299,46 @@ func setValueAtPath(node *ast.MappingNode, segments []string, value string) erro
 			return replaceScalarValue(mv, value)
 		}
 
+		if _, empty := mv.Value.(*ast.NullNode); empty {
+			return fmt.Errorf("%w: intermediate key %q has no value", errKeyNotFound, target)
+		}
 		childMapping, ok := mv.Value.(*ast.MappingNode)
 		if !ok {
 			return fmt.Errorf("key not found: intermediate key %q is not a mapping", target)
 		}
-		return setValueAtPath(childMapping, segments[1:], value)
+		return setValueAtPath(childMapping, segments[1:], value, templateDefault)
 	}
 
-	return fmt.Errorf("key not found: %q", target)
+	if len(segments) == 1 && templateDefault != nil && len(node.Values) > 0 {
+		mv, err := newMappingValue(target, templateDefault, node.Values[0].Key.GetToken().Position.Column)
+		if err != nil {
+			return err
+		}
+		node.Values = append(node.Values, mv)
+		return replaceScalarValue(mv, value)
+	}
+
+	return fmt.Errorf("%w: %q", errKeyNotFound, target)
+}
+
+// newMappingValue returns the mapping value "key: value" at column, the
+// column of the other keys of its mapping.
+func newMappingValue(key string, value any, column int) (*ast.MappingValueNode, error) {
+	snippet, err := goyaml.Marshal(map[string]any{key: value})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add key %q: %w", key, err)
+	}
+	file, err := parser.ParseBytes(snippet, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add key %q: %w", key, err)
+	}
+	mapping, ok := file.Docs[0].Body.(*ast.MappingNode)
+	if !ok || len(mapping.Values) != 1 {
+		return nil, fmt.Errorf("failed to add key %q", key)
+	}
+	mv := mapping.Values[0]
+	mv.AddColumn(column - 1)
+	return mv, nil
 }
 
 func replaceScalarValue(mv *ast.MappingValueNode, value string) error {

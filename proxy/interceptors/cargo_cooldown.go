@@ -27,6 +27,7 @@ import (
 // registry, and each Cargo entry of proxy.registries is another, so one crate
 // name in two registries never shares a publish time.
 type cargoCooldownHandler struct {
+	cooldownPolicy
 	statsCollector *AnalysisStatsCollector
 	registries     registrySet
 
@@ -78,6 +79,7 @@ type cargoIndexEntry struct {
 // cooldown window. Skip-list semantics are handled here so callers do not
 // need to consult the config.
 func (h *cargoCooldownHandler) HandleIndexRequest(ctx *proxy.RequestContext, endpoint *registryEndpoint, crate string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
+	policy := h.current()
 	registry := cargoRegistryKey(endpoint)
 	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_CARGO, crate)
 
@@ -98,7 +100,7 @@ func (h *cargoCooldownHandler) HandleIndexRequest(ctx *proxy.RequestContext, end
 			return statusCode, headers, body, nil
 		}
 
-		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, skip, dates, cooldownDays)
+		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, skip, policy, dates, cooldownDays)
 		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, exempt)
 
 		strippedBody, stripped, remaining := stripCargoIndexLines(entries, dates, cooldownDays, exempt.all)
@@ -109,7 +111,7 @@ func (h *cargoCooldownHandler) HandleIndexRequest(ctx *proxy.RequestContext, end
 		log.Infof("[%s] Cooldown: stripped %d version(s) from %s index (%d days, %d eligible remain)",
 			ctx.RequestID, len(stripped), crate, cooldownDays, remaining)
 
-		recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, pinnedVersion, dates, stripped, remaining, cooldownDays)
+		recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, pinnedVersion, dates, stripped, remaining, cooldownDays, policy.CooldownCitation())
 
 		// Without validators cargo cannot revalidate the filtered body later
 		// with a conditional request, and no-store keeps it from serving the
@@ -214,7 +216,7 @@ func stripCargoIndexLines(entries []cargoIndexEntry, dates map[string]time.Time,
 // out-of-band from the index of the registry that owns endpoint.
 func (h *cargoCooldownHandler) CheckCrateDownload(ctx *proxy.RequestContext, endpoint *registryEndpoint, crate, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
 	registry := cargoRegistryKey(endpoint)
-	return cooldownCheckDownload(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, version, cooldownDays, h.statsCollector,
+	return cooldownCheckDownload(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, version, cooldownDays, h.statsCollector, h.current(),
 		func() (time.Time, bool) {
 			h.mu.Lock()
 			publishTime, ok := h.publishTimes[cargoCrateVersionKey(registry, crate, version)]

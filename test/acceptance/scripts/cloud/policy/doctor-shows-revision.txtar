@@ -1,0 +1,42 @@
+# guarantee: pmg setup doctor shows the applied policy revision and the age
+# of the cache, and warns when cloud.policy is on and no cache exists. The
+# exit code of doctor depends on the other checks of the host. pmg setup info
+# --json runs the same checks and exits 0, so the script reads its checks.
+
+env HOME=$WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+env SAFEDEP_API_KEY=
+env SAFEDEP_TENANT_ID=
+env PMG_CLOUD_ENABLED=
+env PMG_CLOUD_ENDPOINT_ID=acceptance-policy
+mkdir $WORK/home
+
+exec pmg setup info --json
+stdout '"name": "cloud-policy",\s+"category": "Cloud",\s+"status": "warn",\s+"message": "cloud policy is on, but no policy cache exists'
+
+policy-cache $WORK/config policy.textproto
+
+exec pmg setup info --json
+stdout '"status": "pass",\s+"message": "on · revision 48 applied · cache [0-9]+m old · tenant acceptance\.safedep\.io"'
+stdout '"state": "applied"'
+stdout '"revision": 48'
+stdout '"default_policy_revision": 12'
+stdout '"block_entries": 1'
+
+-- config/config.yml --
+cloud:
+  enabled: true
+  policy: true
+  auto_sync:
+    enabled: false
+-- policy.textproto --
+spec {
+  core {
+    package_rules {
+      rule_id: "r_acceptance_block"
+      selector { purl: "pkg:npm/left-pad" }
+      effect: EFFECT_BLOCK
+      reason: "acceptance block"
+    }
+  }
+}

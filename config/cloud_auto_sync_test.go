@@ -81,3 +81,38 @@ func TestCloudSyncPathHelpers(t *testing.T) {
 	assert.Equal(t, filepath.Join(tmpDir, "cloud-sync.lock"), cfg.CloudSyncLockPath())
 	assert.Equal(t, filepath.Join(tmpDir, "cloud-sync.lastrun"), cfg.CloudSyncLastRunPath())
 }
+
+func TestCloudPolicyDefaultsToOn(t *testing.T) {
+	tests := []struct {
+		name        string
+		configYAML  string
+		wantApplies bool
+	}{
+		{
+			name:        "cloud.enabled with no policy key applies the policy",
+			configYAML:  "cloud:\n  enabled: true\n",
+			wantApplies: true,
+		},
+		{
+			name:       "policy: false turns the policy off",
+			configYAML: "cloud:\n  enabled: true\n  policy: false\n",
+		},
+		{
+			name:       "no cloud section keeps the cloud off",
+			configYAML: "paranoid: false\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			t.Setenv("PMG_CONFIG_DIR", tmpDir)
+			t.Setenv("PMG_CLOUD_ENABLED", "")
+			t.Setenv("PMG_CLOUD_POLICY", "")
+			require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yml"), []byte(tt.configYAML), 0o644))
+			initConfig()
+
+			assert.Equal(t, tt.wantApplies, Get().CloudPolicyEnabled())
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	recordv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/record/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/runerror"
@@ -306,8 +307,9 @@ func (d NetworkDecision) details() map[string]any {
 	return details
 }
 
-// LogDependencyCooldown records that a package was blocked by the dependency cooldown policy.
-func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, cooldownDays, daysAgo, daysLeft int) {
+// LogDependencyCooldown records that a package was blocked by the dependency
+// cooldown policy. citation is set when the cloud policy set the cooldown.
+func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, cooldownDays, daysAgo, daysLeft int, citation *recordv1.DecisionCitation) {
 	logEvent(AuditEvent{
 		Type:           EventTypeDependencyCooldown,
 		Message:        fmt.Sprintf("Package blocked by cooldown policy: %s@%s (published %d days ago, %d days remaining)", pkgName(pv), pkgVersion(pv), daysAgo, daysLeft),
@@ -316,11 +318,51 @@ func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, 
 		CooldownDays:   cooldownDays,
 		DaysAgo:        daysAgo,
 		DaysLeft:       daysLeft,
+		Citation:       citation,
 	})
 
 	if global != nil {
 		global.recordCooldownBlocked()
 	}
+}
+
+// LogRuleBlocked records that a block entry of the cloud policy or of
+// blocked_packages blocked a package. citation is nil for a local rule.
+func LogRuleBlocked(pv *packagev1.PackageVersion, ruleID, reason string, citation *recordv1.DecisionCitation) {
+	logEvent(AuditEvent{
+		Type:           EventTypeRuleBlocked,
+		Message:        fmt.Sprintf("Package blocked by rule %s: %s@%s", ruleID, pkgName(pv), pkgVersion(pv)),
+		PackageVersion: pv,
+		RuleID:         ruleID,
+		Reason:         reason,
+		Citation:       citation,
+		Details: map[string]any{
+			"rule_id": ruleID,
+			"reason":  reason,
+		},
+	})
+
+	if global != nil {
+		global.recordBlocked()
+	}
+}
+
+// LogRuleTrusted records that a trust entry of the cloud policy waived a
+// verdict that is not verified: a malware verdict or the cooldown window.
+// scope names the waived control.
+func LogRuleTrusted(pv *packagev1.PackageVersion, ruleID, scope string, citation *recordv1.DecisionCitation) {
+	logEvent(AuditEvent{
+		Type:           EventTypeRuleTrusted,
+		Message:        fmt.Sprintf("Package trusted by rule %s for %s: %s@%s", ruleID, scope, pkgName(pv), pkgVersion(pv)),
+		PackageVersion: pv,
+		RuleID:         ruleID,
+		Reason:         scope,
+		Citation:       citation,
+		Details: map[string]any{
+			"rule_id": ruleID,
+			"scope":   scope,
+		},
+	})
 }
 
 // CooldownSkipReason is the only source that produces a dependency_cooldown_skipped

@@ -1,0 +1,33 @@
+# guarantee: pmg reports a field of the cloud policy that it does not know by
+# its contract path, and applies the rest of the policy.
+
+env HOME=$WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+env SAFEDEP_API_KEY=
+env SAFEDEP_TENANT_ID=
+env PMG_CLOUD_ENABLED=
+env PMG_CLOUD_ENDPOINT_ID=acceptance-policy
+mkdir $WORK/home
+
+policy-cache -unknown-field 7 $WORK/config policy.textproto
+
+exec pmg setup info --json
+stdout '"path": "package_admission\.7"'
+stdout '"reason": "unknown_field"'
+stdout '"key": "dependency_cooldown\.days"'
+stdout '"days": 3'
+stdout '"status": "warn",\s+"message": "unknown field package_admission\.7'
+
+-- config/config.yml --
+cloud:
+  enabled: true
+  policy: true
+  auto_sync:
+    enabled: false
+-- policy.textproto --
+spec {
+  package_admission {
+    # 3 days
+    cooldown { min_age { seconds: 259200 } }
+  }
+}

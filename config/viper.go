@@ -38,6 +38,15 @@ func loadViperConfig() error {
 
 	var merged Config
 	if err := v.Unmarshal(&merged); err != nil {
+		// A failed decode falls back to the defaults, which have no block
+		// list. A block list of the wrong type must not turn its blocks off.
+		var entries []BlockedPackage
+		if keyErr := v.UnmarshalKey("blocked_packages", &entries); keyErr != nil {
+			return &BlockedPackagesError{err: keyErr}
+		}
+		if len(entries) > 0 {
+			return &BlockedPackagesError{err: fmt.Errorf("the config sets blocked_packages and cannot load: %w", err)}
+		}
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 	globalConfig.viper = v
@@ -48,6 +57,9 @@ func loadViperConfig() error {
 		return err
 	}
 	if err := ValidateProxyServerNetworkMode(merged.Proxy.Server.NetworkMode); err != nil {
+		return err
+	}
+	if err := parseBlockedPackages(&merged); err != nil {
 		return err
 	}
 
