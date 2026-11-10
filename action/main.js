@@ -20,6 +20,22 @@ const enforceInputs = ['enforce-ports', 'enforce-exempt-users', 'enforce-exempt-
 // daemon on it, and the failed-start stop reads it.
 const rootStatePath = () => path.join(process.env.RUNNER_TEMP || '', 'pmg-proxy-state.json');
 
+// exportStateDirs puts PMG's per-job state (config and cache) under
+// RUNNER_TEMP/pmg so two jobs on one self-hosted runner, or a crashed
+// job and its successor, do not share proxy state, config or the cloud
+// sync queue. The directories are exported through GITHUB_ENV.
+function exportStateDirs() {
+  const base = path.join(process.env.RUNNER_TEMP || '', 'pmg');
+  const configDir = path.join(base, 'config');
+  const cacheDir = path.join(base, 'cache');
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.mkdirSync(cacheDir, { recursive: true });
+  process.env.PMG_CONFIG_DIR = configDir;
+  process.env.PMG_CACHE_DIR = cacheDir;
+  lib.appendFile('GITHUB_ENV', `PMG_CONFIG_DIR=${configDir}`);
+  lib.appendFile('GITHUB_ENV', `PMG_CACHE_DIR=${cacheDir}`);
+  return { configDir, cacheDir };
+}
 function main() {
   if (process.env.RUNNER_OS !== 'Linux') {
     lib.error('safedep/pmg action currently supports Linux runners only. See https://github.com/safedep/pmg/issues/248 for cross-platform tracking.');
@@ -35,6 +51,8 @@ function main() {
   const { outputs } = lib.group('Install PMG', () =>
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
   const binDir = outputs['bin-dir'];
+  // Isolate PMG state per job on self-hosted runners (see issue #593).
+  exportStateDirs();
   // Before any script changes the job, so a refused second step leaves the
   // configuration of the first step in place.
   if (serverMode) {
@@ -329,4 +347,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkInputs, enforceMode, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };
+module.exports = { checkInputs, enforceMode, exportStateDirs, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };

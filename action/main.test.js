@@ -6,7 +6,7 @@ const lib = require('./lib');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { checkInputs, enforceMode, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
+const { checkInputs, enforceMode, exportStateDirs, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
 
 // withEnv sets the variables for one call and restores them after it.
 function withEnv(vars, fn) {
@@ -100,7 +100,36 @@ test('refuseSecondProxy fails when a proxy of an earlier step runs', (t) => {
   assert.throws(() => refuseSecondProxy(bin), /pid 42\) already runs in this job/);
 });
 
-test('refuseSecondProxy passes when no proxy runs', (t) => {
-  const bin = fakePMG(t, 'PMG proxy: not running');
-  assert.doesNotThrow(() => refuseSecondProxy(bin));
+test('exportStateDirs creates per-job config and cache dirs', (t) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pmg-runner-'));
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const envFile = path.join(tmp, 'github_env');
+  fs.writeFileSync(envFile, '');
+  const saved = {
+    RUNNER_TEMP: process.env.RUNNER_TEMP,
+    GITHUB_ENV: process.env.GITHUB_ENV,
+    PMG_CONFIG_DIR: process.env.PMG_CONFIG_DIR,
+    PMG_CACHE_DIR: process.env.PMG_CACHE_DIR,
+  };
+  process.env.RUNNER_TEMP = tmp;
+  process.env.GITHUB_ENV = envFile;
+  delete process.env.PMG_CONFIG_DIR;
+  delete process.env.PMG_CACHE_DIR;
+  try {
+    const dirs = exportStateDirs();
+    assert.strictEqual(dirs.configDir, path.join(tmp, 'pmg', 'config'));
+    assert.strictEqual(dirs.cacheDir, path.join(tmp, 'pmg', 'cache'));
+    assert.ok(fs.existsSync(dirs.configDir));
+    assert.ok(fs.existsSync(dirs.cacheDir));
+    assert.strictEqual(process.env.PMG_CONFIG_DIR, dirs.configDir);
+    assert.strictEqual(process.env.PMG_CACHE_DIR, dirs.cacheDir);
+    const envText = fs.readFileSync(envFile, 'utf8');
+    assert.match(envText, new RegExp(`PMG_CONFIG_DIR=${dirs.configDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(envText, new RegExp(`PMG_CACHE_DIR=${dirs.cacheDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });

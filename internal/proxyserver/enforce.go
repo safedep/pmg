@@ -175,15 +175,11 @@ func refuseSecondDaemon(enforcer netenforce.Enforcer, p netenforce.Policy) error
 	if !on {
 		return nil
 	}
-	cgroup := p.CgroupPath
-	if cgroup == "" {
-		cgroup = "the cgroup root"
-	}
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.EnforceAlreadyActive).
-		WithHumanError(fmt.Sprintf("another pmg daemon already enforces %s", cgroup)).
+		WithHumanError("another job on this host already enforces PMG").
 		WithMsg(netenforce.ErrAlreadyEnforced.Error()).
-		WithHelp("Stop it with `sudo pmg proxy stop --state <its state file>`, or give this daemon its own cgroup with proxy.server.enforce.cgroup").
+		WithHelp("PMG kernel enforcement allows one enforcing job per host. Run one runner agent per host, or set enforce to false (or auto) to run the proxy without enforcement.").
 		Wrap(netenforce.ErrAlreadyEnforced)
 }
 
