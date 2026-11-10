@@ -8,13 +8,6 @@
 
 ## Risk
 
-<!-- See "Review tiers" in CONTRIBUTING.md. For a Low change, write "Low" and delete the list. -->
-<!-- Answer each line with Yes or No. For each Yes, name each changed location: the file together with the function, the declaration, the key or the line range. -->
-<!-- On the last line, name anything that a revert of the commit does not undo. Examples are a config key, a cloud contract, state that `pmg setup` installs, an Action input, a published installer, and a cache or event log format. -->
-
-- Decision:
-- Access:
-- Precedence:
-- Data:
-- Supply chain:
-- A revert does not undo:
+<!-- Write Low, Medium or High. See "Review tiers" in CONTRIBUTING.md. -->
+<!-- For High, name the question and each changed location, for example "High. Decision: the verdict map in proxy/interceptor.go". -->
+<!-- Name anything that a revert of the commit does not undo, for example a config key or a published installer. -->

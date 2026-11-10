@@ -75,12 +75,13 @@ The change sets the tier. The author does not.
 | Medium | All other changes | Review the diff. |
 | High | The code that a Yes answer names | Read each changed line. Apply the `Always check` list in `REVIEW.md`. |
 
-A pull request that is not Low answers the five questions below in its `Risk` section. For each
-Yes, the author names each changed location that makes the answer Yes. A location is a file
-together with a function, a declaration, a key or a line range. Only the named code is High. The
-remaining diff is Medium. The reviewer checks that the list is complete.
+The author checks the change against the five questions below and states the tier in the `Risk`
+section of the pull request. For a High change, the author names the question and each changed
+location that makes the answer Yes. A location is a file together with a function, a declaration,
+a key or a line range. Only the named code is High. The remaining diff is Medium. The reviewer
+checks that the list is complete.
 
-Dependabot does not answer the questions. The reviewer answers them for an update from Dependabot.
+Dependabot does not state a tier. The reviewer checks the questions for an update from Dependabot.
 
 A change to `REVIEW.md`, `CLAUDE.md` or `AGENTS.md` is Medium, because these files control the
 automated review.
@@ -145,4 +146,5 @@ small.
 - Fix a finding if it changes what a person does or if it closes a real hole. If it does not,
   resolve the thread with a reason.
 - Push one commit for each review, not one commit for each finding.
-- After three rounds, stop. Change the approach or divide the pull request.
+- If the third review still has Important findings, stop. Change the approach or divide the pull
+  request.

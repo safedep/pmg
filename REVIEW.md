@@ -50,10 +50,10 @@ Style, names, comments and refactors are Nit at most. Report at most five Nits i
 8. **Writing.** Comments, messages and docs use ASD-STE100. One sentence holds one idea. A
    semicolon or a colon does not join two clauses. A comment that says what obvious code does is a
    Nit.
-9. **Risk answers.** The `Risk` section of the pull request answers the five questions in the
-   `Review tiers` section of `CONTRIBUTING.md`. Compare the answers with the diff. A change that
-   makes an answer Yes, and that the section does not name, is Important. A pull request that says
-   Low but is not Low under `CONTRIBUTING.md` is Important.
+9. **Risk tier.** The `Risk` section of the pull request states the tier. The `Review tiers`
+   section of `CONTRIBUTING.md` defines the tiers and the five questions. Check the diff against
+   the questions. A change that makes an answer Yes, and that the `Risk` section does not name, is
+   Important. A pull request that says Low but is not Low under `CONTRIBUTING.md` is Important.
 
 ## Evidence
 
@@ -72,18 +72,20 @@ problem and list each location.
 
 A new commit starts a new review. Without a limit, each review finds different problems in the
 same old lines. Each finding causes a commit, and each commit causes a review. These rules stop
-that cycle.
+that cycle. They limit Nits and repeats. They never hide an Important problem that the pull
+request causes.
 
 - Review the full pull request one time. After that, review the lines that changed since the last
   review and the behavior that those lines change. Follow each changed function to its callers
   and to the code that it calls.
 - Outside that scope, report a new problem only if it is Important. Do not report a Nit there.
-- Do not repeat a finding from an earlier review. This includes a finding that the author
-  resolved with a reason.
-- If the pull request did not change the code, label the problem Pre-existing. A Pre-existing
-  problem does not block the pull request.
-- After three reviews with Important findings, do not list more fixes. Tell the author to change
-  the approach or to divide the pull request.
+- Do not repeat a Nit. Repeat an Important finding only if a later commit brings the problem
+  back, or if the author resolved it with a reason that does not hold. Say why.
+- Label a problem Pre-existing only if the base branch has the same problem and the pull request
+  does not make it reachable in a new way. A Pre-existing problem does not block the pull
+  request.
+- After three reviews with Important findings, tell the author to change the approach or to
+  divide the pull request. Continue to report Important findings. Do not report Nits.
 
 ## Do not report
 
