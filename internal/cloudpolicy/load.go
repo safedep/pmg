@@ -3,8 +3,6 @@ package cloudpolicy
 import (
 	"errors"
 	"fmt"
-	"os"
-	"os/user"
 	"path/filepath"
 	"time"
 
@@ -376,12 +374,12 @@ func cacheDirs(cfg *config.RuntimeConfig) []string {
 		return []string{own}
 	}
 
-	invoking, err := user.Lookup(os.Getenv("SUDO_USER"))
-	if err != nil || invoking.HomeDir == "" {
+	home, err := platform.SudoUserHomeDir()
+	if err != nil {
 		log.Debugf("cloud policy: cannot find the home of the sudo user: %v", err)
 		return []string{own}
 	}
-	dir := filepath.Join(platform.HomeDirs(invoking.HomeDir).Config, "safedep", "pmg", "cloud-policy")
+	dir := filepath.Join(platform.HomeDirs(home).Config, "safedep", "pmg", "cloud-policy")
 	if dir == own {
 		return []string{own}
 	}

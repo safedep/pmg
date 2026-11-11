@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"os/user"
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
@@ -22,6 +23,21 @@ var IsPrivileged = isPrivileged
 // sudo sets no marker.
 func IsSudo() bool {
 	return IsPrivileged() && sudoUser() != ""
+}
+
+// SudoUserHomeDir returns the home directory of the user who ran sudo. Tests
+// replace it, because the real lookup reads the user database of the host.
+var SudoUserHomeDir = sudoUserHomeDir
+
+func sudoUserHomeDir() (string, error) {
+	invoking, err := user.Lookup(sudoUser())
+	if err != nil {
+		return "", err
+	}
+	if invoking.HomeDir == "" {
+		return "", fmt.Errorf("the sudo user %s has no home directory", invoking.Username)
+	}
+	return invoking.HomeDir, nil
 }
 
 var errNotPrivileged = errors.New("the process is not privileged")
