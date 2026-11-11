@@ -65,6 +65,17 @@ func TestUnwritableConfigDirRemedy(t *testing.T) {
 		assert.NotContains(t, fix, ownershipCommand)
 	})
 
+	t.Run("explicit PMG_STATE_DIR gets its own remedy", func(t *testing.T) {
+		t.Setenv("PMG_CONFIG_DIR", "")
+		t.Setenv("PMG_STATE_DIR", "/srv/pmg-state")
+		withCurrentUserHome(t, "/home/alice")
+
+		help, fix := UnwritableConfigDirRemedy("/srv/pmg-state")
+		assert.Contains(t, help, "PMG_STATE_DIR")
+		assert.NotContains(t, help, ownershipCommand)
+		assert.Contains(t, fix, "PMG_STATE_DIR")
+	})
+
 	t.Run("sibling dir with home prefix is outside home", func(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "")
 		withCurrentUserHome(t, "/home/alice")
@@ -87,6 +98,11 @@ func TestClassifyUnwritableDir(t *testing.T) {
 
 	t.Setenv("PMG_CONFIG_DIR", "/srv/pmg")
 	assert.Equal(t, causeExplicitConfigDir, classifyUnwritableDir("/srv/pmg"))
+
+	t.Setenv("PMG_STATE_DIR", "/srv/pmg-state")
+	assert.Equal(t, causeExplicitStateDir, classifyUnwritableDir("/srv/pmg-state/"))
+	assert.Equal(t, causeExplicitConfigDir, classifyUnwritableDir("/srv/pmg"))
+	t.Setenv("PMG_STATE_DIR", "")
 
 	t.Setenv("PMG_CONFIG_DIR", "")
 	assert.Equal(t, causeLeakedHomeEnv, classifyUnwritableDir("/home/runner/.config/safedep/pmg"))

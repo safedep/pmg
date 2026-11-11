@@ -21,7 +21,7 @@ func newStatusCommand() *cobra.Command {
 
 func runStatus(_ *cobra.Command, _ []string) error {
 	cfg := config.Get()
-	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir())
+	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.ProxyStateDir())
 
 	st := proxyserver.GetStatus(statePath)
 

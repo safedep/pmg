@@ -200,7 +200,7 @@ func Load(cfg *config.RuntimeConfig, tenant string) *Status {
 
 	switch {
 	case !cfg.CloudPolicyEnabled():
-	case cfg.ConfigDir() == "":
+	case cfg.StateDir() == "":
 		st.State = recordv1.ApplyState_APPLY_STATE_NONE
 		st.LoadErr = errNoConfigDir
 	default:

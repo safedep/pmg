@@ -54,7 +54,7 @@ func writeStopReport(path string, r proxyserver.StopReport) error {
 
 func runStop(_ *cobra.Command, _ []string) error {
 	cfg := config.Get()
-	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir())
+	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.ProxyStateDir())
 
 	res, err := proxyserver.Stop(statePath)
 	if ifRunning && errors.Is(err, proxyserver.ErrNoProxy) {

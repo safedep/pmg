@@ -139,7 +139,8 @@ The report can also contain `network`, `cloud_sync` and `violation`.
 cannot read the state. Read its output, not its exit code.
 
 The default state file is `<cache-dir>/proxy-state.json`. A detached proxy
-writes its output to `<cache-dir>/proxy.log`. `--state`, and `--log-file` on
+writes its output to `<cache-dir>/proxy.log`. When `PMG_STATE_DIR` is set,
+both files are in that directory instead. `--state`, and `--log-file` on
 start, change these paths. Run env, status and stop as the same user and
 with the same state path. Root uses root's cache directory unless
 `PMG_CACHE_DIR` changes it. For diagnostics, run `pmg --debug proxy start`
