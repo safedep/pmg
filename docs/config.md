@@ -215,14 +215,14 @@ file the daemon loaded.
 | Windows | `%APPDATA%\safedep\pmg\config.yml` | `%LOCALAPPDATA%\safedep\pmg\logs` |
 
 `PMG_CONFIG_DIR` replaces the user config directory.
-An explicit override also relocates event logs beneath it.
+An explicit override also relocates event logs beneath it, unless `PMG_STATE_DIR` is set.
 Default Windows event logs use local data rather than roaming configuration.
 
 ### State directory
 
 PMG writes some files at run time, not only when you change the configuration.
 By default, these files are in the config directory and in the cache directory.
-`PMG_STATE_DIR` moves all of them to one directory:
+`PMG_STATE_DIR` moves all of them to one directory.
 
 | File | Default location | With `PMG_STATE_DIR` |
 |---|---|---|
@@ -232,6 +232,12 @@ By default, these files are in the config directory and in the cache directory.
 | Proxy state file and daemon log (`proxy-state.json`, `proxy.log`) | The cache directory | `$PMG_STATE_DIR` |
 
 When `PMG_STATE_DIR` is not set, every file stays in its default location.
+The verdict database (`localdb/`) and the sandbox violation reports (`sandbox/violations/`) stay in the cache directory.
+PMG does not move existing files into `PMG_STATE_DIR`.
+A process that starts with a new `PMG_STATE_DIR` has no cloud policy cache until its next fetch.
+Events that a run without the variable queued stay in the config directory.
+Under sudo, PMG reads the cloud policy cache of the user who ran sudo, then its own.
+When `PMG_STATE_DIR` is set, PMG reads only `$PMG_STATE_DIR/cloud-policy`.
 Use `PMG_STATE_DIR` when two processes must read one configuration but must not share run-time files.
 For example, a CI job and a root proxy daemon can read one config directory, and each can write to its own state directory.
 The user that runs PMG must be able to write to `PMG_STATE_DIR`.

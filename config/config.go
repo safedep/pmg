@@ -645,6 +645,12 @@ func (r *RuntimeConfig) StateDir() string {
 	return r.configDir
 }
 
+// StateDirOverridden reports whether PMG_STATE_DIR selected the state
+// directory.
+func (r *RuntimeConfig) StateDirOverridden() bool {
+	return r.stateDir != ""
+}
+
 // ProxyStateDir returns the directory of the proxy state file and the daemon
 // log: the PMG_STATE_DIR directory, else the cache directory.
 func (r *RuntimeConfig) ProxyStateDir() string {

@@ -367,10 +367,12 @@ func machineID(cfg *config.RuntimeConfig) (string, error) {
 // cacheDirs returns the cache folders that pmg reads, in order. Under sudo,
 // pmg reads the cache of the invoking user first, read-only, because root
 // usually has no cloud login and its own cache stays empty. Then it reads
-// its own cache.
+// its own cache. PMG_STATE_DIR names the one cache to read. The invoking
+// user's default cache can hold an old policy that the user no longer
+// updates, and the first cache that loads wins.
 func cacheDirs(cfg *config.RuntimeConfig) []string {
 	own := cfg.CloudPolicyCacheDir()
-	if !platform.IsSudo() {
+	if !platform.IsSudo() || cfg.StateDirOverridden() {
 		return []string{own}
 	}
 
