@@ -25,11 +25,26 @@ func runStatus(_ *cobra.Command, _ []string) error {
 
 	st := proxyserver.GetStatus(statePath)
 
-	if _, err := fmt.Fprint(os.Stdout, statusText(st)); err != nil {
+	text := statusText(st)
+	if hint := stateDirHint(cfg); !st.Found && hint != "" {
+		text += "  " + hint + "\n"
+	}
+	if _, err := fmt.Fprint(os.Stdout, text); err != nil {
 		ui.ErrorExit(err)
 	}
 
 	return nil
+}
+
+// stateDirHint explains a missing state file when PMG_STATE_DIR chose the
+// state path. A proxy that started without the variable keeps its state file
+// in the cache directory, and this process does not look there.
+func stateDirHint(cfg *config.RuntimeConfig) string {
+	if stateFlag != "" || !cfg.StateDirOverridden() {
+		return ""
+	}
+	return fmt.Sprintf("PMG_STATE_DIR selects %s. A proxy that started without PMG_STATE_DIR keeps its state file in %s.",
+		cfg.ProxyStateDir(), cfg.CacheDir())
 }
 
 func statusText(st proxyserver.StatusInfo) string {

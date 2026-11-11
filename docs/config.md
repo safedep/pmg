@@ -234,7 +234,7 @@ By default, these files are in the config directory and in the cache directory.
 When `PMG_STATE_DIR` is not set, every file stays in its default location.
 The verdict database (`localdb/`) and the sandbox violation reports (`sandbox/violations/`) stay in the cache directory.
 PMG does not move existing files into `PMG_STATE_DIR`.
-A process that starts with a new `PMG_STATE_DIR` has no cloud policy cache until its next fetch.
+Without sudo, a process that starts with a new `PMG_STATE_DIR` has no cloud policy cache until its next fetch.
 Events that a run without the variable queued stay in the config directory.
 Under sudo, PMG reads the cloud policy cache of the user who ran sudo, then its own.
 When `PMG_STATE_DIR` is set, PMG reads `$PMG_STATE_DIR/cloud-policy` first, then the cache of the user who ran sudo.
