@@ -18,7 +18,9 @@ func StubPasswdHomeDir(t *testing.T, home string, err error) {
 }
 
 // StubSudo makes the process look like root that a user reached through sudo,
-// with home as the home directory of that user, until the test ends.
+// with home as the home directory of that user, until the test ends. It skips
+// the test where sudo cannot be faked, because IsSudo ignores SUDO_USER on
+// Windows.
 func StubSudo(t *testing.T, home string) {
 	t.Helper()
 	origPrivileged := platform.IsPrivileged
@@ -30,4 +32,7 @@ func StubSudo(t *testing.T, home string) {
 		platform.IsPrivileged = origPrivileged
 		platform.SudoUserHomeDir = origHome
 	})
+	if !platform.IsSudo() {
+		t.Skip("sudo cannot be faked on this platform")
+	}
 }
