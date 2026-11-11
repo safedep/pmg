@@ -45,11 +45,14 @@ func TestCacheDirsUnderSudo(t *testing.T) {
 			},
 		},
 		{
-			name:       "sudo with PMG_STATE_DIR reads only the state directory",
+			name:       "sudo with PMG_STATE_DIR reads the state directory first",
 			privileged: true,
 			sudoUser:   invoking.Username,
 			stateDir:   stateDir,
-			want:       []string{filepath.Join(stateDir, "cloud-policy")},
+			want: []string{
+				filepath.Join(stateDir, "cloud-policy"),
+				filepath.Join(platform.HomeDirs(invoking.HomeDir).Config, "safedep", "pmg", "cloud-policy"),
+			},
 		},
 		{
 			name:       "an unknown sudo user reads its own cache",

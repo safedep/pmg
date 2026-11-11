@@ -237,7 +237,7 @@ PMG does not move existing files into `PMG_STATE_DIR`.
 A process that starts with a new `PMG_STATE_DIR` has no cloud policy cache until its next fetch.
 Events that a run without the variable queued stay in the config directory.
 Under sudo, PMG reads the cloud policy cache of the user who ran sudo, then its own.
-When `PMG_STATE_DIR` is set, PMG reads only `$PMG_STATE_DIR/cloud-policy`.
+When `PMG_STATE_DIR` is set, PMG reads `$PMG_STATE_DIR/cloud-policy` first, then the cache of the user who ran sudo.
 Use `PMG_STATE_DIR` when two processes must read one configuration but must not share run-time files.
 For example, a CI job and a root proxy daemon can read one config directory, and each can write to its own state directory.
 The user that runs PMG must be able to write to `PMG_STATE_DIR`.

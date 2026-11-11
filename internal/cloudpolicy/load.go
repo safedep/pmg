@@ -364,15 +364,15 @@ func machineID(cfg *config.RuntimeConfig) (string, error) {
 	return endpoint.GetMachineId(), nil
 }
 
-// cacheDirs returns the cache folders that pmg reads, in order. Under sudo,
-// pmg reads the cache of the invoking user first, read-only, because root
-// usually has no cloud login and its own cache stays empty. Then it reads
-// its own cache. PMG_STATE_DIR names the one cache to read. The invoking
-// user's default cache can hold an old policy that the user no longer
-// updates, and the first cache that loads wins.
+// cacheDirs returns the cache folders that pmg reads, in order. The first
+// cache that loads wins. Under sudo, pmg also reads the cache of the invoking
+// user, read-only, because root usually has no cloud login and its own cache
+// stays empty. Without PMG_STATE_DIR, that cache comes first. With
+// PMG_STATE_DIR, the state directory cache comes first, because the default
+// cache of the invoking user can hold an old policy that nothing updates.
 func cacheDirs(cfg *config.RuntimeConfig) []string {
 	own := cfg.CloudPolicyCacheDir()
-	if !platform.IsSudo() || cfg.StateDirOverridden() {
+	if !platform.IsSudo() {
 		return []string{own}
 	}
 
@@ -384,6 +384,9 @@ func cacheDirs(cfg *config.RuntimeConfig) []string {
 	dir := filepath.Join(platform.HomeDirs(invoking.HomeDir).Config, "safedep", "pmg", "cloud-policy")
 	if dir == own {
 		return []string{own}
+	}
+	if cfg.StateDirOverridden() {
+		return []string{own, dir}
 	}
 	return []string{dir, own}
 }
