@@ -1,0 +1,49 @@
+name: Set up PMG
+description: >-
+  Starts a released PMG proxy as root with kernel enforcement, so every
+  process of the job goes through it. Call it right after the checkout. At
+  the end of the job, the post step of safedep/pmg stops PMG, fails the job
+  when PMG blocked a package, and writes a job summary with a proposed
+  network profile. Do not call it in a job that runs or tests PMG itself.
+
+inputs:
+  api-key:
+    description: SafeDep Cloud API key for the audit events. Empty sends none.
+    required: false
+    default: ""
+  tenant-id:
+    description: SafeDep Cloud tenant of the API key.
+    required: false
+    default: ""
+  enforce-namespaces:
+    description: >-
+      What happens to the containers that a step starts. redirect sends them
+      through the proxy too. Empty leaves them alone.
+    required: false
+    default: ""
+  network-profile:
+    description: >-
+      The network profile of the job, a path under .github/pmg/network/. While
+      the file does not exist, PMG applies no network policy, and the job
+      summary proposes a profile for this path.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The released action, not this checkout. CI must not trust the code
+    # that it tests to protect the build.
+    - uses: safedep/pmg@ee9c6ccfb8c7cc31280fb91f1fa5031ec1c6ff18 # v0.34.0
+      with:
+        api-key: ${{ inputs.api-key }}
+        tenant-id: ${{ inputs.tenant-id }}
+        endpoint-id: CICD_GHA_PMG
+        enforce: true
+        enforce-namespaces: ${{ inputs.enforce-namespaces }}
+        # The cooldown and its skip list. The path is relative to the checkout.
+        config-file: .github/pmg/config.yml
+        network-profile: ${{ inputs.network-profile }}
+        # audit lets every connection through and reports each destination
+        # that the profile does not allow. Change it to enforce when each job
+        # has a reviewed profile.
+        network-mode: audit
