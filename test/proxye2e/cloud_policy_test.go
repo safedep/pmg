@@ -569,3 +569,45 @@ func TestCloudPolicy_GoZipReuseKeepsNoRuleResult(t *testing.T) {
 		},
 	})
 }
+
+// A sudo run reads the policy cache of the user who ran sudo as well as its
+// own. With PMG_STATE_DIR, the state directory cache comes first, and the
+// cache of that user stays the fallback.
+func TestCloudPolicy_StateDirUnderSudo(t *testing.T) {
+	install := func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.2.4") }
+	setup := func(h *Harness) { addEvil(h, Clean()) }
+
+	RunCases(t, []TestCase{
+		{
+			Name:       "with PMG_STATE_DIR the state directory policy wins over the sudo user policy",
+			StateDir:   true,
+			Policy:     cpt.Policy(cpt.Block("r_state", "pkg:npm/evil", "", "state directory")),
+			SudoPolicy: cpt.Policy(cpt.Block("r_user", "pkg:npm/evil", "", "sudo user")),
+			Setup:      setup,
+			Exec:       install,
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRuleBlocked(t, h, res, "r_state", true)
+			},
+		},
+		{
+			Name:       "with PMG_STATE_DIR and an empty state cache the sudo user policy still blocks",
+			StateDir:   true,
+			SudoPolicy: cpt.Policy(cpt.Block("r_user", "pkg:npm/evil", "", "sudo user")),
+			Setup:      setup,
+			Exec:       install,
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRuleBlocked(t, h, res, "r_user", true)
+			},
+		},
+		{
+			Name:       "without PMG_STATE_DIR the sudo user policy wins as before",
+			Policy:     cpt.Policy(cpt.Block("r_own", "pkg:npm/evil", "", "root cache")),
+			SudoPolicy: cpt.Policy(cpt.Block("r_user", "pkg:npm/evil", "", "sudo user")),
+			Setup:      setup,
+			Exec:       install,
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRuleBlocked(t, h, res, "r_user", true)
+			},
+		},
+	})
+}

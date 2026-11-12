@@ -1,12 +1,15 @@
 package proxye2e
 
 import (
+	"path/filepath"
 	"testing"
 
 	specv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/spec/v1"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/internal/cloudpolicy/cloudpolicytest"
+	"github.com/safedep/pmg/internal/platform"
+	"github.com/safedep/pmg/internal/platform/platformtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,6 +34,15 @@ type TestCase struct {
 	// so a case can turn cloud.policy off again.
 	Policy *specv1.ResolvedPolicy
 
+	// StateDir sets PMG_STATE_DIR to a folder of the case, so the runner
+	// writes Policy into the state directory cache.
+	StateDir bool
+
+	// SudoPolicy runs the case as root that a user reached through sudo. The
+	// runner writes it as the policy cache of that user, which a sudo run also
+	// reads.
+	SudoPolicy *specv1.ResolvedPolicy
+
 	Setup  func(h *Harness)
 	Exec   func(h *Harness) ExecResult
 	Assert func(t *testing.T, h *Harness, result ExecResult)
@@ -43,8 +55,8 @@ func RunCases(t *testing.T, cases []TestCase) {
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			opts := []Option{WithPinnedVersions(tc.PinnedVersions)}
-			if tc.Policy != nil {
-				opts = append(opts, WithPolicy(loadPolicy(t, tc.Policy, tc.Config)))
+			if tc.Policy != nil || tc.SudoPolicy != nil {
+				opts = append(opts, WithPolicy(loadPolicy(t, tc)))
 			} else {
 				applyConfig(t, tc.Config)
 			}
@@ -68,35 +80,44 @@ func RunCases(t *testing.T, cases []TestCase) {
 	}
 }
 
-// loadPolicy gives the case a config folder of its own, writes policy as its
-// policy cache, and loads it as the root command of pmg does.
-func loadPolicy(t *testing.T, policy *specv1.ResolvedPolicy, override func(rc *config.RuntimeConfig)) cloudpolicy.Source {
+// loadPolicy gives the case a config folder of its own, writes the policies of
+// the case as policy caches, and loads them as the root command of pmg does.
+func loadPolicy(t *testing.T, tc TestCase) cloudpolicy.Source {
 	t.Helper()
 
 	// Cleanups run last in first out: the config reloads after the
 	// environment is back.
 	t.Cleanup(config.Reload)
 	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	if tc.StateDir {
+		t.Setenv("PMG_STATE_DIR", t.TempDir())
+	}
+	var sudoCache string
+	if tc.SudoPolicy != nil {
+		// Under sudo, the cache directory resolves to the home of root.
+		t.Setenv("PMG_CACHE_DIR", t.TempDir())
+		home := t.TempDir()
+		platformtest.StubSudo(t, home)
+		sudoCache = filepath.Join(platform.HomeDirs(home).Config, "safedep", "pmg", "cloud-policy")
+	}
 	config.Reload()
 
 	applyConfig(t, func(rc *config.RuntimeConfig) {
 		rc.Config.Cloud.Enabled = true
 		rc.Config.Cloud.Policy = true
 		rc.Config.Cloud.EndpointID = policyEndpointID
-		if override != nil {
-			override(rc)
+		if tc.Config != nil {
+			tc.Config(rc)
 		}
 	})
 
 	cfg := config.Get()
-	machineID, err := cloudpolicytest.MachineID(policyEndpointID)
-	require.NoError(t, err)
-	require.NoError(t, cloudpolicytest.Write(cfg.CloudPolicyCacheDir(), policy, cloudpolicytest.Header{
-		Tenant:                "proxye2e.acme.safedep.io",
-		MachineID:             machineID,
-		Revision:              48,
-		DefaultPolicyRevision: 12,
-	}))
+	if tc.Policy != nil {
+		writePolicy(t, cfg.CloudPolicyCacheDir(), tc.Policy)
+	}
+	if tc.SudoPolicy != nil {
+		writePolicy(t, sudoCache, tc.SudoPolicy)
+	}
 
 	rt := &cloudpolicy.Runtime{}
 	rt.LoadAtStartForTenant(cfg, "")
@@ -131,4 +152,16 @@ func applyConfig(t *testing.T, override func(rc *config.RuntimeConfig)) {
 	if err := config.PreprocessPackageRefs(&rc.Config); err != nil {
 		t.Fatalf("failed to preprocess trusted packages: %v", err)
 	}
+}
+
+func writePolicy(t *testing.T, dir string, policy *specv1.ResolvedPolicy) {
+	t.Helper()
+	machineID, err := cloudpolicytest.MachineID(policyEndpointID)
+	require.NoError(t, err)
+	require.NoError(t, cloudpolicytest.Write(dir, policy, cloudpolicytest.Header{
+		Tenant:                "proxye2e.acme.safedep.io",
+		MachineID:             machineID,
+		Revision:              48,
+		DefaultPolicyRevision: 12,
+	}))
 }

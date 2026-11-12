@@ -1,0 +1,26 @@
+# guarantee: with PMG_STATE_DIR set, pmg writes its event log, the proxy log
+# and the proxy state file under that directory, not under the config or
+# cache directory.
+
+[windows] skip 'pmg proxy start --daemon is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home $WORK/config $WORK/cache $WORK/state
+env PMG_CONFIG_DIR=$WORK/config
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_STATE_DIR=$WORK/state
+
+exec pmg version
+exists $WORK/state/logs
+! exists $WORK/config/logs
+
+exec pmg proxy start --daemon --port 0
+exists $WORK/state/proxy-state.json
+exists $WORK/state/proxy.log
+! exists $WORK/cache/proxy-state.json
+! exists $WORK/cache/proxy.log
+exec pmg proxy status
+stdout 'PMG proxy: running'
+exec pmg proxy stop
+! exists $WORK/state/proxy-state.json
+! exists $WORK/config/logs

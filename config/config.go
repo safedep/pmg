@@ -41,6 +41,10 @@ const (
 	// Allow overriding the cache path from the environment
 	pmgCacheDirEnvKey = "PMG_CACHE_DIR"
 
+	// PMG_STATE_DIR moves the files PMG writes at run time out of the config
+	// and cache directories. Unset, every file stays where it was.
+	pmgStateDirEnvKey = "PMG_STATE_DIR"
+
 	// Config path is computed as the user config directory + the default relative path
 	// when not overridden by the environment variable
 	pmgDefaultHomeRelativePath = "safedep/pmg"
@@ -477,6 +481,7 @@ type RuntimeConfig struct {
 	sandboxViolationCacheDir string
 	localDBDir               string
 	cacheDir                 string
+	stateDir                 string
 	viper                    *viper.Viper
 
 	// cloudKeys are the keys that the cloud policy set. See SetCloudKeys.
@@ -485,37 +490,37 @@ type RuntimeConfig struct {
 
 // CloudSyncDBPath returns the path to the cloud sync WAL database.
 func (r *RuntimeConfig) CloudSyncDBPath() string {
-	return filepath.Join(r.configDir, "cloud-sync.db")
+	return filepath.Join(r.StateDir(), "cloud-sync.db")
 }
 
 // CloudSyncLockPath returns the path to the cross-process lock file that
 // serializes manual `pmg cloud sync` and the auto-sync background child.
 func (r *RuntimeConfig) CloudSyncLockPath() string {
-	return filepath.Join(r.configDir, "cloud-sync.lock")
+	return filepath.Join(r.StateDir(), "cloud-sync.lock")
 }
 
 // CloudSyncLastRunPath returns the path to the timestamp file recording the
 // last sync attempt (success or failure) in Unix epoch seconds.
 func (r *RuntimeConfig) CloudSyncLastRunPath() string {
-	return filepath.Join(r.configDir, "cloud-sync.lastrun")
+	return filepath.Join(r.StateDir(), "cloud-sync.lastrun")
 }
 
 // CloudCheckInLastRunPath returns the path to the timestamp file recording
 // the last check-in attempt (success or failure) in Unix epoch seconds.
 func (r *RuntimeConfig) CloudCheckInLastRunPath() string {
-	return filepath.Join(r.configDir, "cloud-checkin.lastrun")
+	return filepath.Join(r.StateDir(), "cloud-checkin.lastrun")
 }
 
 // CloudPolicyCacheDir returns the folder of the cloud policy cache. It is in
-// the config folder, because the OS can purge a cache folder.
+// the state folder, because the OS can purge a cache folder.
 func (r *RuntimeConfig) CloudPolicyCacheDir() string {
-	return filepath.Join(r.configDir, "cloud-policy")
+	return filepath.Join(r.StateDir(), "cloud-policy")
 }
 
 // CloudPolicyLastRunPath returns the path of the timestamp file of the last
 // policy fetch attempt, in Unix epoch seconds.
 func (r *RuntimeConfig) CloudPolicyLastRunPath() string {
-	return filepath.Join(r.configDir, "cloud-policy.lastrun")
+	return filepath.Join(r.StateDir(), "cloud-policy.lastrun")
 }
 
 // CloudPolicyEnabled reports whether PMG applies the cloud policy:
@@ -629,6 +634,30 @@ func (r *RuntimeConfig) EventLogDir() string {
 // ConfigDir returns the path to the config directory.
 func (r *RuntimeConfig) ConfigDir() string {
 	return r.configDir
+}
+
+// StateDir returns the directory of the cloud sync and policy files: the
+// PMG_STATE_DIR directory, else the config directory.
+func (r *RuntimeConfig) StateDir() string {
+	if r.stateDir != "" {
+		return r.stateDir
+	}
+	return r.configDir
+}
+
+// StateDirOverridden reports whether PMG_STATE_DIR selected the state
+// directory.
+func (r *RuntimeConfig) StateDirOverridden() bool {
+	return r.stateDir != ""
+}
+
+// ProxyStateDir returns the directory of the proxy state file and the daemon
+// log: the PMG_STATE_DIR directory, else the cache directory.
+func (r *RuntimeConfig) ProxyStateDir() string {
+	if r.stateDir != "" {
+		return r.stateDir
+	}
+	return r.cacheDir
 }
 
 // SandboxProfileDir returns the path to the user sandbox profile directory.
@@ -834,11 +863,16 @@ func (r *RuntimeConfig) resolvePaths() error {
 		r.localDBDir = filepath.Join(cacheDir, pmgDefaultLocalDBDir)
 	}
 
+	r.stateDir = os.Getenv(pmgStateDirEnvKey)
+
 	// Where the config directory roams with the profile, the logs go beside
 	// the data instead: https://github.com/safedep/pmg/pull/82#discussion_r2636746036
 	// PMG_CONFIG_DIR names no roaming directory, so the logs stay under it.
 	logBaseDir, logErr := configDir, configErr
-	if platform.UserConfigDirRoams && os.Getenv(pmgConfigDirEnvKey) == "" {
+	switch {
+	case r.stateDir != "":
+		logBaseDir, logErr = r.stateDir, nil
+	case platform.UserConfigDirRoams && os.Getenv(pmgConfigDirEnvKey) == "":
 		logBaseDir, logErr = UserDataDir()
 	}
 	if logErr == nil {
@@ -1054,6 +1088,8 @@ type unwritableDirCause int
 const (
 	// causeExplicitConfigDir: PMG_CONFIG_DIR selected the directory.
 	causeExplicitConfigDir unwritableDirCause = iota
+	// causeExplicitStateDir: PMG_STATE_DIR selected the directory.
+	causeExplicitStateDir
 	// causeLeakedHomeEnv: the directory is outside the current user's passwd
 	// home, so HOME or XDG_CONFIG_HOME leaked from another account (e.g.
 	// sudo -u on hosts that preserve the environment).
@@ -1064,6 +1100,9 @@ const (
 )
 
 func classifyUnwritableDir(dir string) unwritableDirCause {
+	if stateDir := os.Getenv(pmgStateDirEnvKey); stateDir != "" && filepath.Clean(dir) == filepath.Clean(stateDir) {
+		return causeExplicitStateDir
+	}
 	if os.Getenv(pmgConfigDirEnvKey) != "" {
 		return causeExplicitConfigDir
 	}
@@ -1085,6 +1124,9 @@ func UnwritableConfigDirRemedy(dir string) (help, fix string) {
 	case causeExplicitConfigDir:
 		return fmt.Sprintf("PMG_CONFIG_DIR points at %s; make it writable by your user", dir),
 			"Make PMG_CONFIG_DIR writable"
+	case causeExplicitStateDir:
+		return fmt.Sprintf("PMG_STATE_DIR points at %s. Make it writable by your user", dir),
+			"Make PMG_STATE_DIR writable"
 	case causeLeakedHomeEnv:
 		return platform.LeakedConfigDirRemedy(dir)
 	default:

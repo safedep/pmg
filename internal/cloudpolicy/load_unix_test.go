@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,11 +17,13 @@ func TestCacheDirsUnderSudo(t *testing.T) {
 	cfg := newTestConfig(t)
 	invoking, err := user.Current()
 	require.NoError(t, err)
+	stateDir := filepath.Join(t.TempDir(), "state")
 
 	tests := []struct {
 		name       string
 		privileged bool
 		sudoUser   string
+		stateDir   string
 		want       []string
 	}{
 		{
@@ -42,6 +45,16 @@ func TestCacheDirsUnderSudo(t *testing.T) {
 			},
 		},
 		{
+			name:       "sudo with PMG_STATE_DIR reads the state directory first",
+			privileged: true,
+			sudoUser:   invoking.Username,
+			stateDir:   stateDir,
+			want: []string{
+				filepath.Join(stateDir, "cloud-policy"),
+				filepath.Join(platform.HomeDirs(invoking.HomeDir).Config, "safedep", "pmg", "cloud-policy"),
+			},
+		},
+		{
 			name:       "an unknown sudo user reads its own cache",
 			privileged: true,
 			sudoUser:   "no-such-user-of-pmg",
@@ -55,8 +68,10 @@ func TestCacheDirsUnderSudo(t *testing.T) {
 			t.Cleanup(func() { platform.IsPrivileged = orig })
 			platform.IsPrivileged = func() bool { return tt.privileged }
 			t.Setenv("SUDO_USER", tt.sudoUser)
+			t.Setenv("PMG_STATE_DIR", tt.stateDir)
+			config.Reload()
 
-			assert.Equal(t, tt.want, cacheDirs(cfg))
+			assert.Equal(t, tt.want, cacheDirs(config.Get()))
 		})
 	}
 }

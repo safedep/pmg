@@ -486,6 +486,12 @@
   tier: P2
   guarantee: "pmg config reports the effective merged configuration."
   labels: [config, offline]
+- id: config/state-dir/holds-run-time-files
+  title: "PMG_STATE_DIR holds the files pmg writes at run time"
+  category: config
+  tier: P1
+  guarantee: "With PMG_STATE_DIR set, pmg writes its event log, the proxy log and the proxy state file under that directory, not under the config or cache directory."
+  labels: [config, offline]
 
 # version
 - id: version/reports-build-metadata

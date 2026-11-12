@@ -36,7 +36,7 @@ func newStartCommand() *cobra.Command {
 	cmd.Flags().BoolVarP(&daemonFlag, "daemon", "D", false, "Run the proxy as a detached background process")
 	cmd.Flags().StringVar(&srv.ListenHost, "host", srv.ListenHost, "Host to bind")
 	cmd.Flags().IntVar(&srv.ListenPort, "port", srv.ListenPort, "Port to bind (0 = a random free port)")
-	cmd.Flags().StringVar(&logFileFlag, "log-file", "", "File for the daemon's output (default: <cache-dir>/proxy.log)")
+	cmd.Flags().StringVar(&logFileFlag, "log-file", "", "File for the daemon's output (default: <cache-dir>/proxy.log, or $PMG_STATE_DIR/proxy.log)")
 	cmd.Flags().BoolVar(&srv.Enforce.Enabled, flagEnforce, srv.Enforce.Enabled,
 		"Route every eligible process through the proxy in the kernel (Linux, root). See proxy.server.enforce in the config")
 	cmd.Flags().BoolVar(&foregroundInternalFlag, "foreground-internal", false, "Internal: run the foreground server (used by --daemon)")
@@ -52,7 +52,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	cfg := config.Get()
 	absoluteProfileFlag(cmd.Flags(), &cfg.Config.Proxy.Server)
 	opts := proxyserver.RunOptions{
-		StatePath: proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir()),
+		StatePath: proxyserver.ResolveStatePath(stateFlag, cfg.ProxyStateDir()),
 		Host:      cfg.Config.Proxy.Server.ListenHost,
 		Port:      cfg.Config.Proxy.Server.ListenPort,
 		Enforce:   cfg.Config.Proxy.Server.Enforce.Enabled,
@@ -118,11 +118,11 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, opts proxyserver
 		return fmt.Errorf("resolve executable: %w", err)
 	}
 
-	// Daemon log: the --log-file flag if set, else <cache-dir>/proxy.log. The
+	// Daemon log: the --log-file flag if set, else proxy.log in ProxyStateDir. The
 	// caller owns this path, so ensure its parent directory exists here.
 	logPath := logFileFlag
 	if logPath == "" {
-		logPath = filepath.Join(cfg.CacheDir(), "proxy.log")
+		logPath = filepath.Join(cfg.ProxyStateDir(), "proxy.log")
 	}
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return fmt.Errorf("create daemon log dir: %w", err)

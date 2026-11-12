@@ -80,9 +80,9 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	if !cfg.Config.Cloud.Enabled {
 		return
 	}
-	// The cooldown file lives in the config directory. Without one, its path
+	// The cooldown file lives in the state directory. Without one, its path
 	// would resolve against the working directory.
-	if cfg.ConfigDir() == "" {
+	if cfg.StateDir() == "" {
 		return
 	}
 

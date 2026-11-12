@@ -139,10 +139,11 @@ The report can also contain `network`, `cloud_sync` and `violation`.
 cannot read the state. Read its output, not its exit code.
 
 The default state file is `<cache-dir>/proxy-state.json`. A detached proxy
-writes its output to `<cache-dir>/proxy.log`. `--state`, and `--log-file` on
+writes its output to `<cache-dir>/proxy.log`. When `PMG_STATE_DIR` is set,
+both files are in that directory instead. `--state`, and `--log-file` on
 start, change these paths. Run env, status and stop as the same user and
 with the same state path. Root uses root's cache directory unless
-`PMG_CACHE_DIR` changes it. For diagnostics, run `pmg --debug proxy start`
+`PMG_STATE_DIR` or `PMG_CACHE_DIR` changes it. For diagnostics, run `pmg --debug proxy start`
 in the foreground, or `pmg --debug --log pmg-debug.log proxy start --daemon`.
 The [event log](proxy-mode.md#troubleshooting) of that user records each
 blocked package.
@@ -426,7 +427,7 @@ take a daemon from no policy to `enforce`.
    ```
 
    After a root daemon run, run the proposal with sudo. When the daemon used
-   a `PMG_CONFIG_DIR`, give the proposal the same one. Start the daemon in
+   a `PMG_CONFIG_DIR` or a `PMG_STATE_DIR`, give the proposal the same one. Start the daemon in
    the checkout, so that `--last` and `--since` find its run. `--run` with
    the run id always finds it.
 

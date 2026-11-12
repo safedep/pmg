@@ -295,6 +295,7 @@ A long-running proxy keeps writing to that file after midnight.
 The default directory is `<effective-user-config-dir>/logs`.
 On Windows it is `%LOCALAPPDATA%\safedep\pmg\logs`.
 `PMG_CONFIG_DIR` also relocates logs when set.
+`PMG_STATE_DIR` relocates them to `$PMG_STATE_DIR/logs`, and it has priority over `PMG_CONFIG_DIR`.
 The hostname is in `details.hostname`.
 For example, with `jq` and the appropriate log directory, run the following command.
 

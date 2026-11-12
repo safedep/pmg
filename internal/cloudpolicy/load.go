@@ -3,8 +3,6 @@ package cloudpolicy
 import (
 	"errors"
 	"fmt"
-	"os"
-	"os/user"
 	"path/filepath"
 	"time"
 
@@ -200,7 +198,7 @@ func Load(cfg *config.RuntimeConfig, tenant string) *Status {
 
 	switch {
 	case !cfg.CloudPolicyEnabled():
-	case cfg.ConfigDir() == "":
+	case cfg.StateDir() == "":
 		st.State = recordv1.ApplyState_APPLY_STATE_NONE
 		st.LoadErr = errNoConfigDir
 	default:
@@ -364,24 +362,29 @@ func machineID(cfg *config.RuntimeConfig) (string, error) {
 	return endpoint.GetMachineId(), nil
 }
 
-// cacheDirs returns the cache folders that pmg reads, in order. Under sudo,
-// pmg reads the cache of the invoking user first, read-only, because root
-// usually has no cloud login and its own cache stays empty. Then it reads
-// its own cache.
+// cacheDirs returns the cache folders that pmg reads, in order. The first
+// cache that loads wins. Under sudo, pmg also reads the cache of the invoking
+// user, read-only, because root usually has no cloud login and its own cache
+// stays empty. Without PMG_STATE_DIR, that cache comes first. With
+// PMG_STATE_DIR, the state directory cache comes first, because the default
+// cache of the invoking user can hold an old policy that nothing updates.
 func cacheDirs(cfg *config.RuntimeConfig) []string {
 	own := cfg.CloudPolicyCacheDir()
 	if !platform.IsSudo() {
 		return []string{own}
 	}
 
-	invoking, err := user.Lookup(os.Getenv("SUDO_USER"))
-	if err != nil || invoking.HomeDir == "" {
+	home, err := platform.SudoUserHomeDir()
+	if err != nil {
 		log.Debugf("cloud policy: cannot find the home of the sudo user: %v", err)
 		return []string{own}
 	}
-	dir := filepath.Join(platform.HomeDirs(invoking.HomeDir).Config, "safedep", "pmg", "cloud-policy")
+	dir := filepath.Join(platform.HomeDirs(home).Config, "safedep", "pmg", "cloud-policy")
 	if dir == own {
 		return []string{own}
+	}
+	if cfg.StateDirOverridden() {
+		return []string{own, dir}
 	}
 	return []string{dir, own}
 }
