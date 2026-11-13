@@ -20,21 +20,52 @@ const enforceInputs = ['enforce-ports', 'enforce-exempt-users', 'enforce-exempt-
 // daemon on it, and the failed-start stop reads it.
 const rootStatePath = () => path.join(process.env.RUNNER_TEMP || '', 'pmg-proxy-state.json');
 
-// exportStateDirs puts PMG's per-job state (config and cache) under
+// jobStateLayout names the per-job directories under RUNNER_TEMP. Tests use
+// daemonStateLayout to check that the root daemon uses other paths.
+function jobStateLayout(runnerTemp) {
+  const base = path.join(runnerTemp, 'pmg');
+  return {
+    configDir: path.join(base, 'config'),
+    cacheDir: path.join(base, 'cache'),
+    stateDir: path.join(base, 'state'),
+  };
+}
+
+function daemonStateLayout(runnerTemp) {
+  return {
+    stateDir: path.join(runnerTemp, 'pmg-daemon-state'),
+    cacheDir: path.join(runnerTemp, 'pmg-daemon-cache'),
+  };
+}
+
+// exportStateDirs puts PMG's per-job state (config, cache and state) under
 // RUNNER_TEMP/pmg so two jobs on one self-hosted runner, or a crashed
 // job and its successor, do not share proxy state, config or the cloud
 // sync queue. The directories are exported through GITHUB_ENV.
 function exportStateDirs() {
-  const base = path.join(process.env.RUNNER_TEMP || '', 'pmg');
-  const configDir = path.join(base, 'config');
-  const cacheDir = path.join(base, 'cache');
+  const { configDir, cacheDir, stateDir } = jobStateLayout(process.env.RUNNER_TEMP || '');
   fs.mkdirSync(configDir, { recursive: true });
   fs.mkdirSync(cacheDir, { recursive: true });
+  fs.mkdirSync(stateDir, { recursive: true });
   process.env.PMG_CONFIG_DIR = configDir;
   process.env.PMG_CACHE_DIR = cacheDir;
+  process.env.PMG_STATE_DIR = stateDir;
   lib.appendFile('GITHUB_ENV', `PMG_CONFIG_DIR=${configDir}`);
   lib.appendFile('GITHUB_ENV', `PMG_CACHE_DIR=${cacheDir}`);
-  return { configDir, cacheDir };
+  lib.appendFile('GITHUB_ENV', `PMG_STATE_DIR=${stateDir}`);
+  return { configDir, cacheDir, stateDir };
+}
+
+function enforcedDaemonPMGOpts(enforce) {
+  if (!enforce) {
+    return { sudo: false };
+  }
+  return {
+    sudo: true,
+    configDir: process.env.PMG_PROXY_CONFIG_DIR || '',
+    stateDir: process.env.PMG_PROXY_STATE_DIR || '',
+    cacheDir: process.env.PMG_PROXY_CACHE_DIR || '',
+  };
 }
 function main() {
   if (process.env.RUNNER_OS !== 'Linux') {
@@ -210,7 +241,7 @@ function startProxy(binDir, profile, enforceInput, jobContainer) {
       lib.warning(`PMG could not start kernel enforcement, so it runs the proxy without it: ${cause} Set enforce to true to fail the job instead.`);
       // enforce.sh exports the root daemon's state path before it starts
       // the daemon. A later step and the saved state must not use it.
-      for (const name of ['PMG_PROXY_STATE', 'PMG_PROXY_CONFIG_DIR']) {
+      for (const name of ['PMG_PROXY_STATE', 'PMG_PROXY_CONFIG_DIR', 'PMG_PROXY_STATE_DIR', 'PMG_PROXY_CACHE_DIR']) {
         lib.appendFile('GITHUB_ENV', `${name}=`);
         delete process.env[name];
       }
@@ -265,7 +296,7 @@ function stopAfterFailedStart(binDir, enforce) {
   }
   let status;
   try {
-    status = lib.runPMG(path.join(binDir, 'pmg'), args, { sudo: enforce, configDir: process.env.PMG_PROXY_CONFIG_DIR || '' }).status;
+    status = lib.runPMG(path.join(binDir, 'pmg'), args, { ...enforcedDaemonPMGOpts(enforce) }).status;
   } catch (err) {
     lib.warning(`PMG could not stop the proxy after the start failed: ${err.message}`);
     return;
@@ -286,6 +317,8 @@ function saveProxyState(binDir, enforce, result) {
   lib.saveState('enforce', String(enforce));
   lib.saveState('state', process.env.PMG_PROXY_STATE || '');
   lib.saveState('config_dir', process.env.PMG_PROXY_CONFIG_DIR || '');
+  lib.saveState('state_dir', process.env.PMG_PROXY_STATE_DIR || '');
+  lib.saveState('cache_dir', process.env.PMG_PROXY_CACHE_DIR || '');
   lib.saveState('run', process.env.PMG_PROXY_RUN || '');
   lib.saveState('proxy_vars', [...new Set(proxyVars)].join(','));
   lib.saveState('pid', daemonPID(path.join(binDir, 'pmg'), enforce, process.env.PMG_PROXY_STATE || ''));
@@ -299,7 +332,7 @@ function daemonPID(bin, enforce, statePath) {
   if (statePath !== '') {
     args.push('--state', statePath);
   }
-  const res = lib.runPMG(bin, args, { sudo: enforce, configDir: process.env.PMG_PROXY_CONFIG_DIR || '', capture: 'all' });
+  const res = lib.runPMG(bin, args, { ...enforcedDaemonPMGOpts(enforce), capture: 'all' });
   const match = /running \(pid (\d+)/.exec(res.stdout || '');
   return match ? match[1] : '';
 }
@@ -347,4 +380,13 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkInputs, enforceMode, exportStateDirs, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };
+module.exports = {
+  checkInputs,
+  daemonStateLayout,
+  enforceMode,
+  exportStateDirs,
+  jobStateLayout,
+  refuseSecondProxy,
+  resolveServerMode,
+  runnerCannotEnforce,
+};
