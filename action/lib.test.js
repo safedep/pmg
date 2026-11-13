@@ -50,6 +50,13 @@ test('lastLines keeps the cause and drops colors and workflow commands', () => {
   assert.strictEqual(lib.lastLines(stderr, 2), 'InvalidArgument  bad prefix → fix the CIDR');
 });
 
+test('sudoPMGPreserveEnv keeps the job and daemon directory variables', () => {
+  assert.strictEqual(
+    lib.sudoPMGPreserveEnv,
+    'PMG_CONFIG_DIR,PMG_STATE_DIR,PMG_CACHE_DIR,GITHUB_ACTIONS',
+  );
+});
+
 test('errorCodes reads the code of each pmg error line', () => {
   const stderr = '✓ CA already installed\n\x1b[41m EnforceRequirements \x1b[0m  this host cannot enforce\n → load the BTF\n';
   assert.deepStrictEqual(lib.errorCodes(stderr), ['EnforceRequirements']);
