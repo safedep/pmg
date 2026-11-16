@@ -245,6 +245,13 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		}, nil
 	}
 
+	// `uv python` installs interpreter builds. Those builds are not PyPI packages.
+	// `install` in that command must not query PyPI.
+	// The words pip, tool and add mark a package install. The parser still resolves those packages.
+	if uvArgsArePythonToolchain(args) {
+		return &ParsedCommand{Command: command}, nil
+	}
+
 	// Find the install command position
 	var installCmdIndex = -1
 	for idx, arg := range args {
@@ -317,6 +324,21 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
 	}, nil
+}
+
+// uvArgsArePythonToolchain reports a uv python command.
+// It returns false when pip, tool or add is present so those installs still resolve packages.
+func uvArgsArePythonToolchain(args []string) bool {
+	hasPython := false
+	for _, arg := range args {
+		switch arg {
+		case "pip", "tool", "add":
+			return false
+		case "python":
+			hasPython = true
+		}
+	}
+	return hasPython
 }
 
 type poetryCommandParser struct {

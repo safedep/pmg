@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPipParsePackageInfo(t *testing.T) {
@@ -722,6 +723,62 @@ func TestUvParseCommand(t *testing.T) {
 			expectedPackages: []string{},
 			wantErr:          false,
 		},
+		{
+			name:             "uv python install version request",
+			args:             []string{"python", "install", "3.14"},
+			expectedManifest: false,
+			expectedTargets:  0,
+			expectedPackages: []string{},
+			wantErr:          false,
+		},
+		{
+			name:             "uv python install cpython request",
+			args:             []string{"python", "install", "cpython"},
+			expectedManifest: false,
+			expectedTargets:  0,
+			expectedPackages: []string{},
+			wantErr:          false,
+		},
+		{
+			name:             "uv python install pypy request",
+			args:             []string{"python", "install", "pypy"},
+			expectedManifest: false,
+			expectedTargets:  0,
+			expectedPackages: []string{},
+			wantErr:          false,
+		},
+		{
+			name:             "uv prefix on python install",
+			args:             []string{"uv", "python", "install", "3.14"},
+			expectedManifest: false,
+			expectedTargets:  0,
+			expectedPackages: []string{},
+			wantErr:          false,
+		},
+		{
+			name:             "uv python install with global flag",
+			args:             []string{"--directory", "/tmp", "python", "install", "3.14"},
+			expectedManifest: false,
+			expectedTargets:  0,
+			expectedPackages: []string{},
+			wantErr:          false,
+		},
+		{
+			name:             "uv tool install still resolves the package",
+			args:             []string{"tool", "install", "flask"},
+			expectedManifest: false,
+			expectedTargets:  1,
+			expectedPackages: []string{"flask"},
+			wantErr:          false,
+		},
+		{
+			name:             "directory named python does not hide pip install",
+			args:             []string{"--directory", "python", "pip", "install", "flask"},
+			expectedManifest: false,
+			expectedTargets:  1,
+			expectedPackages: []string{"flask"},
+			wantErr:          false,
+		},
 	}
 
 	for _, tc := range cases {
@@ -731,7 +788,7 @@ func TestUvParseCommand(t *testing.T) {
 				assert.Error(t, err)
 				return
 			}
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			assert.Equal(t, tc.expectedManifest, result.HasManifestInstall(), "HasManifestInstall mismatch")
 
