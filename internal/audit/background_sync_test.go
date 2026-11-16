@@ -2,6 +2,7 @@ package audit
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -56,6 +57,7 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 	// Make sure no PMG_DISABLE_TELEMETRY leak from the host environment can
 	// fool the analytics short-circuit in MaybeSpawnBackgroundSync.
 	t.Setenv("PMG_DISABLE_TELEMETRY", "false")
+	t.Setenv(backgroundSyncChildEnv, "")
 
 	// Re-init the config so configDir picks up the tmpDir we just set.
 	// Without this, cfg.CloudSyncLastRunPath() points at the user's real
@@ -134,12 +136,43 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 		rec := withMockSpawner(t)
 		cfg := newAutoSyncConfig(t)
 
-		t.Cleanup(func() { isBackgroundSyncChild = false })
-		MarkBackgroundSyncChild()
+		t.Setenv(backgroundSyncChildEnv, "1")
 
 		MaybeSpawnBackgroundSync(cfg)
 		assert.Equal(t, 0, rec.callCount())
 	})
+}
+
+// spawnEnvOutEnv names the file where the helper child writes the mark that
+// it got from spawnDetachedExec.
+const spawnEnvOutEnv = "PMG_TEST_SPAWN_ENV_OUT"
+
+func TestSpawnDetachedExecMarksTheChild(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "child-env")
+	t.Setenv(spawnEnvOutEnv, out)
+	t.Setenv(backgroundSyncChildEnv, "")
+
+	require.NoError(t, spawnDetachedExec(os.Args[0], "-test.run=^TestSpawnDetachedExecHelper$"))
+
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(out)
+		return err == nil
+	}, 10*time.Second, 50*time.Millisecond)
+	got, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Equal(t, "1", string(got))
+}
+
+// TestSpawnDetachedExecHelper is the child of TestSpawnDetachedExecMarksTheChild.
+// It does nothing in a normal test run.
+func TestSpawnDetachedExecHelper(t *testing.T) {
+	out := os.Getenv(spawnEnvOutEnv)
+	if out == "" {
+		return
+	}
+	tmp := out + ".tmp"
+	require.NoError(t, os.WriteFile(tmp, []byte(os.Getenv(backgroundSyncChildEnv)), 0o600))
+	require.NoError(t, os.Rename(tmp, out))
 }
 
 func TestMaybeSpawnBackgroundSyncRespectsCooldown(t *testing.T) {
