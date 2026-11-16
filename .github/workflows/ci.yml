@@ -26,13 +26,24 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up PMG
+        uses: $/.github/actions/setup-pmg
+        with:
+          api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
+          tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
+          network-profile: .github/pmg/network/ci-run-test.yml
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
+      # setup-pmg exports the cloud settings of the PMG of this job. The
+      # config tests read PMG_* variables, and they fail with these values.
+      # The proxy keeps its own copy, so the unset does not change it.
       - name: Build and Test
         run: |
+          unset SAFEDEP_API_KEY SAFEDEP_TENANT_ID PMG_CLOUD_ENABLED PMG_CLOUD_AUTO_SYNC_ENABLED PMG_CLOUD_ENDPOINT_ID
           go mod tidy
           go build
           go test -coverprofile=coverage.txt -v ./...
@@ -54,6 +65,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Set up PMG
+        uses: $/.github/actions/setup-pmg
+        with:
+          api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
+          tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
+          network-profile: .github/pmg/network/ci-bpf-object.yml
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -171,6 +189,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Set up PMG
+        uses: $/.github/actions/setup-pmg
+        with:
+          api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
+          tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
+          network-profile: .github/pmg/network/ci-goreleaser-test.yml
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
@@ -336,15 +361,28 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up PMG
+        uses: $/.github/actions/setup-pmg
+        with:
+          api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
+          tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
+          # The RUN steps of the image build go through PMG too. See the
+          # Dockerfile.
+          enforce-namespaces: redirect
+          network-profile: .github/pmg/network/ci-build-container-test.yml
+
       - name: Setup QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # PMG decrypts proxy.golang.org, so the Go module download in the image
+      # needs the PMG CA. The secret keeps the CA out of the image.
       - name: Build Container Image
         run: |
           docker buildx build --platform linux/amd64 --load \
+          --secret id=pmg-ca,src="$PMG_CA_BUNDLE" \
           -t build-container-test:latest .
 
   release-preflight:
