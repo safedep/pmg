@@ -360,6 +360,8 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy, rt *
 	sb.WriteString("  (sysctl-name \"machdep.ptrauth_enabled\")\n")
 	// Security info
 	sb.WriteString("  (sysctl-name \"security.mac.lockdown_mode_state\")\n")
+	// Keychain ACL persistence uses _amkrtemp, which reads this sentinel.
+	sb.WriteString("  (sysctl-name \"security.mac.sandbox.sentinel\")\n")
 	// Other
 	sb.WriteString("  (sysctl-name \"sysctl.proc_cputype\")\n")
 	sb.WriteString("  (sysctl-name \"vm.loadavg\")\n")
