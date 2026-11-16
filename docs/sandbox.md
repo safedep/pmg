@@ -182,11 +182,15 @@ to lift that restriction for pmg.
 - On Ubuntu 24.04+, or on 23.10 with the restriction turned on, an AppArmor profile granting pmg unprivileged user namespaces. See
   [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
 
-On macOS, the sandbox allows the `security.mac.sandbox.sentinel` read used by
-the Keychain's atomic rewrite helper when persisting an access approval.
-This does not grant filesystem write access to Keychain databases or bypass
-Keychain item access controls.
-A Keychain save also requires a user write rule for `~/Library/Keychains`; PMG does not add it by default.
+On macOS, the sandbox lets a program read the `security.mac.sandbox.sentinel`
+setting. The Keychain reads this setting when it saves an access approval.
+This rule does not let a program write to the Keychain files. It does not
+change the access rules of Keychain items.
+
+To save to the Keychain, a program also needs write access to
+`~/Library/Keychains`. PMG does not give this access by default. Apply the
+[`macos-keychain` preset](sandbox-presets.md) to give it to a tool that
+stores its own credentials in the Keychain.
 
 <details>
 <summary>Bubblewrap Installation on Linux</summary>
