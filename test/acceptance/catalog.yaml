@@ -287,6 +287,12 @@
   tier: P0
   guarantee: "Under `pmg sandbox exec`, a write or a rename onto an agent hook configuration file fails, and the directory that holds it cannot be moved aside, even with the agent preset applied."
   labels: [sandbox, exec, block, agent]
+- id: sandbox/exec/keychain-preset-allows-save
+  title: "the macos-keychain preset lets a tool save to a keychain"
+  category: sandbox
+  tier: P1
+  guarantee: "On macOS, under `pmg sandbox exec`, a save to a keychain under ~/Library/Keychains fails by default and succeeds with `--sandbox-allow preset=macos-keychain`."
+  labels: [sandbox, exec, allow, macos]
 - id: sandbox/exec/scrubs-model-api-key
   title: "sandbox exec scrubs model API keys unless a preset re-allows them"
   category: sandbox
