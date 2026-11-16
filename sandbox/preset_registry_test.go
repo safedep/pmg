@@ -37,6 +37,7 @@ func TestPresetRegistryBuiltins(t *testing.T) {
 		assert.Contains(t, names, "vite")
 		assert.Contains(t, names, "nextjs")
 		assert.Contains(t, names, "asdf")
+		assert.Contains(t, names, "macos-keychain")
 	})
 
 	t.Run("agent presets allow the agent's own hosts", func(t *testing.T) {

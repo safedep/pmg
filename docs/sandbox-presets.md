@@ -97,6 +97,7 @@ PMG skips invalid user preset files, which can then appear missing.
 | `codex`    | Codex CLI under `pmg sandbox exec`                         |
 | `pi`       | Pi agent under `pmg sandbox exec`                          |
 | `pip-user` | `pip install --user` and the pip fallback to the user site |
+| `macos-keychain` | Saves to the macOS login keychain by a tool under `pmg sandbox exec` |
 
 ## Creating your own preset
 

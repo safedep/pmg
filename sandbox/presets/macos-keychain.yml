@@ -1,0 +1,25 @@
+schema_version: 1
+kind: preset
+name: macos-keychain
+description: Saves to the macOS login keychain, for tools that store their own credentials there
+
+metadata:
+  author: SafeDep
+  labels: [macos, keychain, credentials, agent]
+
+# Threat notes:
+# - A program that saves a Keychain item writes the login keychain file in
+#   its own process. The Keychain writes a new copy of the file next to the
+#   old one and renames it. So the program needs write access to
+#   ~/Library/Keychains, and the default profiles do not give it.
+# - The same rule lets the program delete or overwrite the keychain files,
+#   or put a keychain file of its own in their place. It cannot read the
+#   secrets in the files, because the Keychain encrypts them. The access
+#   control of each Keychain item still applies.
+# - Apply this preset only to a tool that stores its own credentials in the
+#   Keychain, such as `pmg sandbox exec -- claude` on macOS. Do not apply it
+#   to a package install.
+# - On Linux the path does not exist, and the rule has no effect.
+filesystem:
+  allow_write:
+    - ${HOME}/Library/Keychains/**
