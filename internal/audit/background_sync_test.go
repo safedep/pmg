@@ -2,6 +2,7 @@ package audit
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -142,10 +143,36 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 	})
 }
 
-func TestBackgroundSyncCommandMarksTheChild(t *testing.T) {
-	cmd := backgroundSyncCommand("pmg", "cloud", SyncBackgroundSubcommand)
+// spawnEnvOutEnv names the file where the helper child writes the mark that
+// it got from spawnDetachedExec.
+const spawnEnvOutEnv = "PMG_TEST_SPAWN_ENV_OUT"
 
-	assert.Contains(t, cmd.Env, backgroundSyncChildEnv+"=1")
+func TestSpawnDetachedExecMarksTheChild(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "child-env")
+	t.Setenv(spawnEnvOutEnv, out)
+	t.Setenv(backgroundSyncChildEnv, "")
+
+	require.NoError(t, spawnDetachedExec(os.Args[0], "-test.run=^TestSpawnDetachedExecHelper$"))
+
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(out)
+		return err == nil
+	}, 10*time.Second, 50*time.Millisecond)
+	got, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Equal(t, "1", string(got))
+}
+
+// TestSpawnDetachedExecHelper is the child of TestSpawnDetachedExecMarksTheChild.
+// It does nothing in a normal test run.
+func TestSpawnDetachedExecHelper(t *testing.T) {
+	out := os.Getenv(spawnEnvOutEnv)
+	if out == "" {
+		return
+	}
+	tmp := out + ".tmp"
+	require.NoError(t, os.WriteFile(tmp, []byte(os.Getenv(backgroundSyncChildEnv)), 0o600))
+	require.NoError(t, os.Rename(tmp, out))
 }
 
 func TestMaybeSpawnBackgroundSyncRespectsCooldown(t *testing.T) {

@@ -105,14 +105,6 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	}
 }
 
-// backgroundSyncCommand returns the command of the detached child, with the
-// mark that stops the child from spawning a child of its own.
-func backgroundSyncCommand(name string, args ...string) *exec.Cmd {
-	cmd := exec.Command(name, args...)
-	cmd.Env = append(os.Environ(), backgroundSyncChildEnv+"=1")
-	return cmd
-}
-
 // spawnDetachedExec is the production implementation of detachedSpawner. It
 // redirects stdio to /dev/null, applies platform-specific detach attributes,
 // and starts the child without waiting on it.
@@ -129,7 +121,8 @@ func spawnDetachedExec(name string, args ...string) error {
 		}
 	}()
 
-	cmd := backgroundSyncCommand(name, args...)
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), backgroundSyncChildEnv+"=1")
 	cmd.Stdin = devNull
 	cmd.Stdout = devNull
 	cmd.Stderr = devNull
