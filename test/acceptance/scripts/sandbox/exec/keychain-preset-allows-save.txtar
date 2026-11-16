@@ -1,0 +1,29 @@
+# guarantee: under `pmg sandbox exec`, a tool saves an item to a keychain
+# under ~/Library/Keychains only with the macos-keychain preset. Without the
+# preset, the exec profile gives no write access there, and the save fails.
+#
+# The keychain is a new file under $WORK/home, not the login keychain of the
+# runner. HOME points there, so ${HOME} in the preset resolves to it. The
+# project directory is apart from HOME, because the exec profile allows
+# writes under the current directory.
+
+[!darwin] skip 'the Keychain exists only on macOS'
+
+env HOME=$WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env KC=$WORK/home/Library/Keychains/pmg-acceptance.keychain-db
+mkdir $WORK/home/Library/Keychains
+cd $WORK/proj
+
+exec security create-keychain -p acceptance $KC
+exec security unlock-keychain -p acceptance $KC
+
+! exec pmg sandbox exec -- security add-generic-password -s pmg-acceptance -a without-preset -w secret $KC
+! exec security find-generic-password -s pmg-acceptance -a without-preset $KC
+
+exec pmg sandbox exec --sandbox-allow preset=macos-keychain -- security add-generic-password -s pmg-acceptance -a with-preset -w secret $KC
+exec security find-generic-password -s pmg-acceptance -a with-preset $KC
+
+exec security delete-keychain $KC
+
+-- proj/.keep --
