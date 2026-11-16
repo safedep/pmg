@@ -114,10 +114,10 @@ func (s State) IsRunning() bool {
 }
 
 // ResolveStatePath returns the effective state file path: the flag override
-// when set, otherwise <cacheDir>/proxy-state.json.
-func ResolveStatePath(flag, cacheDir string) string {
+// when set, otherwise <dir>/proxy-state.json.
+func ResolveStatePath(flag, dir string) string {
 	if flag != "" {
 		return flag
 	}
-	return stateFilePath(cacheDir)
+	return stateFilePath(dir)
 }

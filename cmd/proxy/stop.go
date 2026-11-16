@@ -54,7 +54,7 @@ func writeStopReport(path string, r proxyserver.StopReport) error {
 
 func runStop(_ *cobra.Command, _ []string) error {
 	cfg := config.Get()
-	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir())
+	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.ProxyStateDir())
 
 	res, err := proxyserver.Stop(statePath)
 	if ifRunning && errors.Is(err, proxyserver.ErrNoProxy) {
@@ -65,6 +65,13 @@ func runStop(_ *cobra.Command, _ []string) error {
 		}
 		_, werr := fmt.Fprintln(os.Stdout, "No PMG proxy runs on this state file. Nothing to stop.")
 		return werr
+	}
+	if hint := stateDirHint(cfg); errors.Is(err, proxyserver.ErrNoProxy) && hint != "" {
+		err = usefulerror.NewUsefulError().
+			WithCode(errcodes.NotFound).
+			WithHumanError("no PMG proxy state file in PMG_STATE_DIR").
+			WithHelp(hint).
+			Wrap(err)
 	}
 	if err != nil {
 		ui.ErrorExit(err)

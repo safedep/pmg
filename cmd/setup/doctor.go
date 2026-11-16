@@ -111,7 +111,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkEventLogDir,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				return checkEventLogDirResult(cfg.Config.SkipEventLogging, cfg.EventLogDir(), cfg.ConfigDir())
+				return checkEventLogDirResult(cfg.Config.SkipEventLogging, cfg.EventLogDir(), cfg.StateDir())
 			},
 		},
 		{

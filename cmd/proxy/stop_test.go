@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/safedep/pmg/proxy/netpolicy"
@@ -180,6 +181,48 @@ func TestStopReport(t *testing.T) {
 				assert.Empty(t, got.Violation)
 			} else {
 				assert.Equal(t, tc.violation, got.Violation)
+			}
+		})
+	}
+}
+
+func TestStateDirHint(t *testing.T) {
+	root := t.TempDir()
+	cacheDir := filepath.Join(root, "cache")
+	stateDir := filepath.Join(root, "state")
+
+	tests := []struct {
+		name     string
+		stateEnv string
+		flag     string
+		want     []string
+	}{
+		{name: "no PMG_STATE_DIR gives no hint"},
+		{
+			name:     "PMG_STATE_DIR names both directories",
+			stateEnv: stateDir,
+			want:     []string{"PMG_STATE_DIR selects " + stateDir, "keeps its state file in " + cacheDir},
+		},
+		{name: "--state gives no hint", stateEnv: stateDir, flag: filepath.Join(root, "s.json")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("PMG_CONFIG_DIR", filepath.Join(root, "config"))
+			t.Setenv("PMG_CACHE_DIR", cacheDir)
+			t.Setenv("PMG_STATE_DIR", tt.stateEnv)
+			config.Reload()
+			t.Cleanup(config.Reload)
+			oldFlag := stateFlag
+			stateFlag = tt.flag
+			t.Cleanup(func() { stateFlag = oldFlag })
+
+			hint := stateDirHint(config.Get())
+			if len(tt.want) == 0 {
+				assert.Empty(t, hint)
+			}
+			for _, w := range tt.want {
+				assert.Contains(t, hint, w)
 			}
 		})
 	}

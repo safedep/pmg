@@ -96,7 +96,7 @@ A `PATH` shim does not intercept everything. `pmg setup doctor` reports the stat
 
 ## Foreground proxy
 
-To use a foreground proxy from another terminal, import its environment into that terminal. Run both terminals as the same user with the same `PMG_CACHE_DIR`, or give both commands the same `--state` file. `pmg proxy env --export` prints POSIX shell syntax. In PowerShell, import the plain `KEY=VALUE` output:
+To use a foreground proxy from another terminal, import its environment into that terminal. Run both terminals as the same user with the same `PMG_STATE_DIR` and `PMG_CACHE_DIR`, or give both commands the same `--state` file. `pmg proxy env --export` prints POSIX shell syntax. In PowerShell, import the plain `KEY=VALUE` output:
 
 ```powershell
 pmg proxy env | ForEach-Object {

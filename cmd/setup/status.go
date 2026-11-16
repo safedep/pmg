@@ -356,7 +356,7 @@ func collectCAInfo(cfg *config.RuntimeConfig) caInfo {
 
 func collectProxyInfo(cfg *config.RuntimeConfig) proxyInfo {
 	info := proxyInfo{}
-	if st := proxyserver.GetStatus(proxyserver.ResolveStatePath("", cfg.CacheDir())); st.Found && st.Running {
+	if st := proxyserver.GetStatus(proxyserver.ResolveStatePath("", cfg.ProxyStateDir())); st.Found && st.Running {
 		info.Running = true
 		info.Addr = st.Addr
 		info.PID = st.PID

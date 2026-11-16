@@ -79,3 +79,8 @@ titles and bodies, review comments, docs.
 - Do not use `_ = someFunc()` to discard errors silently
 - For CLI/user-facing errors, prefer `usefulerror` with a specific code and actionable help so `ui.ErrorExit` does not classify expected failures as `Unknown`
 - Check the error from `fmt.Fprintf`/`fmt.Fprintln`/`fmt.Fprint` (the `errcheck` linter flags these). Return it up the stack: `if _, err := fmt.Fprintf(out, ...); err != nil { return err }`
+
+## Pull Requests
+
+- Before you open a pull request, check the change against the five questions in the `Review tiers` section of `CONTRIBUTING.md`.
+- State the tier in the `Risk` section. For a High change, name the question and each changed location.

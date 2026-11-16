@@ -23,6 +23,7 @@ The analysis cache uses the SQLite file `<cache-dir>/localdb/pmg.db`.
 Keep this directory on a local disk. Do not use an NFS or SMB share.
 
 The directory also holds `proxy-state.json`, `proxy.log`, and `sandbox/violations/`.
+When `PMG_STATE_DIR` is set, `proxy-state.json` and `proxy.log` are in that directory instead.
 Deleting it can erase the state of a running proxy and its violation reports.
 To remove verdicts only, use `pmg setup cache clear`.
 Before manual removal of `localdb/`, stop all PMG processes that use it.

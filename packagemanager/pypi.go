@@ -245,13 +245,27 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		}, nil
 	}
 
-	// Find the install command position
+	// `uv python` installs interpreter builds. Those builds are not PyPI packages.
+	// The parser returns before the PyPI lookup when the subcommand is python.
+	// uv add, uv pip install and uv tool install still resolve packages.
+	if uvArgsArePythonToolchain(args) {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Find the install command. Values of global options are not commands.
+	// `uv --directory add add flask` installs flask.
 	var installCmdIndex = -1
-	for idx, arg := range args {
+	searchFrom := 0
+	for searchFrom < len(args) {
+		idx, arg := uvPositional(args, searchFrom)
+		if idx < 0 {
+			break
+		}
 		if slices.Contains(u.config.InstallCommands, arg) {
 			installCmdIndex = idx
 			break
 		}
+		searchFrom = idx + 1
 	}
 
 	if installCmdIndex == -1 {
@@ -317,6 +331,46 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
 	}, nil
+}
+
+// uvGlobalValueFlags are uv-wide options that consume the next argument.
+// The value is not a subcommand. `uv --directory tool python install 3.14`
+// is the python subcommand.
+var uvGlobalValueFlags = map[string]bool{
+	"--allow-insecure-host": true,
+	"--cache-dir":           true,
+	"--color":               true,
+	"--config-file":         true,
+	"--directory":           true,
+	"--preview-feature":     true,
+	"--preview-features":    true,
+	"--project":             true,
+	"--python-fetch":        true,
+	"--python-preference":   true,
+	"--trusted-host":        true,
+}
+
+// uvArgsArePythonToolchain reports that the uv subcommand is python.
+// Option values are not subcommands. uv pip, uv tool and uv add are not python.
+func uvArgsArePythonToolchain(args []string) bool {
+	_, subcmd := uvPositional(args, 0)
+	return subcmd == "python"
+}
+
+// uvPositional returns the next argument that is not a flag and not the value
+// of a uv global option.
+func uvPositional(args []string, start int) (int, string) {
+	for i := start; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			if flag, _, hasValue := strings.Cut(arg, "="); uvGlobalValueFlags[flag] && !hasValue {
+				i++
+			}
+			continue
+		}
+		return i, arg
+	}
+	return -1, ""
 }
 
 type poetryCommandParser struct {
