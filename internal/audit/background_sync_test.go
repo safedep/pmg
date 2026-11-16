@@ -56,6 +56,7 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 	// Make sure no PMG_DISABLE_TELEMETRY leak from the host environment can
 	// fool the analytics short-circuit in MaybeSpawnBackgroundSync.
 	t.Setenv("PMG_DISABLE_TELEMETRY", "false")
+	t.Setenv(backgroundSyncChildEnv, "")
 
 	// Re-init the config so configDir picks up the tmpDir we just set.
 	// Without this, cfg.CloudSyncLastRunPath() points at the user's real
@@ -134,12 +135,17 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 		rec := withMockSpawner(t)
 		cfg := newAutoSyncConfig(t)
 
-		t.Cleanup(func() { isBackgroundSyncChild = false })
-		MarkBackgroundSyncChild()
+		t.Setenv(backgroundSyncChildEnv, "1")
 
 		MaybeSpawnBackgroundSync(cfg)
 		assert.Equal(t, 0, rec.callCount())
 	})
+}
+
+func TestBackgroundSyncCommandMarksTheChild(t *testing.T) {
+	cmd := backgroundSyncCommand("pmg", "cloud", SyncBackgroundSubcommand)
+
+	assert.Contains(t, cmd.Env, backgroundSyncChildEnv+"=1")
 }
 
 func TestMaybeSpawnBackgroundSyncRespectsCooldown(t *testing.T) {

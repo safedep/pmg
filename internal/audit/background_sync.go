@@ -14,14 +14,13 @@ import (
 // command can't desync the spawn args from the cobra registration.
 const SyncBackgroundSubcommand = "sync-background"
 
-// isBackgroundSyncChild gates MaybeSpawnBackgroundSync against a respawn
-// chain when an early-exit child (e.g. losing the lock race) leaves
-// cloud-sync.lastrun stale.
-var isBackgroundSyncChild bool
-
-func MarkBackgroundSyncChild() {
-	isBackgroundSyncChild = true
-}
+// backgroundSyncChildEnv marks the detached child. The parent sets it when it
+// spawns the child. A child that exits early leaves the lastrun files stale,
+// so the next spawn is always due. The child can exit through ui.ErrorExit in
+// the root pre-run, before any command code runs, and the exit hook then
+// calls MaybeSpawnBackgroundSync. Without the mark, each child spawns the
+// next one in an endless chain.
+const backgroundSyncChildEnv = "PMG_BACKGROUND_SYNC_CHILD"
 
 // backgroundSyncSuppressed lets a command opt out of the detached auto-sync
 // spawn for its process. The proxy daemon uses this: it delivers events itself
@@ -74,7 +73,7 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	if cfg == nil {
 		return
 	}
-	if isBackgroundSyncChild || backgroundSyncSuppressed {
+	if os.Getenv(backgroundSyncChildEnv) != "" || backgroundSyncSuppressed {
 		return
 	}
 	if !cfg.Config.Cloud.Enabled {
@@ -106,6 +105,14 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	}
 }
 
+// backgroundSyncCommand returns the command of the detached child, with the
+// mark that stops the child from spawning a child of its own.
+func backgroundSyncCommand(name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), backgroundSyncChildEnv+"=1")
+	return cmd
+}
+
 // spawnDetachedExec is the production implementation of detachedSpawner. It
 // redirects stdio to /dev/null, applies platform-specific detach attributes,
 // and starts the child without waiting on it.
@@ -122,7 +129,7 @@ func spawnDetachedExec(name string, args ...string) error {
 		}
 	}()
 
-	cmd := exec.Command(name, args...)
+	cmd := backgroundSyncCommand(name, args...)
 	cmd.Stdin = devNull
 	cmd.Stdout = devNull
 	cmd.Stderr = devNull
