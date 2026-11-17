@@ -280,3 +280,66 @@ jobs:
           }
           & $exe submit --token $env:WINGET_TOKEN "$env:RUNNER_TEMP\winget"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  # Moves the major tag of the GitHub Action (uses: safedep/pmg@v2) to a
+  # stable release after its npm install passes. The tag must stay safe for
+  # goreleaser:
+  # - No workflow triggers on the major tag, so the push releases nothing.
+  # - The job writes a lightweight tag. git describe prefers an annotated
+  #   tag on the same commit, so goreleaser never takes the major tag as the
+  #   current or the previous tag. An annotated v1 on the v0.21.1 commit is
+  #   how v1 got its release and its lock.
+  # - No release exists on the major tag, so immutable releases do not lock it.
+  # The release app pushes the tag because the tag ruleset blocks the
+  # workflow token. A new major version of the Action changes ACTION_TAG.
+  move-action-tag:
+    needs: test-installation
+    if: ${{ !contains(github.ref_name, '-') }}
+    environment: npm-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      ACTION_TAG: v2
+    steps:
+      # The Action installs the latest release by default. A re-run or a
+      # patch of an older release must not move the tag back.
+      - name: Check that this is the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+          if [ "$latest" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::The latest release is ${latest}, not ${GITHUB_REF_NAME}. ${ACTION_TAG} does not move."
+            exit 1
+          fi
+
+      - name: Get a token of the release app
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.RELEASE_AUTOMATION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_AUTOMATION_APP_KEY }}
+          owner: safedep
+          repositories: pmg
+          permission-contents: write
+
+      # The API writes a ref that points at the commit, which is a
+      # lightweight tag. git tag -a would make an annotated tag.
+      - name: Move the tag
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" --jq .sha)
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${ACTION_TAG}" > /dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${ACTION_TAG}" -f sha="$sha" -F force=true > /dev/null
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${ACTION_TAG}" -f sha="$sha" > /dev/null
+          fi
+          got=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${ACTION_TAG}" --jq '.object.type + " " + .object.sha')
+          if [ "$got" != "commit ${sha}" ]; then
+            echo "::error::${ACTION_TAG} points to ${got}, not the commit ${sha}"
+            exit 1
+          fi
+          echo "${ACTION_TAG} now points to ${GITHUB_REF_NAME} (${sha})"
