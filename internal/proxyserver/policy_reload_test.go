@@ -103,7 +103,7 @@ func TestFetchPolicyAtStart(t *testing.T) {
 		wantApplied uint64
 	}{
 		{
-			name: "no cache fetches before the daemon serves",
+			name: "no cache fetches before the proxy starts",
 			fetch: func(t *testing.T, cfg *config.RuntimeConfig) (*cloudsync.Result, error) {
 				writeReloadCache(t, cfg, 7, "pkg:npm/first")
 				return &cloudsync.Result{PolicyRan: true}, nil

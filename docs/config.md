@@ -102,8 +102,8 @@ policy in the background at most every 5 minutes. Set `cloud.policy: false` to s
 - PMG fetches the policy in the background after a command, at most every 5 minutes, also when
   `cloud.auto_sync.enabled` is false. `pmg cloud sync` fetches it at once.
 - A new machine has no policy cache, so its first command applies only the PMG config. The
-  persistent proxy fetches the policy before it serves when no cache exists. The GitHub Action
-  fetches it before the job continues, in both modes.
+  `pmg proxy start` fetches the policy before it starts the proxy when no cache exists. In shim
+  mode, the GitHub Action fetches it before the job continues.
 - A block entry and the cooldown do not apply to a package that the package manager installs from
   its own cache. See [Blocked Packages](#blocked-packages).
 - PMG keeps the policy in `cloud-policy/` in the config directory. When the fetch fails or you log

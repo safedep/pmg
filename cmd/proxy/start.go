@@ -79,6 +79,15 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		opts.Network.LockedProfile = lockedProfile(cmd.Flags())
 	}
 
+	// The daemon re-exec skips the fetch. The parent ran it already.
+	if !foregroundInternalFlag {
+		if warning := proxyserver.FetchPolicyAtStart(cmd.Context(), cfg); warning != "" {
+			if _, err := fmt.Fprint(os.Stderr, warningLines([]string{warning})); err != nil {
+				return err
+			}
+		}
+	}
+
 	if daemonFlag && !foregroundInternalFlag {
 		if err := startDaemon(cmd, cfg, opts); err != nil {
 			ui.ErrorExit(err)

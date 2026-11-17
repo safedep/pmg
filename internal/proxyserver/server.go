@@ -47,10 +47,10 @@ const (
 	cloudSyncTickLockWait = 5 * time.Second
 	cloudSyncTickTimeout  = 30 * time.Second
 
-	// The first policy fetch runs before the daemon reports ready, so it
-	// must end well inside DefaultDaemonReadyTimeout.
-	startPolicyLockWait = 2 * time.Second
-	startPolicyTimeout  = 5 * time.Second
+	// The first policy fetch delays `pmg proxy start` on a machine with no
+	// policy cache. An unreachable cloud must not hold a CI job for long.
+	startPolicyLockWait = 5 * time.Second
+	startPolicyTimeout  = 15 * time.Second
 
 	// Final flush at shutdown, when the daemon drains whatever the ticker left.
 	cloudFlushLockWait = 30 * time.Second
@@ -252,10 +252,6 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 			proxyConfig.AdditionalListenAddrs = append(proxyConfig.AdditionalListenAddrs, addr)
 			proxyConfig.RedirectOnlyAddrs = []string{namespaces.policy.Address.String()}
 		}
-	}
-
-	if warning := fetchPolicyAtStart(ctx, cfg, cloudpolicy.Global(), cloudsync.Run, os.Stderr); warning != "" {
-		notices = append(notices, warning)
 	}
 
 	server, err := pmgproxy.NewProxyServer(proxyConfig)
@@ -631,11 +627,15 @@ func blockedLines(stats *interceptors.AnalysisStatsCollector) []string {
 
 type cloudSyncFunc func(context.Context, *config.RuntimeConfig, cloudsync.Plan) (*cloudsync.Result, error)
 
-// fetchPolicyAtStart fetches the cloud policy once before the daemon serves,
-// when the cloud policy is on and no policy cache exists. A new machine or CI
-// runner then applies the policy to its first download, not after the first
-// tick. A daemon with a cache serves at once and fetches at its first tick.
-// It returns a warning for the start output when the fetch fails.
+// FetchPolicyAtStart fetches the cloud policy once before `pmg proxy start`
+// starts the proxy, when the cloud policy is on and no policy cache exists. A
+// new machine or CI runner then applies the policy to its first download, not
+// after the first tick of the daemon. With a cache, the proxy starts at once
+// and fetches at its first tick. It returns a warning when the fetch fails.
+func FetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig) string {
+	return fetchPolicyAtStart(ctx, cfg, cloudpolicy.Global(), cloudsync.Run, os.Stderr)
+}
+
 func fetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime,
 	sync cloudSyncFunc, out io.Writer,
 ) string {
