@@ -80,7 +80,7 @@ func executeDoctorChecks(out io.Writer, jsonOut bool) error {
 	cfg := config.Get()
 
 	coreResults := runCoreChecks(cfg)
-	protectionResults := runProtectionChecks(coreResults, config.LoadError())
+	protectionResults := runProtectionChecks(coreResults)
 	allResults := append(coreResults, protectionResults...)
 
 	if jsonOut {
@@ -182,7 +182,16 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkDependencyCooldown,
 			Category: "Security",
 			Run: func() doctor.CheckResult {
-				return checkDependencyCooldownResult(cfg)
+				if cfg.Config.DependencyCooldown.Enabled {
+					return doctor.CheckResult{
+						Status:  doctor.StatusPass,
+						Message: "Dependency cooldown is enabled",
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusWarn,
+					Message: "Dependency cooldown is disabled",
+				}
 			},
 		},
 		{
@@ -514,21 +523,18 @@ func checkShimInPathResult() doctor.CheckResult {
 	return checkShimDirResolution(shimDir, pathLabel, inspection)
 }
 
-func runProtectionChecks(coreResults []doctor.CheckResult, loadErr error) []doctor.CheckResult {
+func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult {
 	if !isInterceptionActive(coreResults) {
-		return protectionRows(doctor.CheckResult{
-			Status:  doctor.StatusFail,
-			Message: "Aliases and shims not active",
-		})
-	}
-	// A config that does not load fails every install closed, so the test
-	// install cannot show whether the shims work.
-	if loadErr != nil {
-		return protectionRows(doctor.CheckResult{
-			Status:  doctor.StatusWarn,
-			Message: "Not checked. The config does not load",
-			Fix:     "Fix the config error that a row above names",
-		})
+		var results []doctor.CheckResult
+		for _, tc := range doctor.ProtectionTestCases() {
+			results = append(results, doctor.CheckResult{
+				Name:     fmt.Sprintf("protection-%s", tc.PackageManager),
+				Category: categoryProtection,
+				Status:   doctor.StatusFail,
+				Message:  "Aliases and shims not active",
+			})
+		}
+		return results
 	}
 
 	pmgBinary, err := os.Executable()
@@ -542,18 +548,6 @@ func runProtectionChecks(coreResults []doctor.CheckResult, loadErr error) []doct
 		result.Category = categoryProtection
 		result.Name = fmt.Sprintf("protection-%s", tc.PackageManager)
 		results = append(results, result)
-	}
-	return results
-}
-
-// protectionRows returns result for each protection test case.
-func protectionRows(result doctor.CheckResult) []doctor.CheckResult {
-	var results []doctor.CheckResult
-	for _, tc := range doctor.ProtectionTestCases() {
-		r := result
-		r.Name = fmt.Sprintf("protection-%s", tc.PackageManager)
-		r.Category = categoryProtection
-		results = append(results, r)
 	}
 	return results
 }
@@ -823,40 +817,6 @@ func checkConfigFileResult(path string, loadErr error) doctor.CheckResult {
 func isProxyRegistriesError(err error) bool {
 	var registriesErr *config.ProxyRegistriesError
 	return errors.As(err, &registriesErr)
-}
-
-// checkDependencyCooldownResult reports the cooldown that applies, after the
-// cloud policy. When the cloud policy sets it, the row names the revision,
-// because a change in the config file has no effect. The doctor table cuts a
-// long line, so the messages are short.
-func checkDependencyCooldownResult(cfg *config.RuntimeConfig) doctor.CheckResult {
-	cooldown := cfg.Config.DependencyCooldown
-	var cloud *config.CloudKey
-	for _, k := range cfg.CloudKeys() {
-		if k.Key == "dependency_cooldown.enabled" {
-			cloud = &k
-			break
-		}
-	}
-
-	if cooldown.Enabled {
-		message := fmt.Sprintf("Enabled: %d days", cooldown.Days)
-		if cloud != nil {
-			message += fmt.Sprintf(", from cloud policy revision %d", cloud.Revision)
-		}
-		return doctor.CheckResult{Status: doctor.StatusPass, Message: message}
-	}
-	if cloud != nil {
-		return doctor.CheckResult{
-			Status:  doctor.StatusWarn,
-			Message: fmt.Sprintf("Disabled by cloud policy revision %d", cloud.Revision),
-			Fix:     "Ask your security admin. The cloud policy sets the cooldown",
-		}
-	}
-	return doctor.CheckResult{
-		Status:  doctor.StatusWarn,
-		Message: "Disabled",
-	}
 }
 
 // checkProxyRegistriesResult reports the state of proxy.registries. A load
