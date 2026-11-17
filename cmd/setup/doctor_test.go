@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -385,6 +386,68 @@ func TestCutSummaryDetails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, cutSummaryDetails(tt.results))
+		})
+	}
+}
+
+func TestRunProtectionChecksWithAConfigThatDoesNotLoad(t *testing.T) {
+	active := []doctor.CheckResult{{Name: checkShimInPath, Status: doctor.StatusPass, ImpliesInterception: true}}
+
+	results := runProtectionChecks(active, errors.New("invalid blocked_packages"))
+
+	require.Len(t, results, len(doctor.ProtectionTestCases()))
+	for _, r := range results {
+		assert.Equal(t, doctor.StatusWarn, r.Status, r.Name)
+		assert.Equal(t, "Not checked. The config does not load", r.Message)
+		assert.Equal(t, "Fix the config error that a row above names", fixFor(r), "the row must not suggest pmg setup install")
+	}
+}
+
+func TestCheckDependencyCooldownResult(t *testing.T) {
+	cloudKey := []config.CloudKey{{Key: "dependency_cooldown.enabled", Revision: 125}}
+
+	tests := []struct {
+		name    string
+		enabled bool
+		days    int
+		cloud   []config.CloudKey
+		want    doctor.CheckResult
+	}{
+		{
+			name:    "local cooldown",
+			enabled: true,
+			days:    2,
+			want:    doctor.CheckResult{Status: doctor.StatusPass, Message: "Enabled: 2 days"},
+		},
+		{
+			name:    "cooldown of the cloud policy",
+			enabled: true,
+			days:    20,
+			cloud:   cloudKey,
+			want: doctor.CheckResult{Status: doctor.StatusPass,
+				Message: "Enabled: 20 days, from cloud policy revision 125"},
+		},
+		{
+			name:  "cloud policy turns the cooldown off",
+			cloud: cloudKey,
+			want: doctor.CheckResult{Status: doctor.StatusWarn,
+				Message: "Disabled by cloud policy revision 125",
+				Fix:     "Ask your security admin. The cloud policy sets the cooldown"},
+		},
+		{
+			name: "local cooldown off",
+			want: doctor.CheckResult{Status: doctor.StatusWarn, Message: "Disabled"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.RuntimeConfig{}
+			cfg.Config.DependencyCooldown.Enabled = tt.enabled
+			cfg.Config.DependencyCooldown.Days = tt.days
+			cfg.SetCloudKeys(tt.cloud)
+
+			assert.Equal(t, tt.want, checkDependencyCooldownResult(cfg))
 		})
 	}
 }

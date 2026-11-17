@@ -28,6 +28,7 @@ import (
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/netenforce"
+	"github.com/safedep/pmg/internal/ui"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -45,6 +46,11 @@ const (
 	cloudSyncInterval     = 15 * time.Second
 	cloudSyncTickLockWait = 5 * time.Second
 	cloudSyncTickTimeout  = 30 * time.Second
+
+	// The first policy fetch runs before the daemon reports ready, so it
+	// must end well inside DefaultDaemonReadyTimeout.
+	startPolicyLockWait = 2 * time.Second
+	startPolicyTimeout  = 5 * time.Second
 
 	// Final flush at shutdown, when the daemon drains whatever the ticker left.
 	cloudFlushLockWait = 30 * time.Second
@@ -248,6 +254,10 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		}
 	}
 
+	if warning := fetchPolicyAtStart(ctx, cfg, cloudpolicy.Global(), cloudsync.Run, os.Stderr); warning != "" {
+		notices = append(notices, warning)
+	}
+
 	server, err := pmgproxy.NewProxyServer(proxyConfig)
 	if err != nil {
 		return fmt.Errorf("create proxy server: %w", err)
@@ -362,6 +372,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	// keeps `stop --fail-on-violation` correct in those cases.
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
+	state.Blocked = blockedLines(statsCollector)
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}
@@ -591,6 +602,64 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 		<-done
 		return total
 	}
+}
+
+// blockedLines names each package that the daemon blocked and the reason,
+// for the stop report.
+func blockedLines(stats *interceptors.AnalysisStatsCollector) []string {
+	var lines []string
+	for _, r := range stats.GetBlockedPackages() {
+		reason := pmgproxy.BlockReasonMalware
+		if r.Action != analyzer.ActionBlock {
+			reason = pmgproxy.BlockReasonUserDeclined
+		}
+		lines = append(lines, ui.BlockedPackageLine(reason, &pmgproxy.BlockContext{
+			Ecosystem:      r.PackageVersion.GetPackage().GetEcosystem(),
+			PackageName:    r.PackageVersion.GetPackage().GetName(),
+			PackageVersion: r.PackageVersion.GetVersion(),
+		}))
+	}
+	for _, b := range stats.GetRuleBlocks() {
+		lines = append(lines, ui.BlockedPackageLine(pmgproxy.BlockReasonPolicyRule, b))
+	}
+	for _, b := range stats.GetCooldownBlocks() {
+		lines = append(lines, ui.BlockedPackageLine(pmgproxy.BlockReasonDependencyCooldown,
+			&pmgproxy.BlockContext{PackageName: b.Name, PackageVersion: b.Version}))
+	}
+	return lines
+}
+
+type cloudSyncFunc func(context.Context, *config.RuntimeConfig, cloudsync.Plan) (*cloudsync.Result, error)
+
+// fetchPolicyAtStart fetches the cloud policy once before the daemon serves,
+// when the cloud policy is on and no policy cache exists. A new machine or CI
+// runner then applies the policy to its first download, not after the first
+// tick. A daemon with a cache serves at once and fetches at its first tick.
+// It returns a warning for the start output when the fetch fails.
+func fetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime,
+	sync cloudSyncFunc, out io.Writer,
+) string {
+	if !cfg.CloudPolicyEnabled() {
+		return ""
+	}
+	if st := policy.Status(); st == nil || st.State != recordv1.ApplyState_APPLY_STATE_NONE {
+		return ""
+	}
+
+	res, err := sync(ctx, cfg, cloudsync.Plan{
+		Policy:      cloudsync.StepForce,
+		LockTimeout: startPolicyLockWait,
+		Timeout:     startPolicyTimeout,
+	})
+	reloadIfCacheMoved(cfg, policy, out)
+	if err == nil && res != nil {
+		err = res.PolicyErr
+	}
+	if err == nil {
+		return ""
+	}
+	log.Warnf("first cloud policy fetch failed: %v", err)
+	return fmt.Sprintf("PMG cannot fetch the cloud policy (%v). No cloud policy applies until the next fetch.", err)
 }
 
 // reloadIfCacheMoved reloads the policy when the cache holds another policy

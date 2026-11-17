@@ -82,7 +82,7 @@ GitHub Actions with the [safedep/pmg action](../action.yml), described in
 [github-action.md](./github-action.md):
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v0.35.0
   with:
     api-key: ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}

@@ -29,6 +29,8 @@ var ErrNoProxy = errors.New("no proxy state found")
 type StopResult struct {
 	PID          int
 	BlockedCount int
+	// Blocked names each blocked package and the reason.
+	Blocked []string
 	// StateVerified is false when the final state could not be read after
 	// shutdown (e.g. the proxy crashed), which callers may treat as fail-closed.
 	StateVerified bool
@@ -136,6 +138,7 @@ func Stop(statePath string) (StopResult, error) {
 	return StopResult{
 		PID:           state.PID,
 		BlockedCount:  final.BlockedCount,
+		Blocked:       final.Blocked,
 		StateVerified: readErr == nil,
 		CloudSync:     final.CloudSync,
 		Network:       final.Network,

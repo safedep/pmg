@@ -351,7 +351,8 @@ analysis_cache:
 
 # Cloud sync configuration.
 # When enabled, PMG audit events are synced to SafeDep Cloud for centralized visibility.
-# Requires SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables for authentication.
+# To authenticate, run `pmg cloud login`. In CI, set the SAFEDEP_API_KEY and
+# SAFEDEP_TENANT_ID environment variables. A keychain login wins over them.
 cloud:
   enabled: false
   # Endpoint ID is not required. By default, it falls back to the machine's hostname.

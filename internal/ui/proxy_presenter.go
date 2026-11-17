@@ -142,6 +142,35 @@ func PolicyRuleBlockMessage(blockCtx *proxy.BlockContext) string {
 	return strings.Join(lines, "\n")
 }
 
+// BlockedPackageLine names a package that the persistent proxy blocked and
+// the reason, in one line of the stop report. A package manager shows only
+// an HTTP 403 for a block of the daemon, so this line is where a user finds
+// the rule id.
+func BlockedPackageLine(reason proxy.BlockReason, blockCtx *proxy.BlockContext) string {
+	pkg := packagePurl(blockCtx)
+	if blockCtx.Ecosystem == packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED {
+		pkg = removeControlChars(blockCtx.PackageName + "@" + blockCtx.PackageVersion)
+	}
+
+	switch reason {
+	case proxy.BlockReasonPolicyRule:
+		rule := blockCtx.PolicyRule
+		if rule == nil {
+			return pkg + " · package rule"
+		}
+		if rule.Cloud {
+			return fmt.Sprintf("%s · rule %s · policy revision %d", pkg, removeControlChars(rule.RuleID), rule.Revision)
+		}
+		return fmt.Sprintf("%s · blocked_packages in %s", pkg, removeControlChars(rule.File))
+	case proxy.BlockReasonDependencyCooldown:
+		return pkg + " · dependency cooldown"
+	case proxy.BlockReasonUserDeclined:
+		return pkg + " · suspicious"
+	default:
+		return pkg + " · malware"
+	}
+}
+
 // packagePurl names the blocked package as a PURL, the form of the rule
 // selectors. An admin writes a selector in the decoded form, for example
 // pkg:npm/@types/ms, so the message decodes the wire form for display only.

@@ -227,3 +227,14 @@ func TestStateDirHint(t *testing.T) {
 		})
 	}
 }
+
+func TestBlockedReport(t *testing.T) {
+	assert.Equal(t, "", blockedReport(proxyserver.StopResult{BlockedCount: 2}), "a daemon that predates the list prints nothing")
+	assert.Equal(t, "Blocked packages:\n"+
+		"  pkg:npm/ms@2.1.2 · rule r_gw6r5edbmx · policy revision 125\n"+
+		"  pkg:npm/safedep-test-pkg@0.1.3 · malware\n",
+		blockedReport(proxyserver.StopResult{BlockedCount: 2, Blocked: []string{
+			"pkg:npm/ms@2.1.2 · rule r_gw6r5edbmx · policy revision 125",
+			"pkg:npm/safedep-test-pkg@0.1.3 · malware",
+		}}))
+}

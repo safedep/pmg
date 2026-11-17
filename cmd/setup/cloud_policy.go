@@ -30,9 +30,9 @@ func cloudPolicyStatus(cfg *config.RuntimeConfig) *cloudpolicy.Status {
 
 // cloudPolicyResults returns the doctor results of the cloud policy. The
 // check runs only when the policy applies: cloud.enabled and cloud.policy
-// are on. It passes when the state is APPLIED with no exception. It warns
-// for every other state, for each exception, and for a key that
-// global_lockdown kept.
+// are on. The main row passes when the state is APPLIED and warns for every
+// other state. Each exception and each key that global_lockdown kept gets
+// its own row, with a fix that fits it.
 func cloudPolicyResults(st *cloudpolicy.Status, now time.Time) []doctor.CheckResult {
 	if st == nil || !st.PolicyOn || !st.CloudOn {
 		return nil
@@ -54,7 +54,7 @@ func cloudPolicyResults(st *cloudpolicy.Status, now time.Time) []doctor.CheckRes
 			"Run: pmg cloud sync"))
 	default:
 		status := doctor.StatusPass
-		if st.State != recordv1.ApplyState_APPLY_STATE_APPLIED || len(st.Exceptions()) > 0 {
+		if st.State != recordv1.ApplyState_APPLY_STATE_APPLIED {
 			status = doctor.StatusWarn
 		}
 		results = append(results, doctor.CheckResult{Status: status, Message: cloudPolicySummary(st, now)})
@@ -75,7 +75,12 @@ func cloudPolicyResults(st *cloudpolicy.Status, now time.Time) []doctor.CheckRes
 	}
 
 	for _, line := range exceptionLines(st) {
-		results = append(results, warn(line, ""))
+		results = append(results, warn(line, "Update pmg. If the row stays, ask your security admin to check the policy"))
+	}
+	for _, path := range st.Locked {
+		results = append(results, warn(
+			fmt.Sprintf("global_lockdown keeps the managed config value of %s", path),
+			"None. The managed config of your IT admin sets this key"))
 	}
 	return results
 }
@@ -117,8 +122,7 @@ func rejectedMessage(st *cloudpolicy.Status) string {
 }
 
 // exceptionLines groups the exceptions of the policy for people: the
-// dropped rules by their reason, each unknown field, and each path that
-// global_lockdown kept.
+// dropped rules by their reason and each unknown field.
 func exceptionLines(st *cloudpolicy.Status) []string {
 	type group struct {
 		noun string
@@ -168,9 +172,6 @@ func exceptionLines(st *cloudpolicy.Status) []string {
 		g := groups[key]
 		reason := strings.TrimPrefix(key, g.noun+"|")
 		lines = append(lines, fmt.Sprintf("%d %s dropped (%s): %s", len(g.ids), g.noun, reason, strings.Join(g.ids, ", ")))
-	}
-	for _, path := range st.Locked {
-		lines = append(lines, fmt.Sprintf("global_lockdown keeps the managed config value of %s", path))
 	}
 	return lines
 }

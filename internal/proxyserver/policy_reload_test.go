@@ -2,6 +2,8 @@ package proxyserver
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	cpt "github.com/safedep/pmg/internal/cloudpolicy/cloudpolicytest"
+	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -87,4 +90,82 @@ func TestReloadIfCacheMovedWithCloudPolicyOff(t *testing.T) {
 	rt.Publish(cfg)
 
 	assert.False(t, reloadIfCacheMoved(cfg, rt, io.Discard), "pmg reads no cache with cloud.policy off")
+}
+
+func TestFetchPolicyAtStart(t *testing.T) {
+	tests := []struct {
+		name        string
+		policyOff   bool
+		cached      bool
+		fetch       func(t *testing.T, cfg *config.RuntimeConfig) (*cloudsync.Result, error)
+		wantCalled  bool
+		wantWarning string
+		wantApplied uint64
+	}{
+		{
+			name: "no cache fetches before the daemon serves",
+			fetch: func(t *testing.T, cfg *config.RuntimeConfig) (*cloudsync.Result, error) {
+				writeReloadCache(t, cfg, 7, "pkg:npm/first")
+				return &cloudsync.Result{PolicyRan: true}, nil
+			},
+			wantCalled:  true,
+			wantApplied: 7,
+		},
+		{
+			name: "a sync error returns a warning",
+			fetch: func(*testing.T, *config.RuntimeConfig) (*cloudsync.Result, error) {
+				return nil, errors.New("no network")
+			},
+			wantCalled:  true,
+			wantWarning: "PMG cannot fetch the cloud policy (no network). No cloud policy applies until the next fetch.",
+		},
+		{
+			name: "a policy fetch error returns a warning",
+			fetch: func(*testing.T, *config.RuntimeConfig) (*cloudsync.Result, error) {
+				return &cloudsync.Result{PolicyRan: true, PolicyErr: errors.New("unauthenticated")}, nil
+			},
+			wantCalled:  true,
+			wantWarning: "PMG cannot fetch the cloud policy (unauthenticated). No cloud policy applies until the next fetch.",
+		},
+		{
+			name:        "a cache serves at once",
+			cached:      true,
+			wantApplied: 48,
+		},
+		{
+			name:      "cloud policy off makes no fetch",
+			policyOff: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := newReloadConfig(t)
+			cfg.Config.Cloud.Policy = !tc.policyOff
+			if tc.cached {
+				writeReloadCache(t, cfg, 48, "pkg:npm/first")
+			}
+			rt := &cloudpolicy.Runtime{LoginTenant: func() string { return "" }}
+			rt.LoadAtStartForTenant(cfg, "")
+			rt.Publish(cfg)
+
+			called := false
+			sync := func(_ context.Context, cfg *config.RuntimeConfig, plan cloudsync.Plan) (*cloudsync.Result, error) {
+				called = true
+				assert.Equal(t, cloudsync.StepForce, plan.Policy)
+				assert.Equal(t, cloudsync.StepOff, plan.Events, "the first fetch sends no events")
+				return tc.fetch(t, cfg)
+			}
+
+			warning := fetchPolicyAtStart(context.Background(), cfg, rt, sync, io.Discard)
+			assert.Equal(t, tc.wantCalled, called)
+			assert.Equal(t, tc.wantWarning, warning)
+			if tc.wantApplied == 0 {
+				assert.Nil(t, rt.Current().Applied())
+				return
+			}
+			require.NotNil(t, rt.Current().Applied())
+			assert.Equal(t, tc.wantApplied, rt.Current().Applied().Revision)
+		})
+	}
 }

@@ -66,6 +66,7 @@ func ageCache(t *testing.T, cfg *config.RuntimeConfig, age time.Duration) {
 type doctorLine struct {
 	status  doctor.CheckStatus
 	message string
+	fix     string
 }
 
 func TestCloudPolicyResults(t *testing.T) {
@@ -75,6 +76,7 @@ func TestCloudPolicyResults(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, cfg *config.RuntimeConfig)
+		lock  []string
 		want  []doctorLine
 
 		// wantInLast is more text that the last line holds.
@@ -92,7 +94,7 @@ func TestCloudPolicyResults(t *testing.T) {
 			name:  "no cache warns",
 			setup: func(t *testing.T, cfg *config.RuntimeConfig) {},
 			want: []doctorLine{{doctor.StatusWarn,
-				"cloud policy is on, but no policy cache exists. pmg fetches it after the next command"}},
+				"cloud policy is on, but no policy cache exists. pmg fetches it after the next command", ""}},
 		},
 		{
 			name: "an applied cache passes",
@@ -101,7 +103,7 @@ func TestCloudPolicyResults(t *testing.T) {
 				ageCache(t, cfg, 12*time.Minute)
 			},
 			want: []doctorLine{{doctor.StatusPass,
-				"on · revision 52 applied · cache 12m old · tenant " + doctorTenant}},
+				"on · revision 52 applied · cache 12m old · tenant " + doctorTenant, ""}},
 		},
 		{
 			name: "an old cache warns",
@@ -110,8 +112,8 @@ func TestCloudPolicyResults(t *testing.T) {
 				ageCache(t, cfg, 9*24*time.Hour)
 			},
 			want: []doctorLine{
-				{doctor.StatusWarn, "on · revision 52 applied · cache 9d old · tenant " + doctorTenant},
-				{doctor.StatusWarn, "the policy cache is 9d old. The last policy still applies"},
+				{doctor.StatusWarn, "on · revision 52 applied · cache 9d old · tenant " + doctorTenant, ""},
+				{doctor.StatusWarn, "the policy cache is 9d old. The last policy still applies", ""},
 			},
 		},
 		{
@@ -121,8 +123,8 @@ func TestCloudPolicyResults(t *testing.T) {
 				writeDoctorCache(t, cfg, cpt.Policy(), 53, "another-machine")
 			},
 			want: []doctorLine{
-				{doctor.StatusWarn, "on · revision 52 applied"},
-				{doctor.StatusWarn, "revision 53 failed its check"},
+				{doctor.StatusWarn, "on · revision 52 applied", ""},
+				{doctor.StatusWarn, "revision 53 failed its check", ""},
 			},
 		},
 		{
@@ -134,10 +136,23 @@ func TestCloudPolicyResults(t *testing.T) {
 				), 52, "")
 			},
 			want: []doctorLine{
-				{doctor.StatusWarn, "on · revision 52 applied"},
-				{doctor.StatusWarn, "2 trust entries dropped ("},
+				{doctor.StatusPass, "on · revision 52 applied", ""},
+				{doctor.StatusWarn, "2 trust entries dropped (",
+					"Update pmg. If the row stays, ask your security admin to check the policy"},
 			},
 			wantInLast: "r_a41, r_b07",
+		},
+		{
+			name: "a key that global_lockdown keeps has no sync fix",
+			setup: func(t *testing.T, cfg *config.RuntimeConfig) {
+				writeDoctorCache(t, cfg, cpt.Policy(block), 52, "")
+			},
+			lock: []string{"package_admission.cooldown.min_age"},
+			want: []doctorLine{
+				{doctor.StatusPass, "on · revision 52 applied", ""},
+				{doctor.StatusWarn, "global_lockdown keeps the managed config value of package_admission.cooldown.min_age",
+					"None. The managed config of your IT admin sets this key"},
+			},
 		},
 	}
 
@@ -147,12 +162,16 @@ func TestCloudPolicyResults(t *testing.T) {
 			tt.setup(t, cfg)
 
 			st := cloudpolicy.Load(cfg, doctorTenant)
+			st.Locked = tt.lock
 			results := cloudPolicyResults(st, time.Now())
 
 			require.Len(t, results, len(tt.want))
 			for i, want := range tt.want {
 				assert.Equal(t, want.status, results[i].Status, results[i].Message)
 				assert.Contains(t, results[i].Message, want.message)
+				if want.fix != "" {
+					assert.Equal(t, want.fix, results[i].Fix, results[i].Message)
+				}
 			}
 			if tt.wantInLast != "" {
 				assert.Contains(t, results[len(results)-1].Message, tt.wantInLast)
