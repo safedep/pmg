@@ -99,7 +99,7 @@ func TestFetchPolicyAtStart(t *testing.T) {
 		cached      bool
 		fetch       func(t *testing.T, cfg *config.RuntimeConfig) (*cloudsync.Result, error)
 		wantCalled  bool
-		wantWarning string
+		wantErr     string
 		wantApplied uint64
 	}{
 		{
@@ -112,23 +112,23 @@ func TestFetchPolicyAtStart(t *testing.T) {
 			wantApplied: 7,
 		},
 		{
-			name: "a sync error returns a warning",
+			name: "a sync error returns the error",
 			fetch: func(*testing.T, *config.RuntimeConfig) (*cloudsync.Result, error) {
 				return nil, errors.New("no network")
 			},
-			wantCalled:  true,
-			wantWarning: "PMG cannot fetch the cloud policy (no network). No cloud policy applies until the next fetch.",
+			wantCalled: true,
+			wantErr:    "no network",
 		},
 		{
-			name: "a policy fetch error returns a warning",
+			name: "a policy fetch error returns the error",
 			fetch: func(*testing.T, *config.RuntimeConfig) (*cloudsync.Result, error) {
 				return &cloudsync.Result{PolicyRan: true, PolicyErr: errors.New("unauthenticated")}, nil
 			},
-			wantCalled:  true,
-			wantWarning: "PMG cannot fetch the cloud policy (unauthenticated). No cloud policy applies until the next fetch.",
+			wantCalled: true,
+			wantErr:    "unauthenticated",
 		},
 		{
-			name: "a policy that another process commits during a failed fetch gives no warning",
+			name: "a policy that another process commits during a failed fetch returns no error",
 			fetch: func(t *testing.T, cfg *config.RuntimeConfig) (*cloudsync.Result, error) {
 				writeReloadCache(t, cfg, 9, "pkg:npm/first")
 				return nil, errors.New("lock busy")
@@ -166,9 +166,13 @@ func TestFetchPolicyAtStart(t *testing.T) {
 				return tc.fetch(t, cfg)
 			}
 
-			warning := fetchPolicyAtStart(context.Background(), cfg, rt, sync, io.Discard)
+			err := fetchPolicyAtStart(context.Background(), cfg, rt, sync, io.Discard)
 			assert.Equal(t, tc.wantCalled, called)
-			assert.Equal(t, tc.wantWarning, warning)
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tc.wantErr)
+			}
 			if tc.wantApplied == 0 {
 				assert.Nil(t, rt.Current().Applied())
 				return

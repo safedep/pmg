@@ -28,7 +28,6 @@ import (
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/netenforce"
-	"github.com/safedep/pmg/internal/ui"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -368,7 +367,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	// keeps `stop --fail-on-violation` correct in those cases.
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
-	state.Blocked = blockedLines(statsCollector)
+	state.Blocked = blockedPackages(statsCollector)
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}
@@ -600,29 +599,29 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 	}
 }
 
-// blockedLines names each package that the daemon blocked and the reason,
-// for the stop report.
-func blockedLines(stats *interceptors.AnalysisStatsCollector) []string {
-	var lines []string
+// blockedPackages lists each package that the daemon blocked, for the stop
+// report.
+func blockedPackages(stats *interceptors.AnalysisStatsCollector) []BlockedPackage {
+	var blocked []BlockedPackage
 	for _, r := range stats.GetBlockedPackages() {
 		reason := pmgproxy.BlockReasonMalware
 		if r.Action != analyzer.ActionBlock {
 			reason = pmgproxy.BlockReasonUserDeclined
 		}
-		lines = append(lines, ui.BlockedPackageLine(reason, &pmgproxy.BlockContext{
+		blocked = append(blocked, BlockedPackage{Reason: reason, Context: &pmgproxy.BlockContext{
 			Ecosystem:      r.PackageVersion.GetPackage().GetEcosystem(),
 			PackageName:    r.PackageVersion.GetPackage().GetName(),
 			PackageVersion: r.PackageVersion.GetVersion(),
-		}))
+		}})
 	}
 	for _, b := range stats.GetRuleBlocks() {
-		lines = append(lines, ui.BlockedPackageLine(pmgproxy.BlockReasonPolicyRule, b))
+		blocked = append(blocked, BlockedPackage{Reason: pmgproxy.BlockReasonPolicyRule, Context: b})
 	}
 	for _, b := range stats.GetCooldownBlocks() {
-		lines = append(lines, ui.BlockedPackageLine(pmgproxy.BlockReasonDependencyCooldown,
-			&pmgproxy.BlockContext{PackageName: b.Name, PackageVersion: b.Version}))
+		blocked = append(blocked, BlockedPackage{Reason: pmgproxy.BlockReasonDependencyCooldown,
+			Context: &pmgproxy.BlockContext{PackageName: b.Name, PackageVersion: b.Version}})
 	}
-	return lines
+	return blocked
 }
 
 type cloudSyncFunc func(context.Context, *config.RuntimeConfig, cloudsync.Plan) (*cloudsync.Result, error)
@@ -631,19 +630,20 @@ type cloudSyncFunc func(context.Context, *config.RuntimeConfig, cloudsync.Plan) 
 // starts the proxy, when the cloud policy is on and no policy cache exists. A
 // new machine or CI runner then applies the policy to its first download, not
 // after the first tick of the daemon. With a cache, the proxy starts at once
-// and fetches at its first tick. It returns a warning when the fetch fails.
-func FetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig) string {
+// and fetches at its first tick. It returns an error when the fetch fails and
+// no cloud policy applies.
+func FetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig) error {
 	return fetchPolicyAtStart(ctx, cfg, cloudpolicy.Global(), cloudsync.Run, os.Stderr)
 }
 
 func fetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime,
 	sync cloudSyncFunc, out io.Writer,
-) string {
+) error {
 	if !cfg.CloudPolicyEnabled() {
-		return ""
+		return nil
 	}
 	if st := policy.Status(); st == nil || st.State != recordv1.ApplyState_APPLY_STATE_NONE {
-		return ""
+		return nil
 	}
 
 	res, err := sync(ctx, cfg, cloudsync.Plan{
@@ -656,15 +656,15 @@ func fetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig, policy *
 		err = res.PolicyErr
 	}
 	if err == nil {
-		return ""
+		return nil
 	}
-	log.Warnf("first cloud policy fetch failed: %v", err)
 	// Another pmg process can commit a policy while this fetch waits for
-	// the lock. The reload above applies it, so no warning is due.
+	// the lock. The reload above applies it, so the start has a policy.
 	if st := policy.Status(); st != nil && st.Applied != nil {
-		return ""
+		log.Warnf("first cloud policy fetch failed, another process applied a policy: %v", err)
+		return nil
 	}
-	return fmt.Sprintf("PMG cannot fetch the cloud policy (%v). No cloud policy applies until the next fetch.", err)
+	return err
 }
 
 // reloadIfCacheMoved reloads the policy when the cache holds another policy

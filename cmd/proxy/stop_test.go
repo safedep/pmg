@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -233,8 +235,14 @@ func TestBlockedReport(t *testing.T) {
 	assert.Equal(t, "Blocked packages:\n"+
 		"  pkg:npm/ms@2.1.2 · rule r_gw6r5edbmx · policy revision 125\n"+
 		"  pkg:npm/safedep-test-pkg@0.1.3 · malware\n",
-		blockedReport(proxyserver.StopResult{BlockedCount: 2, Blocked: []string{
-			"pkg:npm/ms@2.1.2 · rule r_gw6r5edbmx · policy revision 125",
-			"pkg:npm/safedep-test-pkg@0.1.3 · malware",
-		}}))
+		blockedReport(proxyserver.StopResult{BlockedCount: 2, Blocked: []proxyserver.BlockedPackage{
+			{Reason: proxy.BlockReasonPolicyRule, Context: &proxy.BlockContext{
+				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "ms", PackageVersion: "2.1.2",
+				PolicyRule: &proxy.PolicyRuleBlock{RuleID: "r_gw6r5edbmx", Cloud: true, Revision: 125},
+			}},
+			{Reason: proxy.BlockReasonMalware, Context: &proxy.BlockContext{
+				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "safedep-test-pkg", PackageVersion: "0.1.3",
+			}},
+			{Reason: proxy.BlockReasonMalware},
+		}}), "an entry without a context is skipped")
 }

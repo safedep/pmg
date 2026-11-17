@@ -168,8 +168,11 @@ func blockedReport(res proxyserver.StopResult) string {
 	}
 	var b strings.Builder
 	b.WriteString("Blocked packages:\n")
-	for _, line := range res.Blocked {
-		b.WriteString("  " + line + "\n")
+	for _, p := range res.Blocked {
+		if p.Context == nil {
+			continue
+		}
+		b.WriteString("  " + ui.BlockedPackageLine(p.Reason, p.Context) + "\n")
 	}
 	return b.String()
 }

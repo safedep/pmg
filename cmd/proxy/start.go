@@ -79,11 +79,13 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		opts.Network.LockedProfile = lockedProfile(cmd.Flags())
 	}
 
-	// The daemon re-exec skips the fetch. The parent ran it already.
+	// The daemon re-exec skips the fetch. The parent ran it already. A failed
+	// fetch does not stop the start, because the malware check still applies.
 	if !foregroundInternalFlag {
-		if warning := proxyserver.FetchPolicyAtStart(cmd.Context(), cfg); warning != "" {
-			if _, err := fmt.Fprint(os.Stderr, warningLines([]string{warning})); err != nil {
-				return err
+		if err := proxyserver.FetchPolicyAtStart(cmd.Context(), cfg); err != nil {
+			warning := fmt.Sprintf("PMG cannot fetch the cloud policy (%v). No cloud policy applies until the next fetch.", err)
+			if _, werr := fmt.Fprint(os.Stderr, warningLines([]string{warning})); werr != nil {
+				return werr
 			}
 		}
 	}
