@@ -107,7 +107,10 @@ policy in the background at most every 5 minutes. Set `cloud.policy: false` to s
   LICENSE still waives a malware verdict. PMG drops a trust entry that has no scope it knows, and
   a NAMED_VULNERABILITY entry that lists no vulnerability ids.
 - When the policy sets the dependency cooldown, PMG ignores `PMG_DEPENDENCY_COOLDOWN_*` and refuses
-  `--skip-dependency-cooldown`.
+  `--skip-dependency-cooldown`. The `dependency_cooldown.skip` list and `trusted_packages` in the
+  config still exempt a package from the cooldown. To stop a user from adding an exemption or
+  turning off the policy, use a [globally managed config](#globally-managed-configuration) with
+  `global_lockdown: true`.
 - Under `global_lockdown: true`, the policy does not change a key that the managed config sets. To
   turn off all cloud content on a managed endpoint, set `cloud.policy: false` in the managed config.
 - With `cloud.policy` on, PMG ignores the exclusions of the malware analysis. Create trust entries
