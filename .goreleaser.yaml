@@ -1,5 +1,14 @@
 version: 2
 
+# The release workflow moves a lightweight tag of the GitHub Action, such as
+# v2, to each stable release commit. goreleaser takes the first tag on a
+# commit, and the default sort puts v2 before v0.35.0. So an edge release
+# took v2 as its previous tag, and a snapshot on a release commit took v2 as
+# its version. A lightweight tag has the date of its commit, and a release
+# tag is made after its commit, so this sort puts the release tag first.
+git:
+  tag_sort: -version:creatordate
+
 before:
   hooks:
     - go mod tidy
