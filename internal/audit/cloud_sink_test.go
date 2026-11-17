@@ -517,7 +517,9 @@ func TestFailedChildQueuesSessionErrorBeforeExit(t *testing.T) {
 
 	configDir := filepath.Join(workDir, "config")
 	require.NoError(t, os.MkdirAll(configDir, 0o755))
-	configYAML := []byte("proxy:\n  install_only: true\ncloud:\n  enabled: true\n  auto_sync:\n    enabled: false\n")
+	// cloud.policy is off, so the command starts no background policy
+	// fetch that writes into the config folder after the test ends.
+	configYAML := []byte("proxy:\n  install_only: true\ncloud:\n  enabled: true\n  policy: false\n  auto_sync:\n    enabled: false\n")
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yml"), configYAML, 0o600))
 
 	runCtx, cancelRun := context.WithTimeout(context.Background(), 30*time.Second)
