@@ -102,7 +102,7 @@ jobs:
     needs: release
     if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -120,31 +120,23 @@ jobs:
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for package on registry
+      # Installs the package this workflow just published. That is the test.
+      # The registry CDN can serve the version metadata minutes before the
+      # tarballs, so retry the real install and not a metadata query. The
+      # platform package is an optional dependency and npm skips it without
+      # an error, so the retry also runs the binary.
+      - name: Install and smoke test
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          # The registry makes the wrapper and the platform packages visible in
-          # any order, so wait for the platform package this runner needs too.
-          plat=$(node -p "process.platform + '-' + process.arch")
-          for i in $(seq 1 20); do
-            npm view "@safedep/pmg@${VERSION}" version > /dev/null 2>&1 \
-              && npm view "@safedep/pmg-${plat}@${VERSION}" version > /dev/null 2>&1 && break
-            echo "Waiting for @safedep/pmg and @safedep/pmg-${plat} at ${VERSION}... ($i/20)"
+        run: | # zizmor: ignore[adhoc-packages]
+          for i in $(seq 1 30); do
+            npm install -g --prefer-online "@safedep/pmg@${VERSION}" && pmg version && exit 0
+            echo "Install of @safedep/pmg@${VERSION} failed. Retrying... ($i/30)"
             sleep 30
-            [ "$i" -eq 20 ] && echo "Packages not available after 10 minutes" && exit 1
           done
-
-      # Installs the package this workflow just published; that is the test.
-      - name: Install
-        shell: bash
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: npm install -g "@safedep/pmg@${VERSION}" # zizmor: ignore[adhoc-packages]
-
-      - name: Smoke test
-        run: pmg version
+          echo "Install of @safedep/pmg@${VERSION} failed after 15 minutes"
+          exit 1
 
   # Runs for edge releases too, so an edge tag proves the installer before
   # the stable tag ships it.
