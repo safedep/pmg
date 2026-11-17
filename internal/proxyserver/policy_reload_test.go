@@ -128,6 +128,15 @@ func TestFetchPolicyAtStart(t *testing.T) {
 			wantWarning: "PMG cannot fetch the cloud policy (unauthenticated). No cloud policy applies until the next fetch.",
 		},
 		{
+			name: "a policy that another process commits during a failed fetch gives no warning",
+			fetch: func(t *testing.T, cfg *config.RuntimeConfig) (*cloudsync.Result, error) {
+				writeReloadCache(t, cfg, 9, "pkg:npm/first")
+				return nil, errors.New("lock busy")
+			},
+			wantCalled:  true,
+			wantApplied: 9,
+		},
+		{
 			name:        "a cache serves at once",
 			cached:      true,
 			wantApplied: 48,

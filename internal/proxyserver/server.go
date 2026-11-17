@@ -659,6 +659,11 @@ func fetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig, policy *
 		return ""
 	}
 	log.Warnf("first cloud policy fetch failed: %v", err)
+	// Another pmg process can commit a policy while this fetch waits for
+	// the lock. The reload above applies it, so no warning is due.
+	if st := policy.Status(); st != nil && st.Applied != nil {
+		return ""
+	}
 	return fmt.Sprintf("PMG cannot fetch the cloud policy (%v). No cloud policy applies until the next fetch.", err)
 }
 
