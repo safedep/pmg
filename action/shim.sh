@@ -24,7 +24,7 @@ fi
 # first package manager command of the job applies it. A failed fetch
 # does not fail the job, because the malware check still applies.
 if [ "${PMG_CLOUD_ENABLED:-}" = "true" ]; then
-  if ! pmg cloud sync --timeout 15s; then
+  if ! pmg cloud sync --timeout 10s; then
     printf '%s\n' "::warning::PMG cannot fetch the cloud policy. No cloud policy applies until the next fetch."
   fi
 fi

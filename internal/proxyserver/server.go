@@ -50,7 +50,7 @@ const (
 	// The first policy fetch delays `pmg proxy start` on a machine with no
 	// policy cache. An unreachable cloud must not hold a CI job for long.
 	startPolicyLockWait = 5 * time.Second
-	startPolicyTimeout  = 15 * time.Second
+	startPolicyTimeout  = 10 * time.Second
 
 	// Final flush at shutdown, when the daemon drains whatever the ticker left.
 	cloudFlushLockWait = 30 * time.Second
