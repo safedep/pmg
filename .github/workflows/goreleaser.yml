@@ -115,7 +115,7 @@ jobs:
       # push. Before the push, check where the tag points now. The move can
       # succeed when only the last check fails, and a newer release can move
       # the tag first. Push it only to the highest stable tag whose release
-      # job finished. A newer tag can wait for its release approval.
+      # job succeeded. A newer tag can wait for its release approval.
       #
       # A re-run of an older release or a patch of an older line must not
       # move the tag back. GitHub marks a patch of an older line as the
