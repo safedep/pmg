@@ -289,7 +289,7 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: safedep/pmg@v0.35.0
+- uses: safedep/pmg@v2
 
 # goes through the PMG proxy
 - run: npm ci
@@ -322,7 +322,7 @@ enforcement on a self-hosted runner, in a job container, or without `sudo`.
 Set `enforce: true` to fail the job where the runner cannot enforce.
 
 ```yaml
-- uses: safedep/pmg@v0.35.0
+- uses: safedep/pmg@v2
   with:
     enforce: true
 
