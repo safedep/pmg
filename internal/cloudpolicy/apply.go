@@ -71,11 +71,13 @@ func logIgnoredEnv(key string) {
 // the flags are final, so a flag on a key that the cloud set can fail. It
 // resolves the cloud login only when cloud.policy applies.
 func (r *Runtime) LoadAtStart(cfg *config.RuntimeConfig) *Status {
-	tenant := ""
-	if cfg.CloudPolicyEnabled() {
-		tenant = r.loginTenant()
-	}
-	return r.LoadAtStartForTenant(cfg, tenant)
+	return r.LoadAtStartForTenant(cfg, r.tenant(cfg))
+}
+
+// Peek loads the policy cache and returns its status. It applies nothing,
+// so a caller can decide to fetch before LoadAtStart.
+func (r *Runtime) Peek(cfg *config.RuntimeConfig) *Status {
+	return Load(cfg, r.tenant(cfg))
 }
 
 // LoadAtStartForTenant is LoadAtStart for a caller that knows the tenant of
@@ -110,12 +112,7 @@ func (r *Runtime) Publish(cfg *config.RuntimeConfig) {
 // no restart. It applies the cloud layer to a copy of the config, on top of
 // the cooldown from before the first cloud layer.
 func (r *Runtime) Reload(cfg *config.RuntimeConfig) *Status {
-	tenant := ""
-	if cfg.CloudPolicyEnabled() {
-		tenant = r.loginTenant()
-	}
-
-	st := Load(cfg, tenant)
+	st := Load(cfg, r.tenant(cfg))
 
 	target := cfg.Config
 	target.DependencyCooldown = r.baseline
@@ -127,6 +124,14 @@ func (r *Runtime) Reload(cfg *config.RuntimeConfig) *Status {
 	r.status.Store(st)
 	r.current.Store(newPolicy(st, target.DependencyCooldown))
 	return st
+}
+
+// tenant resolves the cloud login only when cloud.policy applies.
+func (r *Runtime) tenant(cfg *config.RuntimeConfig) string {
+	if !cfg.CloudPolicyEnabled() {
+		return ""
+	}
+	return r.loginTenant()
 }
 
 func (r *Runtime) loginTenant() string {

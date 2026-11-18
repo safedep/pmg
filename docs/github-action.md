@@ -179,8 +179,12 @@ The action masks the API key in logs and exports it to later steps.
 Log masking does not isolate the credential from those steps.
 
 With `api-key`, PMG applies the [cloud policy](config.md#cloud-policy) of your tenant.
-A new runner has no policy cache, so the action fetches the policy before the next step runs.
-If that fetch fails, the action prints a warning, and the job runs with the malware check and the PMG config only.
+The action fetches the policy before the next step runs, so the first install of the job applies it.
+The fetch takes 15 seconds at most.
+When no cloud policy applies after the fetch, the action step fails.
+On a self-hosted runner that keeps its policy cache, a failed fetch prints a warning, and the last policy applies.
+A PMG `version` without `pmg cloud sync --require-policy` does not fail the step.
+In shim mode it prints a warning, and in server mode it does not fetch before the proxy starts.
 
 With `api-key`, `endpoint-id` defaults to `gha/${{ github.repository }}`.
 Each workflow on the same repository appears as one endpoint in the

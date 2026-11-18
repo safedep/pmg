@@ -20,11 +20,15 @@ if [ -z "$found" ]; then
   exit 1
 fi
 
-# A new runner has no policy cache. Fetch the cloud policy now, so the
-# first package manager command of the job applies it. A failed fetch
-# does not fail the job, because the malware check still applies.
+# Fetch the cloud policy now, as `pmg proxy start` does in server mode,
+# so the first package manager command of the job applies it. The step
+# fails when no cloud policy applies. The fetch takes 15 seconds at most:
+# 5 seconds for the sync lock and 10 seconds for the fetch. A PMG release
+# without --require-policy runs the full sync, and a failure only warns.
 if [ "${PMG_CLOUD_ENABLED:-}" = "true" ]; then
-  if ! pmg cloud sync --timeout 10s; then
-    printf '%s\n' "::warning::PMG cannot fetch the cloud policy. No cloud policy applies until the next fetch."
+  if pmg cloud sync --help 2>/dev/null | grep -q -- '--require-policy'; then
+    pmg cloud sync --require-policy
+  elif ! pmg cloud sync --timeout 10s; then
+    printf '%s\n' "::warning::The PMG cloud sync failed. The error above says which cloud policy applies."
   fi
 fi

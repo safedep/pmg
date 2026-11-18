@@ -3,6 +3,7 @@ package cloudsync
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -262,4 +264,53 @@ func TestRunCallsAfterPolicyBeforeTheCheckIn(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"policy", "after-policy", "events", "check-in"}, rec.order)
+}
+
+func TestFetchAtStart(t *testing.T) {
+	applied := &cloudpolicy.Status{Applied: &cloudpolicy.AppliedHeader{Revision: 48}}
+
+	tests := []struct {
+		name      string
+		st        *cloudpolicy.Status
+		policyOff bool
+		fetched   bool
+		fetchErr  error
+		wantFetch bool
+		wantErr   string
+	}{
+		{name: "no status fetches", wantFetch: true},
+		{name: "no applied policy fetches", st: &cloudpolicy.Status{}, wantFetch: true},
+		{name: "no applied policy fetches also when the fetch is not due", st: &cloudpolicy.Status{}, fetched: true, wantFetch: true},
+		{name: "an applied policy fetches when the fetch is due", st: applied, wantFetch: true},
+		{name: "an applied policy skips a fetch that is not due", st: applied, fetched: true},
+		{name: "cloud policy off makes no fetch", policyOff: true},
+		{
+			name:      "a failed fetch returns the error",
+			st:        &cloudpolicy.Status{},
+			fetchErr:  errors.New("unauthenticated"),
+			wantFetch: true,
+			wantErr:   "unauthenticated",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newSyncConfig(t)
+			cfg.Config.Cloud.Policy = !tt.policyOff
+			if tt.fetched {
+				require.NoError(t, audit.WriteLastSyncAttempt(cfg.CloudPolicyLastRunPath()))
+			}
+			rec := &recorder{fetchErr: tt.fetchErr}
+
+			err := rec.steps(t).fetchAtStart(context.Background(), cfg, tt.st)
+
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.wantErr)
+			}
+			assert.Equal(t, tt.wantFetch, slices.Contains(rec.order, "policy"))
+			assert.NotContains(t, rec.order, "events", "the fetch at start sends no events")
+		})
+	}
 }

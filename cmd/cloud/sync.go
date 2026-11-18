@@ -22,7 +22,10 @@ import (
 // surfaces as a usefulerror rather than an indefinite hang.
 const manualSyncLockTimeout = 30 * time.Second
 
-var syncTimeout time.Duration
+var (
+	syncTimeout   time.Duration
+	requirePolicy bool
+)
 
 func newSyncCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -32,6 +35,8 @@ func newSyncCommand() *cobra.Command {
 	}
 
 	cmd.Flags().DurationVar(&syncTimeout, "timeout", 15*time.Minute, "Maximum time to spend on the sync")
+	cmd.Flags().BoolVar(&requirePolicy, "require-policy", false,
+		"Fetch only the cloud policy, as 'pmg proxy start' does, and fail when no cloud policy applies. Ignores --timeout")
 
 	return cmd
 }
@@ -44,6 +49,20 @@ func runSync(cmd *cobra.Command, args []string) error {
 			WithCode(errcodes.Lifecycle).
 			WithHumanError("Cloud sync is not enabled").
 			WithHelp("Set 'cloud.enabled: true' in PMG config to enable cloud sync"))
+	}
+
+	if requirePolicy {
+		if !cfg.CloudPolicyEnabled() {
+			return nil
+		}
+		policy := cloudpolicy.Global()
+		fetchErr := cloudsync.FetchAtStart(cmd.Context(), cfg, policy.Peek(cfg))
+		st := policy.Peek(cfg)
+		if err := RequirePolicy(fetchErr, st); err != nil {
+			ui.ErrorExit(err)
+		}
+		ui.Successf("Cloud policy revision %d applies", st.Applied.Revision)
+		return nil
 	}
 
 	// The policy fetch runs first, so a user or IT can force a fetch.
@@ -118,6 +137,32 @@ func isNetworkCode(code string) bool {
 		return true
 	}
 	return false
+}
+
+// RequirePolicy checks the cloud policy of a command that must not run
+// without one, after its fetch at start. st is the status after the fetch. It
+// returns an error when no cloud policy applies. When a policy applies and
+// the fetch failed, it shows a warning.
+func RequirePolicy(fetchErr error, st *cloudpolicy.Status) error {
+	if st != nil && st.Applied != nil {
+		if fetchErr != nil {
+			ui.ShowWarning(fmt.Sprintf("Cannot fetch the cloud policy (%v). The last policy still applies (revision %d).",
+				fetchErr, st.Applied.Revision))
+		}
+		return nil
+	}
+
+	switch {
+	case fetchErr == nil:
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.Lifecycle).
+			WithHumanError("No cloud policy applies. pmg did not accept the policy that it fetched").
+			WithHelp("Run 'pmg setup doctor' to see why the cloud policy does not apply")
+	case errors.Is(fetchErr, audit.ErrSyncInProgress), errors.Is(fetchErr, cloud.ErrMissingCredentials):
+		return syncFailureError(fetchErr)
+	default:
+		return policyFetchFailureError(fetchErr, 0)
+	}
 }
 
 // appliedPolicyRevision returns the revision of the cloud policy that pmg

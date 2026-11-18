@@ -46,11 +46,6 @@ const (
 	cloudSyncTickLockWait = 5 * time.Second
 	cloudSyncTickTimeout  = 30 * time.Second
 
-	// The first policy fetch delays `pmg proxy start` on a machine with no
-	// policy cache. An unreachable cloud must not hold a CI job for long.
-	startPolicyLockWait = 5 * time.Second
-	startPolicyTimeout  = 10 * time.Second
-
 	// Final flush at shutdown, when the daemon drains whatever the ticker left.
 	cloudFlushLockWait = 30 * time.Second
 	cloudFlushTimeout  = 2 * time.Minute
@@ -622,49 +617,6 @@ func blockedPackages(stats *interceptors.AnalysisStatsCollector) []BlockedPackag
 			Context: &pmgproxy.BlockContext{PackageName: b.Name, PackageVersion: b.Version}})
 	}
 	return blocked
-}
-
-type cloudSyncFunc func(context.Context, *config.RuntimeConfig, cloudsync.Plan) (*cloudsync.Result, error)
-
-// FetchPolicyAtStart fetches the cloud policy once before `pmg proxy start`
-// starts the proxy, when the cloud policy is on and no policy cache exists. A
-// new machine or CI runner then applies the policy to its first download, not
-// after the first tick of the daemon. With a cache, the proxy starts at once
-// and fetches at its first tick. It returns an error when the fetch fails and
-// no cloud policy applies.
-func FetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig) error {
-	return fetchPolicyAtStart(ctx, cfg, cloudpolicy.Global(), cloudsync.Run, os.Stderr)
-}
-
-func fetchPolicyAtStart(ctx context.Context, cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime,
-	sync cloudSyncFunc, out io.Writer,
-) error {
-	if !cfg.CloudPolicyEnabled() {
-		return nil
-	}
-	if st := policy.Status(); st == nil || st.State != recordv1.ApplyState_APPLY_STATE_NONE {
-		return nil
-	}
-
-	res, err := sync(ctx, cfg, cloudsync.Plan{
-		Policy:      cloudsync.StepForce,
-		LockTimeout: startPolicyLockWait,
-		Timeout:     startPolicyTimeout,
-	})
-	reloadIfCacheMoved(cfg, policy, out)
-	if err == nil && res != nil {
-		err = res.PolicyErr
-	}
-	if err == nil {
-		return nil
-	}
-	// Another pmg process can commit a policy while this fetch waits for
-	// the lock. The reload above applies it, so the start has a policy.
-	if st := policy.Status(); st != nil && st.Applied != nil {
-		log.Warnf("first cloud policy fetch failed, another process applied a policy: %v", err)
-		return nil
-	}
-	return err
 }
 
 // reloadIfCacheMoved reloads the policy when the cache holds another policy

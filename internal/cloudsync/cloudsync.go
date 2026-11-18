@@ -111,6 +111,37 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*Result, er
 	return defaultSteps.run(ctx, cfg, plan)
 }
 
+// The fetch at start delays a command that needs the policy, such as `pmg
+// proxy start` in a CI job. An unreachable cloud must not hold the job for
+// long.
+const (
+	startLockWait = 5 * time.Second
+	startTimeout  = 10 * time.Second
+)
+
+// FetchAtStart fetches the cloud policy before a command loads it. st is the
+// status of the cache before the fetch. It fetches when no cloud policy
+// applies, and when a policy applies and its fetch is due, so a stale cache
+// gets the new rules too. It returns the error of the fetch.
+func FetchAtStart(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status) error {
+	return defaultSteps.fetchAtStart(ctx, cfg, st)
+}
+
+func (s steps) fetchAtStart(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status) error {
+	if !cfg.CloudPolicyEnabled() {
+		return nil
+	}
+	if st != nil && st.Applied != nil && !audit.PolicyFetchDue(cfg) {
+		return nil
+	}
+
+	res, err := s.run(ctx, cfg, Plan{Policy: StepForce, LockTimeout: startLockWait, Timeout: startTimeout})
+	if err != nil {
+		return err
+	}
+	return res.PolicyErr
+}
+
 func (s steps) run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*Result, error) {
 	if !cfg.Config.Cloud.Enabled {
 		return &Result{}, nil
