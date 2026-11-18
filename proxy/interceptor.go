@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"time"
@@ -59,48 +60,78 @@ const (
 	BlockReasonPolicyRule
 )
 
+// blockReasonNames are the names of the reasons in JSON. A stored reason
+// keeps its meaning when a new reason changes the order of the constants.
+var blockReasonNames = map[BlockReason]string{
+	BlockReasonNone:               "none",
+	BlockReasonMalware:            "malware",
+	BlockReasonUserDeclined:       "user_declined",
+	BlockReasonConfirmationFailed: "confirmation_failed",
+	BlockReasonDependencyCooldown: "dependency_cooldown",
+	BlockReasonNetworkPolicy:      "network_policy",
+	BlockReasonPolicyRule:         "policy_rule",
+}
+
+func (r BlockReason) MarshalText() ([]byte, error) {
+	name, ok := blockReasonNames[r]
+	if !ok {
+		return nil, fmt.Errorf("unknown block reason %d", int(r))
+	}
+	return []byte(name), nil
+}
+
+func (r *BlockReason) UnmarshalText(text []byte) error {
+	for reason, name := range blockReasonNames {
+		if name == string(text) {
+			*r = reason
+			return nil
+		}
+	}
+	return fmt.Errorf("unknown block reason %q", text)
+}
+
 // BlockContext carries the structured facts of a block decision so a
 // presentation layer can render the user-facing message. Interceptors
 // populate it instead of composing message text themselves.
 type BlockContext struct {
-	Ecosystem      packagev1.Ecosystem
-	PackageName    string
-	PackageVersion string
+	Ecosystem      packagev1.Ecosystem `json:"ecosystem,omitempty"`
+	PackageName    string              `json:"package_name,omitempty"`
+	PackageVersion string              `json:"package_version,omitempty"`
 
 	// For BlockReasonMalware and BlockReasonUserDeclined
-	MalwareSummary      string
-	MalwareReferenceURL string
+	MalwareSummary      string `json:"malware_summary,omitempty"`
+	MalwareReferenceURL string `json:"malware_reference_url,omitempty"`
 
 	// For BlockReasonDependencyCooldown
-	CooldownDays     int
-	CooldownDaysAgo  int
-	CooldownDaysLeft int
+	CooldownDays     int `json:"cooldown_days,omitempty"`
+	CooldownDaysAgo  int `json:"cooldown_days_ago,omitempty"`
+	CooldownDaysLeft int `json:"cooldown_days_left,omitempty"`
 	// CooldownPolicyRevision is the revision of the cloud policy of the
 	// tenant that set the cooldown. It is 0 when the local config set it.
-	CooldownPolicyRevision uint64
+	CooldownPolicyRevision uint64 `json:"cooldown_policy_revision,omitempty"`
 
 	// For BlockReasonNetworkPolicy: the denied host:port and the rule.
-	Destination string
-	Rule        string
+	Destination string `json:"destination,omitempty"`
+	Rule        string `json:"rule,omitempty"`
 
 	// For BlockReasonPolicyRule: the block entry that matched.
-	PolicyRule *PolicyRuleBlock
+	PolicyRule *PolicyRuleBlock `json:"policy_rule,omitempty"`
 }
 
 // PolicyRuleBlock is a block entry of the cloud policy of the tenant or of
 // blocked_packages that blocked a request.
 type PolicyRuleBlock struct {
-	RuleID string
-	Reason string
+	RuleID string `json:"rule_id,omitempty"`
+	Reason string `json:"reason,omitempty"`
 
 	// Cloud is true for a rule of the tenant policy. Revision and
 	// DefaultPolicyRevision name that policy.
-	Cloud                 bool
-	Revision              uint64
-	DefaultPolicyRevision uint64
+	Cloud                 bool   `json:"cloud,omitempty"`
+	Revision              uint64 `json:"revision,omitempty"`
+	DefaultPolicyRevision uint64 `json:"default_policy_revision,omitempty"`
 
 	// File is the config file of a rule of blocked_packages.
-	File string
+	File string `json:"file,omitempty"`
 }
 
 // InterceptorResponse defines how the proxy should handle the request
