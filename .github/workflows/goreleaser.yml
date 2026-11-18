@@ -299,6 +299,11 @@ jobs:
     env:
       # Add a new value to git.ignore_tags in .goreleaser.yaml in the same change.
       ACTION_TAG: v2
+    # The default shell has no pipefail. A failed tag lookup then gives an
+    # empty result, and the job skips the move without an error.
+    defaults:
+      run:
+        shell: bash
     steps:
       # A re-run of an older release or a patch of an older line must not
       # move the tag back. GitHub marks each new stable release as latest,
