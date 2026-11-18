@@ -26,7 +26,7 @@ jobs:
       attestations: write
     env:
       # Add a new value to git.ignore_tags in .goreleaser.yaml in the same change.
-      ACTION_TAG: v2
+      PMG_ACTION_MOVING_TAG: v2
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -133,7 +133,7 @@ jobs:
           if [ "$highest" = "$GITHUB_REF_NAME" ]; then
             echo "move=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::The highest stable tag is ${highest}, not ${GITHUB_REF_NAME}. ${ACTION_TAG} does not move."
+            echo "::notice::The highest stable tag is ${highest}, not ${GITHUB_REF_NAME}. ${PMG_ACTION_MOVING_TAG} does not move."
           fi
 
       - name: Get a token of the release app
@@ -158,17 +158,17 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" --jq .sha)
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${ACTION_TAG}" > /dev/null 2>&1; then
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${ACTION_TAG}" -f sha="$sha" -F force=true > /dev/null
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${PMG_ACTION_MOVING_TAG}" > /dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${PMG_ACTION_MOVING_TAG}" -f sha="$sha" -F force=true > /dev/null
           else
-            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${ACTION_TAG}" -f sha="$sha" > /dev/null
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${PMG_ACTION_MOVING_TAG}" -f sha="$sha" > /dev/null
           fi
-          got=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${ACTION_TAG}" --jq '.object.type + " " + .object.sha')
+          got=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${PMG_ACTION_MOVING_TAG}" --jq '.object.type + " " + .object.sha')
           if [ "$got" != "commit ${sha}" ]; then
-            echo "::error::${ACTION_TAG} points to ${got}, not the commit ${sha}"
+            echo "::error::${PMG_ACTION_MOVING_TAG} points to ${got}, not the commit ${sha}"
             exit 1
           fi
-          echo "${ACTION_TAG} now points to ${GITHUB_REF_NAME} (${sha})"
+          echo "${PMG_ACTION_MOVING_TAG} now points to ${GITHUB_REF_NAME} (${sha})"
 
   test-installation:
     needs: release
