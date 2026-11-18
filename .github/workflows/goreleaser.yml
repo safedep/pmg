@@ -24,6 +24,9 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+    env:
+      # Add a new value to git.ignore_tags in .goreleaser.yaml in the same change.
+      PMG_ACTION_MOVING_TAG: v2
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,6 +100,75 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # The next steps move the major tag of the GitHub Action
+      # (uses: safedep/pmg@v2) to a stable release. They run in this job so
+      # that the npm-release approval also guards the app key. No workflow
+      # triggers on the major tag, and git.ignore_tags in .goreleaser.yaml
+      # keeps goreleaser off it. No release exists on it, so immutable
+      # releases do not lock it. The release app pushes the tag because the
+      # tag ruleset blocks the workflow token.
+      #
+      # A failed move marks its step red but does not fail this job. So the
+      # later jobs and their re-runs work as before. A re-run of this job
+      # fails at the goreleaser step, so a failed move needs a manual tag
+      # push. Before the push, check where the tag points now. The move can
+      # succeed when only the last check fails, and a newer release can move
+      # the tag first. Push it only to the highest stable tag whose release
+      # job succeeded. A newer tag can wait for its release approval.
+      #
+      # A re-run of an older release or a patch of an older line must not
+      # move the tag back. GitHub marks a patch of an older line as the
+      # latest release too. So the check uses the highest tag.
+      - name: Check that this is the highest stable tag
+        id: check
+        if: ${{ !contains(github.ref_name, '-') }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          highest=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/v" --jq '.[].ref | ltrimstr("refs/tags/")' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          if [ "$highest" = "$GITHUB_REF_NAME" ]; then
+            echo "move=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The highest stable tag is ${highest}, not ${GITHUB_REF_NAME}. ${PMG_ACTION_MOVING_TAG} does not move."
+          fi
+
+      - name: Get a token of the release app
+        if: steps.check.outputs.move == 'true'
+        id: app
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.RELEASE_AUTOMATION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_AUTOMATION_APP_KEY }}
+          owner: safedep
+          repositories: pmg
+          permission-contents: write
+
+      # The API writes a ref that points at the commit, which is a
+      # lightweight tag. git tag -a would make an annotated tag.
+      - name: Move the tag
+        if: steps.check.outputs.move == 'true' && steps.app.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" --jq .sha)
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${PMG_ACTION_MOVING_TAG}" > /dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${PMG_ACTION_MOVING_TAG}" -f sha="$sha" -F force=true > /dev/null
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${PMG_ACTION_MOVING_TAG}" -f sha="$sha" > /dev/null
+          fi
+          got=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${PMG_ACTION_MOVING_TAG}" --jq '.object.type + " " + .object.sha')
+          if [ "$got" != "commit ${sha}" ]; then
+            echo "::error::${PMG_ACTION_MOVING_TAG} points to ${got}, not the commit ${sha}"
+            exit 1
+          fi
+          echo "${PMG_ACTION_MOVING_TAG} now points to ${GITHUB_REF_NAME} (${sha})"
 
   test-installation:
     needs: release
