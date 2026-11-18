@@ -1,0 +1,6 @@
+# A pull request can edit its own workflow, so a maintainer reviews each
+# change to the workflows, the published action and this file.
+/.github/workflows/ @abhisek
+/.github/actions/ @abhisek
+/action.yml @abhisek
+/.github/CODEOWNERS @abhisek
