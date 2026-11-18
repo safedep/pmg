@@ -112,7 +112,9 @@ jobs:
       # A failed move marks its step red but does not fail this job. So the
       # later jobs and their re-runs work as before. A re-run of this job
       # fails at the goreleaser step, so a failed move needs a manual tag
-      # push.
+      # push. Before the push, check where the tag points now. The move can
+      # succeed when only the last check fails, and a newer release can move
+      # the tag first. Push it only to the highest stable tag.
       #
       # A re-run of an older release or a patch of an older line must not
       # move the tag back. GitHub marks a patch of an older line as the
