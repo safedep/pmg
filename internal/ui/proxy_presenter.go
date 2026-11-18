@@ -164,10 +164,12 @@ func BlockedPackageLine(reason proxy.BlockReason, blockCtx *proxy.BlockContext) 
 		return fmt.Sprintf("%s · blocked_packages in %s", pkg, removeControlChars(rule.File))
 	case proxy.BlockReasonDependencyCooldown:
 		return pkg + " · dependency cooldown"
-	case proxy.BlockReasonUserDeclined:
+	case proxy.BlockReasonUserDeclined, proxy.BlockReasonConfirmationFailed:
 		return pkg + " · suspicious"
-	default:
+	case proxy.BlockReasonMalware:
 		return pkg + " · malware"
+	default:
+		return pkg + " · blocked"
 	}
 }
 

@@ -259,10 +259,28 @@ func TestBlockedPackageLine(t *testing.T) {
 			expected: "pkg:npm/odd@1.0.0 · suspicious",
 		},
 		{
-			name:     "a cooldown block has no ecosystem",
+			name:     "a suspicious package whose confirmation failed",
+			reason:   proxy.BlockReasonConfirmationFailed,
+			blockCtx: npm("odd", "1.0.0", nil),
+			expected: "pkg:npm/odd@1.0.0 · suspicious",
+		},
+		{
+			name:     "a cooldown block",
+			reason:   proxy.BlockReasonDependencyCooldown,
+			blockCtx: &proxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI, PackageName: "young", PackageVersion: "1.0.0"},
+			expected: "pkg:pypi/young@1.0.0 · dependency cooldown",
+		},
+		{
+			name:     "a context with no ecosystem",
 			reason:   proxy.BlockReasonDependencyCooldown,
 			blockCtx: &proxy.BlockContext{PackageName: "young", PackageVersion: "1.0.0"},
 			expected: "young@1.0.0 · dependency cooldown",
+		},
+		{
+			name:     "a reason that this version does not know",
+			reason:   proxy.BlockReasonNone,
+			blockCtx: npm("ms", "2.1.2", nil),
+			expected: "pkg:npm/ms@2.1.2 · blocked",
 		},
 	}
 

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -227,6 +228,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	proxyConfig.Interceptors = interceptorList
 	proxyConfig.BlockMessageRenderer = opts.BlockMessage
 
+	blocks := &blockLog{seen: map[string]bool{}}
+	proxyConfig.OnBlock = blocks.Record
+
 	networkDecisions := flows.NewNetworkDecisionLog(true)
 	proxyConfig.OnNetworkDecision = networkDecisions.Record
 	if network.policy != nil {
@@ -362,7 +366,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	// keeps `stop --fail-on-violation` correct in those cases.
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
-	state.Blocked = blockedPackages(statsCollector)
+	state.Blocked = blocks.List()
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}
@@ -594,29 +598,34 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 	}
 }
 
-// blockedPackages lists each package that the daemon blocked, for the stop
-// report.
-func blockedPackages(stats *interceptors.AnalysisStatsCollector) []BlockedPackage {
-	var blocked []BlockedPackage
-	for _, r := range stats.GetBlockedPackages() {
-		reason := pmgproxy.BlockReasonMalware
-		if r.Action != analyzer.ActionBlock {
-			reason = pmgproxy.BlockReasonUserDeclined
-		}
-		blocked = append(blocked, BlockedPackage{Reason: reason, Context: &pmgproxy.BlockContext{
-			Ecosystem:      r.PackageVersion.GetPackage().GetEcosystem(),
-			PackageName:    r.PackageVersion.GetPackage().GetName(),
-			PackageVersion: r.PackageVersion.GetVersion(),
-		}})
+// blockLog keeps each package that the daemon blocked, once for each reason,
+// for the stop report. A package manager that installs the same lockfile
+// again does not add lines.
+type blockLog struct {
+	mu      sync.Mutex
+	seen    map[string]bool
+	blocked []BlockedPackage
+}
+
+func (l *blockLog) Record(reason pmgproxy.BlockReason, blockCtx *pmgproxy.BlockContext) {
+	if blockCtx == nil {
+		return
 	}
-	for _, b := range stats.GetRuleBlocks() {
-		blocked = append(blocked, BlockedPackage{Reason: pmgproxy.BlockReasonPolicyRule, Context: b})
+	key := fmt.Sprintf("%d/%d/%s@%s", reason, blockCtx.Ecosystem, blockCtx.PackageName, blockCtx.PackageVersion)
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.seen[key] {
+		return
 	}
-	for _, b := range stats.GetCooldownBlocks() {
-		blocked = append(blocked, BlockedPackage{Reason: pmgproxy.BlockReasonDependencyCooldown,
-			Context: &pmgproxy.BlockContext{PackageName: b.Name, PackageVersion: b.Version}})
-	}
-	return blocked
+	l.seen[key] = true
+	l.blocked = append(l.blocked, BlockedPackage{Reason: reason, Context: blockCtx})
+}
+
+func (l *blockLog) List() []BlockedPackage {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.blocked)
 }
 
 // reloadIfCacheMoved reloads the policy when the cache holds another policy

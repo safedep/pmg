@@ -56,12 +56,32 @@ func TestBlockedPackageJSON(t *testing.T) {
 	assert.Equal(t, blocked, got)
 }
 
-func TestBlockReasonJSONRejectsAnUnknownReason(t *testing.T) {
+func TestBlockReasonJSONUnknownReason(t *testing.T) {
 	var got BlockedPackage
-	assert.Error(t, json.Unmarshal([]byte(`{"reason":"unknown"}`), &got))
+	require.NoError(t, json.Unmarshal([]byte(`{"reason":"reason_of_a_newer_daemon","context":{"package_name":"ms"}}`), &got))
+	assert.Equal(t, pmgproxy.BlockReasonNone, got.Reason, "a newer reason does not make the state file unreadable")
+	assert.Equal(t, "ms", got.Context.PackageName)
 
 	_, err := json.Marshal(BlockedPackage{Reason: pmgproxy.BlockReason(99)})
 	assert.Error(t, err)
+}
+
+func TestBlockLog(t *testing.T) {
+	ms := &pmgproxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "ms", PackageVersion: "2.1.2"}
+	pypiMs := &pmgproxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI, PackageName: "ms", PackageVersion: "2.1.2"}
+
+	l := &blockLog{seen: map[string]bool{}}
+	l.Record(pmgproxy.BlockReasonPolicyRule, ms)
+	l.Record(pmgproxy.BlockReasonPolicyRule, ms)
+	l.Record(pmgproxy.BlockReasonDependencyCooldown, ms)
+	l.Record(pmgproxy.BlockReasonPolicyRule, pypiMs)
+	l.Record(pmgproxy.BlockReasonNone, nil)
+
+	assert.Equal(t, []BlockedPackage{
+		{Reason: pmgproxy.BlockReasonPolicyRule, Context: ms},
+		{Reason: pmgproxy.BlockReasonDependencyCooldown, Context: ms},
+		{Reason: pmgproxy.BlockReasonPolicyRule, Context: pypiMs},
+	}, l.List())
 }
 
 func TestWriteStateCreatesMissingDir(t *testing.T) {

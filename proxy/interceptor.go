@@ -80,6 +80,8 @@ func (r BlockReason) MarshalText() ([]byte, error) {
 	return []byte(name), nil
 }
 
+// UnmarshalText reads an unknown name as BlockReasonNone, so a state file
+// from a newer daemon stays readable.
 func (r *BlockReason) UnmarshalText(text []byte) error {
 	for reason, name := range blockReasonNames {
 		if name == string(text) {
@@ -87,7 +89,8 @@ func (r *BlockReason) UnmarshalText(text []byte) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("unknown block reason %q", text)
+	*r = BlockReasonNone
+	return nil
 }
 
 // BlockContext carries the structured facts of a block decision so a
