@@ -24,8 +24,6 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    outputs:
-      published: ${{ steps.published.outputs.done }}
     env:
       # Add a new value to git.ignore_tags in .goreleaser.yaml in the same change.
       ACTION_TAG: v2
@@ -103,28 +101,26 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # The test jobs and the Windows publish wait for this output, not for
-      # the result of the whole job. A failed tag move then fails this job
-      # but does not stop them.
-      - name: Mark the release as published
-        id: published
-        run: echo "done=true" >> "$GITHUB_OUTPUT"
-
       # The next steps move the major tag of the GitHub Action
       # (uses: safedep/pmg@v2) to a stable release. They run in this job so
       # that the npm-release approval also guards the app key. No workflow
       # triggers on the major tag, and git.ignore_tags in .goreleaser.yaml
       # keeps goreleaser off it. No release exists on it, so immutable
       # releases do not lock it. The release app pushes the tag because the
-      # tag ruleset blocks the workflow token. A re-run of this job fails at
-      # the goreleaser step, so a failed move needs a manual tag push.
+      # tag ruleset blocks the workflow token.
+      #
+      # A failed move marks its step red but does not fail this job. So the
+      # later jobs and their re-runs work as before. A re-run of this job
+      # fails at the goreleaser step, so a failed move needs a manual tag
+      # push.
       #
       # A re-run of an older release or a patch of an older line must not
-      # move the tag back. GitHub marks each new stable release as latest,
-      # also a patch of an older line, so the check uses the highest tag.
+      # move the tag back. GitHub marks a patch of an older line as the
+      # latest release too. So the check uses the highest tag.
       - name: Check that this is the highest stable tag
         id: check
         if: ${{ !contains(github.ref_name, '-') }}
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -140,6 +136,7 @@ jobs:
       - name: Get a token of the release app
         if: steps.check.outputs.move == 'true'
         id: app
+        continue-on-error: true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ secrets.RELEASE_AUTOMATION_APP_CLIENT_ID }}
@@ -151,7 +148,8 @@ jobs:
       # The API writes a ref that points at the commit, which is a
       # lightweight tag. git tag -a would make an annotated tag.
       - name: Move the tag
-        if: steps.check.outputs.move == 'true'
+        if: steps.check.outputs.move == 'true' && steps.app.outcome == 'success'
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
@@ -171,7 +169,7 @@ jobs:
 
   test-installation:
     needs: release
-    if: ${{ !cancelled() && needs.release.outputs.published == 'true' && !contains(github.ref_name, '-') }}
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -213,7 +211,6 @@ jobs:
   # the stable tag ships it.
   test-msi:
     needs: release
-    if: ${{ !cancelled() && needs.release.outputs.published == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 15
     defaults:
@@ -257,11 +254,9 @@ jobs:
   # Both packages build and test before either one publishes. Chocolatey
   # rejects a second push of the same version, so a push that ran before a
   # failed winget step would stop every re-run of the job at the push.
-  # The condition checks test-msi directly, so a failed tag move in the
-  # release job does not stop this job.
   publish-windows-packages:
     needs: test-msi
-    if: ${{ !cancelled() && needs.test-msi.result == 'success' && !contains(github.ref_name, '-') }}
+    if: ${{ !contains(github.ref_name, '-') }}
     environment: npm-release
     runs-on: windows-latest
     timeout-minutes: 20
