@@ -24,6 +24,8 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+    outputs:
+      published: ${{ steps.published.outputs.done }}
     env:
       # Add a new value to git.ignore_tags in .goreleaser.yaml in the same change.
       ACTION_TAG: v2
@@ -101,6 +103,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # The test jobs and the Windows publish wait for this output, not for
+      # the result of the whole job. A failed tag move then fails this job
+      # but does not stop them.
+      - name: Mark the release as published
+        id: published
+        run: echo "done=true" >> "$GITHUB_OUTPUT"
+
       # The next steps move the major tag of the GitHub Action
       # (uses: safedep/pmg@v2) to a stable release. They run in this job so
       # that the npm-release approval also guards the app key. No workflow
@@ -162,7 +171,7 @@ jobs:
 
   test-installation:
     needs: release
-    if: ${{ !contains(github.ref_name, '-') }}
+    if: ${{ !cancelled() && needs.release.outputs.published == 'true' && !contains(github.ref_name, '-') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -204,6 +213,7 @@ jobs:
   # the stable tag ships it.
   test-msi:
     needs: release
+    if: ${{ !cancelled() && needs.release.outputs.published == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 15
     defaults:
@@ -247,9 +257,11 @@ jobs:
   # Both packages build and test before either one publishes. Chocolatey
   # rejects a second push of the same version, so a push that ran before a
   # failed winget step would stop every re-run of the job at the push.
+  # The condition checks test-msi directly, so a failed tag move in the
+  # release job does not stop this job.
   publish-windows-packages:
     needs: test-msi
-    if: ${{ !contains(github.ref_name, '-') }}
+    if: ${{ !cancelled() && needs.test-msi.result == 'success' && !contains(github.ref_name, '-') }}
     environment: npm-release
     runs-on: windows-latest
     timeout-minutes: 20
