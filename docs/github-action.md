@@ -182,6 +182,7 @@ With `api-key`, PMG applies the [cloud policy](config.md#cloud-policy) of your t
 The action fetches the policy before the next step runs, so the first install of the job applies it.
 The fetch takes 15 seconds at most.
 When no cloud policy applies after the fetch, the action step fails.
+When your SafeDep plan does not include the cloud policy, the step prints a warning and does not fail.
 On a self-hosted runner that keeps its policy cache, a failed fetch prints a warning, and the last policy applies.
 A PMG `version` without `pmg cloud sync --require-policy` does not fail the step.
 In shim mode it prints a warning, and in server mode it does not fetch before the proxy starts.

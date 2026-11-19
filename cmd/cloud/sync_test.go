@@ -222,6 +222,11 @@ func TestRequirePolicy(t *testing.T) {
 		{name: "a fetched policy that applies passes", st: applied},
 		{name: "a failed fetch passes when the last policy applies", fetchErr: offline, st: applied},
 		{
+			name:     "a plan without policy management passes with no policy",
+			fetchErr: fmt.Errorf("fetch policy: %w", entitlementStatusErr(t, 0)),
+			st:       none,
+		},
+		{
 			name:          "a failed fetch with no policy fails",
 			fetchErr:      offline,
 			st:            none,

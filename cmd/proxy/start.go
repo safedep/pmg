@@ -20,6 +20,10 @@ var (
 	foregroundInternalFlag bool
 )
 
+// ForegroundInternalFlag marks the re-exec of `pmg proxy start --daemon` that
+// runs the server. The root command reads it to skip the second policy fetch.
+const ForegroundInternalFlag = "foreground-internal"
+
 func newStartCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -39,8 +43,8 @@ func newStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&logFileFlag, "log-file", "", "File for the daemon's output (default: <cache-dir>/proxy.log, or $PMG_STATE_DIR/proxy.log)")
 	cmd.Flags().BoolVar(&srv.Enforce.Enabled, flagEnforce, srv.Enforce.Enabled,
 		"Route every eligible process through the proxy in the kernel (Linux, root). See proxy.server.enforce in the config")
-	cmd.Flags().BoolVar(&foregroundInternalFlag, "foreground-internal", false, "Internal: run the foreground server (used by --daemon)")
-	if err := cmd.Flags().MarkHidden("foreground-internal"); err != nil {
+	cmd.Flags().BoolVar(&foregroundInternalFlag, ForegroundInternalFlag, false, "Internal: run the foreground server (used by --daemon)")
+	if err := cmd.Flags().MarkHidden(ForegroundInternalFlag); err != nil {
 		panic(err)
 	}
 	addEnforceFlags(cmd, &srv.Enforce)
@@ -156,7 +160,7 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, opts proxyserver
 func daemonArgs(cmd *cobra.Command, opts proxyserver.RunOptions) []string {
 	args := append([]string{}, config.ChangedConfigFlagArgs(cmd)...)
 	args = append(args,
-		"proxy", "start", "--foreground-internal",
+		"proxy", "start", "--"+ForegroundInternalFlag,
 		"--state", opts.StatePath,
 		"--host", opts.Host,
 		"--port", strconv.Itoa(opts.Port),

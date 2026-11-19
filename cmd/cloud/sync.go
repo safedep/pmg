@@ -61,7 +61,9 @@ func runSync(cmd *cobra.Command, args []string) error {
 		if err := RequirePolicy(fetchErr, st); err != nil {
 			ui.ErrorExit(err)
 		}
-		ui.Successf("Cloud policy revision %d applies", st.Applied.Revision)
+		if st.Applied != nil {
+			ui.Successf("Cloud policy revision %d applies", st.Applied.Revision)
+		}
 		return nil
 	}
 
@@ -149,6 +151,14 @@ func RequirePolicy(fetchErr error, st *cloudpolicy.Status) error {
 			ui.ShowWarning(fmt.Sprintf("Cannot fetch the cloud policy (%v). The last policy still applies (revision %d).",
 				fetchErr, st.Applied.Revision))
 		}
+		return nil
+	}
+
+	// A tenant whose plan has no policy management cannot have a policy, so
+	// a missing policy is expected there and does not stop the command.
+	if usefulErr, ok := usefulerror.AsUsefulError(fetchErr); ok && usefulErr.Code() == usefulerror.ErrMissingEntitlements {
+		ui.ShowWarning("Your SafeDep plan does not include the cloud policy, so no cloud policy applies. " +
+			"Set 'cloud.policy: false' in the PMG config to turn off this warning.")
 		return nil
 	}
 

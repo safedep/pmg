@@ -105,8 +105,10 @@ policy in the background at most every 5 minutes. Set `cloud.policy: false` to s
 - `pmg proxy start` fetches the policy before it starts the proxy when no policy applies, and when
   the 5 minutes since the last fetch have passed. The fetch takes 15 seconds at most. When no
   policy applies after the fetch, the proxy does not start. When the fetch fails and the last
-  policy applies, the proxy starts with a warning. `pmg cloud sync --require-policy` does the same
-  fetch and check. The GitHub Action runs it in shim mode.
+  policy applies, the proxy starts with a warning. When your SafeDep plan does not include the
+  cloud policy, the proxy starts with a warning and no cloud policy. Set `cloud.policy: false` to
+  turn off that warning. `pmg cloud sync --require-policy` does the same fetch and check. The
+  GitHub Action runs it in shim mode.
 - A block entry and the cooldown do not apply to a package that the package manager installs from
   its own cache. See [Blocked Packages](#blocked-packages).
 - PMG keeps the policy in `cloud-policy/` in the config directory. When the fetch fails or you log

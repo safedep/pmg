@@ -320,15 +320,16 @@ func loadCloudPolicy(cmd *cobra.Command) error {
 }
 
 // fetchesPolicyAtStart reports whether cmd is `pmg proxy start`. The daemon
-// re-exec does not fetch, because its parent fetched already.
+// re-exec does not fetch, because its parent fetched already. When the flag
+// cannot be read, the start fetches, so it does not skip the policy check.
 func fetchesPolicyAtStart(cmd *cobra.Command) bool {
 	if cmd.Name() != "start" || !cmd.HasParent() || cmd.Parent().Name() != "proxy" {
 		return false
 	}
-	reexec, err := cmd.Flags().GetBool("foreground-internal")
+	reexec, err := cmd.Flags().GetBool(proxyCmd.ForegroundInternalFlag)
 	if err != nil {
-		log.Warnf("cannot read --foreground-internal: %v", err)
-		return false
+		log.Warnf("cannot read --%s: %v", proxyCmd.ForegroundInternalFlag, err)
+		return true
 	}
 	return !reexec
 }
