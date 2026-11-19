@@ -185,7 +185,8 @@ When no cloud policy applies after the fetch, the action step fails.
 When your SafeDep plan does not include the cloud policy, the step prints a warning and does not fail.
 On a self-hosted runner that keeps its policy cache, a failed fetch prints a warning, and the last policy applies.
 A PMG `version` without `pmg cloud sync --require-policy` does not fail the step.
-In shim mode it prints a warning, and in server mode it does not fetch before the proxy starts.
+In shim mode it runs the full sync and prints a warning only when that sync fails.
+In server mode it does not fetch before the proxy starts.
 
 With `api-key`, `endpoint-id` defaults to `gha/${{ github.repository }}`.
 Each workflow on the same repository appears as one endpoint in the

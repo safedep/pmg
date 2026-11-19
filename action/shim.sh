@@ -29,6 +29,6 @@ if [ "${PMG_CLOUD_ENABLED:-}" = "true" ]; then
   if pmg cloud sync --help 2>/dev/null | grep -q -- '--require-policy'; then
     pmg cloud sync --require-policy
   elif ! pmg cloud sync --timeout 10s; then
-    printf '%s\n' "::warning::The PMG cloud sync failed. The error above says which cloud policy applies."
+    printf '%s\n' "::warning::The PMG cloud sync failed. See the error above."
   fi
 fi

@@ -291,7 +291,9 @@ The daemon delivers events only when both `cloud.enabled` and
 auto-sync off, the events stay local and stop prints no sync line. Store
 the credentials with `pmg cloud login`, or set `SAFEDEP_API_KEY` and
 `SAFEDEP_TENANT_ID`. A root daemon uses the credentials of root, so pass the
-variables through sudo or store the credentials for root.
+variables through sudo or store the credentials for root. With the
+[cloud policy](config.md#cloud-policy) on, `pmg proxy start` does not start
+the proxy when it has no credentials and no policy cache.
 
 On a runner that is destroyed when the job ends, run `pmg proxy stop`
 before the job ends. The daemon records each blocked

@@ -62,8 +62,20 @@ func TestBlockReasonJSONUnknownReason(t *testing.T) {
 	assert.Equal(t, pmgproxy.BlockReasonNone, got.Reason, "a newer reason does not make the state file unreadable")
 	assert.Equal(t, "ms", got.Context.PackageName)
 
-	_, err := json.Marshal(BlockedPackage{Reason: pmgproxy.BlockReason(99)})
-	assert.Error(t, err)
+	data, err := json.Marshal(BlockedPackage{Reason: pmgproxy.BlockReason(99)})
+	require.NoError(t, err, "a reason with no name must not fail the final state write")
+	assert.JSONEq(t, `{"reason":"none","context":null}`, string(data))
+}
+
+func TestWriteStateKeepsTheCountWithAnUnnamedReason(t *testing.T) {
+	path := stateFilePath(t.TempDir())
+	require.NoError(t, writeState(path, State{PID: 1, BlockedCount: 1, Blocked: []BlockedPackage{
+		{Reason: pmgproxy.BlockReason(99), Context: &pmgproxy.BlockContext{PackageName: "ms"}},
+	}}))
+
+	got, err := readState(path)
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.BlockedCount)
 }
 
 func TestBlockLog(t *testing.T) {

@@ -104,7 +104,9 @@ policy in the background at most every 5 minutes. Set `cloud.policy: false` to s
 - A new machine has no policy cache, so its first command applies only the PMG config.
 - `pmg proxy start` fetches the policy before it starts the proxy when no policy applies, and when
   the 5 minutes since the last fetch have passed. The fetch takes 15 seconds at most. When no
-  policy applies after the fetch, the proxy does not start. When the fetch fails and the last
+  policy applies after the fetch, the proxy does not start. This includes a machine with no
+  policy cache and no cloud credentials, such as a root daemon when root has no
+  `pmg cloud login`. When the fetch fails and the last
   policy applies, the proxy starts with a warning. When your SafeDep plan does not include the
   cloud policy, the proxy starts with a warning and no cloud policy. Set `cloud.policy: false` to
   turn off that warning. `pmg cloud sync --require-policy` does the same fetch and check. The

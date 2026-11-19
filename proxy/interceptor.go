@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"time"
@@ -72,10 +71,13 @@ var blockReasonNames = map[BlockReason]string{
 	BlockReasonPolicyRule:         "policy_rule",
 }
 
+// MarshalText writes a reason with no name as "none". It never fails, because
+// a failed write of the final daemon state would hide the blocks from
+// `pmg proxy stop --fail-on-violation`.
 func (r BlockReason) MarshalText() ([]byte, error) {
 	name, ok := blockReasonNames[r]
 	if !ok {
-		return nil, fmt.Errorf("unknown block reason %d", int(r))
+		name = blockReasonNames[BlockReasonNone]
 	}
 	return []byte(name), nil
 }
