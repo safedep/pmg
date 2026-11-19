@@ -203,9 +203,10 @@ run_wrapped() {
   child=$!
   trap 'kill -TERM "$child" 2>/dev/null' TERM INT
   set +e
-  while kill -0 "$child" 2>/dev/null; do
+  while :; do
     wait "$child"
     rc=$?
+    kill -0 "$child" 2>/dev/null || break
   done
   stop_all
   exit "$rc"
