@@ -1,4 +1,4 @@
-package cloud
+package cloudsync
 
 import (
 	"errors"
@@ -10,7 +10,6 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
-	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -113,7 +112,7 @@ func TestSyncFailureError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := syncFailureError(tt.err)
+			err := SyncFailureError(tt.err)
 			require.Error(t, err)
 
 			usefulErr, ok := usefulerror.AsUsefulError(err)
@@ -195,7 +194,7 @@ func TestPolicyFetchFailureError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usefulErr, ok := usefulerror.AsUsefulError(policyFetchFailureError(tt.err, tt.applied))
+			usefulErr, ok := usefulerror.AsUsefulError(PolicyFetchFailureError(tt.err, tt.applied))
 			require.True(t, ok)
 
 			assert.Equal(t, tt.expectedCode, usefulErr.Code())
@@ -203,74 +202,6 @@ func TestPolicyFetchFailureError(t *testing.T) {
 			if tt.expectedHelp != "" {
 				assert.Equal(t, tt.expectedHelp, usefulErr.Help())
 			}
-		})
-	}
-}
-
-func TestRequirePolicy(t *testing.T) {
-	offline := fmt.Errorf("fetch policy: %w", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
-	applied := &cloudpolicy.Status{Applied: &cloudpolicy.AppliedHeader{Revision: 52}}
-	none := &cloudpolicy.Status{}
-
-	tests := []struct {
-		name          string
-		fetchErr      error
-		st            *cloudpolicy.Status
-		expectedCode  string
-		expectedHuman string
-	}{
-		{name: "a fetched policy that applies passes", st: applied},
-		{name: "a failed fetch passes when the last policy applies", fetchErr: offline, st: applied},
-		{
-			name:     "a plan without policy management passes with no policy",
-			fetchErr: fmt.Errorf("fetch policy: %w", entitlementStatusErr(t, 0)),
-			st:       none,
-		},
-		{
-			name:          "a failed fetch with no policy fails",
-			fetchErr:      offline,
-			st:            none,
-			expectedCode:  errcodes.Network,
-			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. No cloud policy applies yet",
-		},
-		{
-			name:          "missing credentials with no policy fail with the login help",
-			fetchErr:      fmt.Errorf("resolve: %w", cloud.ErrMissingCredentials),
-			st:            none,
-			expectedCode:  errcodes.CloudCredentialsNotFound,
-			expectedHuman: "SafeDep Cloud credentials are not configured",
-		},
-		{
-			name:          "a busy sync lock with no policy fails",
-			fetchErr:      audit.ErrSyncInProgress,
-			st:            none,
-			expectedCode:  errcodes.Lifecycle,
-			expectedHuman: "Another cloud sync is already in progress",
-		},
-		{
-			name:          "a fetched policy that pmg rejects fails",
-			st:            none,
-			expectedCode:  errcodes.Lifecycle,
-			expectedHuman: "No cloud policy applies. pmg did not accept the policy that it fetched",
-		},
-		{
-			name:          "no status fails",
-			expectedCode:  errcodes.Lifecycle,
-			expectedHuman: "No cloud policy applies. pmg did not accept the policy that it fetched",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := RequirePolicy(tt.fetchErr, tt.st)
-			if tt.expectedCode == "" {
-				assert.NoError(t, err)
-				return
-			}
-			usefulErr, ok := usefulerror.AsUsefulError(err)
-			require.True(t, ok)
-			assert.Equal(t, tt.expectedCode, usefulErr.Code())
-			assert.Equal(t, tt.expectedHuman, usefulErr.HumanError())
 		})
 	}
 }

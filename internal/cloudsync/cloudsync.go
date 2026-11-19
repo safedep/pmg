@@ -14,7 +14,9 @@ import (
 	"github.com/safedep/dry/cloud/configsync"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/cloudpolicy"
@@ -125,6 +127,52 @@ const (
 // gets the new rules too. It returns the error of the fetch.
 func FetchAtStart(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status) error {
 	return defaultSteps.fetchAtStart(ctx, cfg, st)
+}
+
+// RequirePolicy is for a command that must not run without a cloud policy. It
+// fetches the policy as FetchAtStart does, then loads it with load. It returns
+// the status after the load, a warning for the user or "", and an error when
+// no cloud policy applies. With cloud.policy off, it only loads.
+func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig,
+	load func(*config.RuntimeConfig) *cloudpolicy.Status,
+) (*cloudpolicy.Status, string, error) {
+	if !cfg.CloudPolicyEnabled() {
+		return load(cfg), "", nil
+	}
+
+	fetchErr := FetchAtStart(ctx, cfg, cloudpolicy.Global().Peek(cfg))
+	st := load(cfg)
+	warning, err := checkPolicy(fetchErr, st)
+	return st, warning, err
+}
+
+func checkPolicy(fetchErr error, st *cloudpolicy.Status) (string, error) {
+	if st != nil && st.Applied != nil {
+		if fetchErr != nil {
+			return fmt.Sprintf("Cannot fetch the cloud policy (%v). The last policy still applies (revision %d).",
+				fetchErr, st.Applied.Revision), nil
+		}
+		return "", nil
+	}
+
+	// A tenant whose plan has no policy management cannot have a policy, so
+	// a missing policy is expected there and does not stop the command.
+	if usefulErr, ok := usefulerror.AsUsefulError(fetchErr); ok && usefulErr.Code() == usefulerror.ErrMissingEntitlements {
+		return "Your SafeDep plan does not include the cloud policy, so no cloud policy applies. " +
+			"Set 'cloud.policy: false' in the PMG config to turn off this warning.", nil
+	}
+
+	switch {
+	case fetchErr == nil:
+		return "", usefulerror.NewUsefulError().
+			WithCode(errcodes.Lifecycle).
+			WithHumanError("No cloud policy applies. pmg did not accept the policy that it fetched").
+			WithHelp("Run 'pmg setup doctor' to see why the cloud policy does not apply")
+	case errors.Is(fetchErr, audit.ErrSyncInProgress), errors.Is(fetchErr, cloud.ErrMissingCredentials):
+		return "", SyncFailureError(fetchErr)
+	default:
+		return "", PolicyFetchFailureError(fetchErr, 0)
+	}
 }
 
 func (s steps) fetchAtStart(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status) error {

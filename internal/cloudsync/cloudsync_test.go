@@ -3,6 +3,8 @@ package cloudsync
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"slices"
 	"testing"
 	"time"
@@ -13,7 +15,9 @@ import (
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/cloud/configsync"
 	"github.com/safedep/dry/cloud/endpointsync"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/stretchr/testify/assert"
@@ -311,6 +315,77 @@ func TestFetchAtStart(t *testing.T) {
 			}
 			assert.Equal(t, tt.wantFetch, slices.Contains(rec.order, "policy"))
 			assert.NotContains(t, rec.order, "events", "the fetch at start sends no events")
+		})
+	}
+}
+
+func TestCheckPolicy(t *testing.T) {
+	offline := fmt.Errorf("fetch policy: %w", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
+	applied := &cloudpolicy.Status{Applied: &cloudpolicy.AppliedHeader{Revision: 52}}
+	none := &cloudpolicy.Status{}
+
+	tests := []struct {
+		name          string
+		fetchErr      error
+		st            *cloudpolicy.Status
+		warns         bool
+		expectedCode  string
+		expectedHuman string
+	}{
+		{name: "a fetched policy that applies passes", st: applied},
+		{name: "a failed fetch passes with a warning when the last policy applies", fetchErr: offline, st: applied, warns: true},
+		{
+			name:     "a plan without policy management passes with a warning",
+			fetchErr: fmt.Errorf("fetch policy: %w", entitlementStatusErr(t, 0)),
+			st:       none,
+			warns:    true,
+		},
+		{
+			name:          "a failed fetch with no policy fails",
+			fetchErr:      offline,
+			st:            none,
+			expectedCode:  errcodes.Network,
+			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. No cloud policy applies yet",
+		},
+		{
+			name:          "missing credentials with no policy fail with the login help",
+			fetchErr:      fmt.Errorf("resolve: %w", cloud.ErrMissingCredentials),
+			st:            none,
+			expectedCode:  errcodes.CloudCredentialsNotFound,
+			expectedHuman: "SafeDep Cloud credentials are not configured",
+		},
+		{
+			name:          "a busy sync lock with no policy fails",
+			fetchErr:      audit.ErrSyncInProgress,
+			st:            none,
+			expectedCode:  errcodes.Lifecycle,
+			expectedHuman: "Another cloud sync is already in progress",
+		},
+		{
+			name:          "a fetched policy that pmg rejects fails",
+			st:            none,
+			expectedCode:  errcodes.Lifecycle,
+			expectedHuman: "No cloud policy applies. pmg did not accept the policy that it fetched",
+		},
+		{
+			name:          "no status fails",
+			expectedCode:  errcodes.Lifecycle,
+			expectedHuman: "No cloud policy applies. pmg did not accept the policy that it fetched",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			warning, err := checkPolicy(tt.fetchErr, tt.st)
+			assert.Equal(t, tt.warns, warning != "")
+			if tt.expectedCode == "" {
+				assert.NoError(t, err)
+				return
+			}
+			usefulErr, ok := usefulerror.AsUsefulError(err)
+			require.True(t, ok)
+			assert.Equal(t, tt.expectedCode, usefulErr.Code())
+			assert.Equal(t, tt.expectedHuman, usefulErr.HumanError())
 		})
 	}
 }

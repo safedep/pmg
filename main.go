@@ -310,13 +310,16 @@ func isInternalCommand(cmd *cobra.Command) bool {
 func loadCloudPolicy(cmd *cobra.Command) error {
 	cfg := config.Get()
 	policy := cloudpolicy.Global()
-	if !fetchesPolicyAtStart(cmd) || !cfg.CloudPolicyEnabled() {
+	if !fetchesPolicyAtStart(cmd) {
 		policy.LoadAtStart(cfg)
 		return nil
 	}
 
-	fetchErr := cloudsync.FetchAtStart(cmd.Context(), cfg, policy.Peek(cfg))
-	return cloud.RequirePolicy(fetchErr, policy.LoadAtStart(cfg))
+	_, warning, err := cloudsync.RequirePolicy(cmd.Context(), cfg, policy.LoadAtStart)
+	if warning != "" {
+		ui.ShowWarning(warning)
+	}
+	return err
 }
 
 // fetchesPolicyAtStart reports whether cmd is `pmg proxy start`. The daemon
