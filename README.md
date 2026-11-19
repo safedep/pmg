@@ -272,6 +272,8 @@ Download the latest binary for your platform from the [Releases Page](https://gi
 
 Prebuilt multi-arch (`linux/amd64`, `linux/arm64`) images are published to [GitHub Container Registry](https://github.com/safedep/pmg/pkgs/container/pmg) on every release. The image entrypoint is `pmg`.
 
+The image also holds `/opt/safedep/pmg/bin` with `pmg` and `pmg-entrypoint.sh`. To run PMG in a CI runner image, copy that directory and use the script as the entrypoint. Run `pmg-entrypoint.sh --help` for its usage.
+
 ```bash
 # Pull the latest image (or pin a release tag, such as :v0.30.0)
 docker pull ghcr.io/safedep/pmg:latest
