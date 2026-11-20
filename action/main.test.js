@@ -117,9 +117,10 @@ test('refuseSecondProxy passes when no proxy runs', (t) => {
 });
 
 test('config.sh exports the endpoint id of the repository', async (t) => {
-  for (const [name, endpointID, want] of [
-    ['the default uses the form of pmg', '', 'gh:octo-org/octo-repo'],
-    ['the endpoint-id input overrides the default', 'gha/octo-org/octo-repo', 'gha/octo-org/octo-repo'],
+  for (const [name, repository, endpointID, want] of [
+    ['the default uses the form of pmg', 'octo-org/octo-repo', '', 'gh:octo-org/octo-repo'],
+    ['the endpoint-id input overrides the default', 'octo-org/octo-repo', 'gha/octo-org/octo-repo', 'gha/octo-org/octo-repo'],
+    ['no repository leaves the id to pmg', '', '', undefined],
   ]) {
     await t.test(name, (t) => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmg-test-'));
@@ -132,7 +133,7 @@ test('config.sh exports the endpoint id of the repository', async (t) => {
           PATH: process.env.PATH,
           HOME: dir,
           GITHUB_ENV: envFile,
-          GH_REPOSITORY: 'octo-org/octo-repo',
+          GH_REPOSITORY: repository,
           INPUT_CONFIG_FILE: '',
           IN_API_KEY: 'key',
           IN_TENANT_ID: 'tenant',

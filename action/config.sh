@@ -78,7 +78,7 @@ if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
 
   if [ -n "$IN_ENDPOINT_ID" ]; then
     export_var PMG_CLOUD_ENDPOINT_ID "$IN_ENDPOINT_ID"
-  else
+  elif [ -n "$GH_REPOSITORY" ]; then
     # The runner hostname changes on every job. A stable id per
     # repository keeps one endpoint in SafeDep Cloud. pmg derives the
     # same id on a GitHub-hosted runner.

@@ -204,6 +204,8 @@ SafeDep Cloud UI. Override it for per-environment splits:
 Earlier versions of the action used `gha/<owner>/<repo>` as the default.
 After an upgrade, a repository that used that default reports under a new endpoint ID.
 Its history stays on the old `gha/` endpoint.
+Labels that an admin set on the old endpoint do not move to the new endpoint.
+A policy override that selects those labels stops to apply until an admin sets them again.
 To keep the old ID, set `endpoint-id: gha/${{ github.repository }}`.
 
 ### Use `config-file` for custom settings

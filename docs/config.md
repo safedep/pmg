@@ -413,7 +413,6 @@ The action also sets this ID on a self-hosted runner.
 Its `endpoint-id` input overrides that default.
 That exported value overrides `cloud.endpoint_id` in `config-file` unless lockdown ignores overrides.
 Use the action input when configuring this identity.
-Earlier versions of the action used `gha/<owner>/<repo>`.
 See [GitHub Action](github-action.md) to set the input or to keep the old ID after an upgrade.
 
 ### Kubernetes
