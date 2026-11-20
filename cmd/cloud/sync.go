@@ -22,7 +22,10 @@ import (
 // surfaces as a usefulerror rather than an indefinite hang.
 const manualSyncLockTimeout = 30 * time.Second
 
-var syncTimeout time.Duration
+var (
+	syncTimeout   time.Duration
+	requirePolicy bool
+)
 
 func newSyncCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -32,12 +35,36 @@ func newSyncCommand() *cobra.Command {
 	}
 
 	cmd.Flags().DurationVar(&syncTimeout, "timeout", 15*time.Minute, "Maximum time to spend on the sync")
+	cmd.Flags().BoolVar(&requirePolicy, "require-policy", false,
+		"Fetch only the cloud policy, and fail when no cloud policy applies. Run it before the first install of a CI job. With this flag, --timeout defaults to 10s")
 
 	return cmd
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
 	cfg := config.Get()
+
+	if requirePolicy {
+		// The command sends no events, so it must not start the background
+		// event sync either.
+		audit.SuppressBackgroundSync()
+		timeout := cloudsync.DefaultFetchTimeout
+		if cmd.Flags().Changed("timeout") {
+			timeout = syncTimeout
+		}
+		st, err := cloudsync.RequirePolicy(cmd.Context(), cfg, timeout)
+		var warning *cloudsync.PolicyWarning
+		switch {
+		case errors.As(err, &warning):
+			ui.ShowWarning(policyWarningText(warning))
+		case err != nil:
+			ui.ErrorExit(requirePolicyError(err))
+		}
+		if st.Applied != nil {
+			ui.Successf("Cloud policy revision %d applies", st.Applied.Revision)
+		}
+		return nil
+	}
 
 	if !cfg.Config.Cloud.Enabled {
 		ui.ErrorExit(usefulerror.NewUsefulError().
@@ -71,6 +98,33 @@ func runSync(cmd *cobra.Command, args []string) error {
 		ui.ErrorExit(syncFailureError(res.EventsErr))
 	}
 	return nil
+}
+
+// policyWarningText is the warning of a failed policy fetch that does not
+// stop pmg cloud sync --require-policy.
+func policyWarningText(w *cloudsync.PolicyWarning) string {
+	if w.Revision > 0 {
+		return fmt.Sprintf("Cannot fetch the cloud policy (%v). The last policy still applies (revision %d).", w.Err, w.Revision)
+	}
+	return "Your SafeDep plan does not include the cloud policy, so no cloud policy applies. " +
+		"Set 'cloud.policy: false' in the PMG config to turn off this warning."
+}
+
+// requirePolicyError maps the error of pmg cloud sync --require-policy, when
+// no cloud policy applies, to a user-facing error.
+func requirePolicyError(err error) error {
+	switch {
+	case errors.Is(err, cloudsync.ErrPolicyRejected):
+		return usefulerror.NewUsefulError().
+			Wrap(err).
+			WithCode(errcodes.Lifecycle).
+			WithHumanError("No cloud policy applies. pmg did not accept the policy that it fetched").
+			WithHelp("Run 'pmg setup doctor' to see why the cloud policy does not apply")
+	case errors.Is(err, audit.ErrSyncInProgress), errors.Is(err, cloud.ErrMissingCredentials):
+		return syncFailureError(err)
+	default:
+		return policyFetchFailureError(err, 0)
+	}
 }
 
 // policyFetchFailureError maps a failed policy fetch to a user-facing error.

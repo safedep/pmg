@@ -19,3 +19,5 @@ if [ -z "$found" ]; then
   printf '%s\n' "::error::No PMG shim directory found after setup install." >&2
   exit 1
 fi
+
+"$PMG_ACTION_DIR/policy.sh" pmg

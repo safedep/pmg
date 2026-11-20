@@ -7,20 +7,21 @@ blocks malicious packages before they run. Analysis errors do not block
 the download. See [analysis failure modes](proxy-mode.md#how-pmg-identifies-a-package).
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
 ```
 
 Set `timeout-minutes` on the job. Kernel enforcement is on by default on eligible GitHub-hosted runners, and a
 hung proxy blocks the job until the timeout. See
 [Runner traffic](#runner-traffic).
 
-> **Commit SHA pinning.** The examples use the `v0.34.0` tag for readability. Pin
+> **Commit SHA pinning.** The examples use the `v2` tag for readability. Pin
 > the action to a full commit SHA. Also pin the `version` input to a PMG release.
 > A SHA pins only the action code. The default `version: latest` selects a binary on each run. See the
 > [GitHub security hardening guide](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions).
 
-> **Action version.** Use the latest release tag, such as
-> `safedep/pmg@v0.34.0`. The post step, the job summary and the
+> **Action version.** Use `safedep/pmg@v2`. Each stable release moves the `v2`
+> tag to that release. The `v1` tag stays on `v0.21.1` and does not move. The
+> post step, the job summary and the
 > `fail-on-violation`, `auto-stop` and `baseline` inputs need
 > `safedep/pmg@v0.34.0` or later, and a runner that runs Node 24 actions. On an
 > older version, add a stop step at the end of the job, as the documentation
@@ -54,7 +55,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: safedep/pmg@v0.34.0
+      - uses: safedep/pmg@v2
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -111,7 +112,7 @@ Use exactly lowercase `true` for `cache`, `sandbox`, and `skip-event-logging`. T
 | Input | Effect when set | PMG default if empty |
 |---|---|---|
 | `version` | PMG release tag (for example `v0.42.0`) or `latest` | `latest` |
-| `api-key` | SafeDep Cloud API key. Set it with `tenant-id`. Use a secret to hold the value. | unset (cloud sync disabled) |
+| `api-key` | SafeDep Cloud API key. Set it with `tenant-id`. Use a secret to hold the value. The action then fetches the cloud policy, and the step fails when no cloud policy applies. | unset (cloud sync disabled) |
 | `tenant-id` | SafeDep Cloud tenant ID | unset |
 | `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `gha/<owner>/<repo>` when `api-key` is set |
 | `paranoid` | `PMG_PARANOID` | `false` |
@@ -158,7 +159,7 @@ The staging script uses `${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg` regardle
 ### Send audit events to SafeDep Cloud
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
   with:
     api-key:   ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
@@ -177,12 +178,22 @@ end of a shim mode job:
 The action masks the API key in logs and exports it to later steps.
 Log masking does not isolate the credential from those steps.
 
+With `api-key`, PMG applies the [cloud policy](config.md#cloud-policy) of your tenant.
+The action fetches the policy before the next step runs, so the first install of the job applies it.
+The fetch takes 25 seconds at most.
+When no cloud policy applies after the fetch, the action step fails.
+When your SafeDep plan does not include the cloud policy, the step prints a warning and does not fail.
+On a self-hosted runner that keeps its policy cache, a failed fetch prints a warning, and the last policy applies.
+A PMG `version` without `pmg cloud sync --require-policy` does not fail the step.
+The action then runs the full sync and prints a warning only when that sync fails.
+That sync waits up to 30 seconds for the sync lock and then runs for up to 10 seconds.
+
 With `api-key`, `endpoint-id` defaults to `gha/${{ github.repository }}`.
 Each workflow on the same repository appears as one endpoint in the
 SafeDep Cloud UI. Override it for per-environment splits:
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
   with:
     api-key:     ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id:   ${{ secrets.SAFEDEP_TENANT_ID }}
@@ -206,7 +217,7 @@ trusted_packages:
 ```
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
   with:
     config-file: .github/pmg.yml
 ```
@@ -318,7 +329,7 @@ hosted Ubuntu runners meet the
 describes how enforcement works.
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
   with:
     enforce: true
     api-key: ${{ secrets.SAFEDEP_API_KEY }}
@@ -356,7 +367,7 @@ Under enforcement, the daemon uses the cache directory of root.
 On a hosted runner, the log is `/root/.cache/safedep/pmg/proxy.log`.
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
   with:
     enforce: true
     enforce-exempt-executables: /opt/agent/bin/agent
@@ -378,7 +389,7 @@ variables. See
 [persistent-proxy.md](./persistent-proxy.md#network-policy).
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
   with:
     enforce: true
     network-profile: .pmg/network.yml
@@ -457,7 +468,7 @@ Three runs take a job from no profile to `enforce`.
    destination the profile does not allow, and the post step fails the job.
 
    ```yaml
-   - uses: safedep/pmg@v0.34.0
+   - uses: safedep/pmg@v2
      with:
        network-profile: .pmg/network.yml
        network-mode: enforce
@@ -498,7 +509,7 @@ A redirected container must trust the PMG CA, which the action exports as
 `PMG_CA_BUNDLE`:
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
   with:
     enforce: true
     enforce-namespaces: redirect
@@ -607,7 +618,7 @@ jobs:
       options: --init
     steps:
       - uses: actions/checkout@v7
-      - uses: safedep/pmg@v0.34.0
+      - uses: safedep/pmg@v2
         with:
           expose-to-job-network: true
       - run: npm ci
@@ -646,7 +657,7 @@ it, `pmg proxy stop` waits until its timeout and fails.
 ### Sandbox mode
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
   with:
     sandbox: true
     sandbox-driver: landlock   # or "bubblewrap"
@@ -676,7 +687,7 @@ Set the variable on the job or on the action step. A variable on a later
 step has no effect on the daemon:
 
 ```yaml
-- uses: safedep/pmg@v0.34.0
+- uses: safedep/pmg@v2
   env:
     PMG_DEPENDENCY_COOLDOWN_DAYS: 10
 - run: npm ci

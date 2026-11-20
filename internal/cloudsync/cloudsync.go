@@ -111,6 +111,49 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*Result, er
 	return defaultSteps.run(ctx, cfg, plan)
 }
 
+// The fetch runs before the first install of a CI job. An unreachable cloud
+// must not hold the job for long.
+const (
+	fetchLockWait = 5 * time.Second
+
+	// DefaultFetchTimeout caps the fetch of RequirePolicy when the caller
+	// sets no timeout.
+	DefaultFetchTimeout = 10 * time.Second
+)
+
+// RequirePolicy is for a CI job that must not install without a cloud policy.
+// It fetches the policy when no cloud policy applies, or when the fetch of the
+// policy that applies is due. The fetch runs for at most timeout, after a
+// wait of at most 5 seconds for the sync lock. It returns the status after
+// the fetch. The error is a *PolicyWarning when the command can go on, and
+// wraps ErrNoPolicy when no cloud policy applies. With cloud or cloud.policy
+// off, it does not fetch and returns no error.
+func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig, timeout time.Duration) (*cloudpolicy.Status, error) {
+	policy := cloudpolicy.Global()
+	if !cfg.CloudPolicyEnabled() {
+		return policy.Peek(cfg), nil
+	}
+
+	fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Status(), timeout)
+	st := policy.Peek(cfg)
+	return st, checkPolicy(fetchErr, st)
+}
+
+func (s steps) fetchIfNeeded(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status, timeout time.Duration) error {
+	if !cfg.CloudPolicyEnabled() {
+		return nil
+	}
+	if st != nil && st.Applied != nil && !audit.PolicyFetchDue(cfg) {
+		return nil
+	}
+
+	res, err := s.run(ctx, cfg, Plan{Policy: StepForce, LockTimeout: fetchLockWait, Timeout: timeout})
+	if err != nil {
+		return err
+	}
+	return res.PolicyErr
+}
+
 func (s steps) run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*Result, error) {
 	if !cfg.Config.Cloud.Enabled {
 		return &Result{}, nil
@@ -123,6 +166,10 @@ func (s steps) run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*
 		lockCtx, cancel := context.WithTimeout(ctx, plan.LockTimeout)
 		defer cancel()
 		locked, err = lock.TryLockContext(lockCtx, 250*time.Millisecond)
+		// flock reports the end of the wait as the error of the context.
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			locked, err = false, nil
+		}
 	} else {
 		locked, err = lock.TryLock()
 	}

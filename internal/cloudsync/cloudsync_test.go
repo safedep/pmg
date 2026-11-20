@@ -3,6 +3,9 @@ package cloudsync
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"slices"
 	"testing"
 	"time"
 
@@ -12,8 +15,10 @@ import (
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/cloud/configsync"
 	"github.com/safedep/dry/cloud/endpointsync"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -191,11 +196,32 @@ func TestRunRefusesWhileAnotherSyncHoldsTheLock(t *testing.T) {
 	require.True(t, locked)
 	t.Cleanup(func() { assert.NoError(t, lock.Unlock()) })
 
-	rec := &recorder{}
-	_, err = rec.steps(t).run(context.Background(), cfg, Plan{Policy: StepForce, Events: StepForce})
+	for _, wait := range []time.Duration{0, 50 * time.Millisecond} {
+		rec := &recorder{}
+		_, err = rec.steps(t).run(context.Background(), cfg, Plan{Policy: StepForce, Events: StepForce, LockTimeout: wait})
 
-	assert.ErrorIs(t, err, audit.ErrSyncInProgress)
-	assert.Empty(t, rec.order)
+		assert.ErrorIs(t, err, audit.ErrSyncInProgress, "lock wait %v", wait)
+		assert.Empty(t, rec.order)
+	}
+}
+
+func TestRequirePolicyWithCloudOrPolicyOff(t *testing.T) {
+	for _, off := range []string{"cloud", "policy"} {
+		t.Run(off, func(t *testing.T) {
+			cfg := newSyncConfig(t)
+			if off == "cloud" {
+				cfg.Config.Cloud.Enabled = false
+			} else {
+				cfg.Config.Cloud.Policy = false
+			}
+
+			st, err := RequirePolicy(context.Background(), cfg, DefaultFetchTimeout)
+
+			assert.NoError(t, err)
+			require.NotNil(t, st)
+			assert.Nil(t, st.Applied)
+		})
+	}
 }
 
 func TestRunWithCloudOff(t *testing.T) {
@@ -262,4 +288,106 @@ func TestRunCallsAfterPolicyBeforeTheCheckIn(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"policy", "after-policy", "events", "check-in"}, rec.order)
+}
+
+func TestFetchIfNeeded(t *testing.T) {
+	applied := &cloudpolicy.Status{Applied: &cloudpolicy.AppliedHeader{Revision: 48}}
+
+	tests := []struct {
+		name      string
+		st        *cloudpolicy.Status
+		policyOff bool
+		fetched   bool
+		fetchErr  error
+		wantFetch bool
+		wantErr   string
+	}{
+		{name: "no status fetches", wantFetch: true},
+		{name: "no applied policy fetches", st: &cloudpolicy.Status{}, wantFetch: true},
+		{name: "no applied policy fetches also when the fetch is not due", st: &cloudpolicy.Status{}, fetched: true, wantFetch: true},
+		{name: "an applied policy fetches when the fetch is due", st: applied, wantFetch: true},
+		{name: "an applied policy skips a fetch that is not due", st: applied, fetched: true},
+		{name: "cloud policy off makes no fetch", policyOff: true},
+		{
+			name:      "a failed fetch returns the error",
+			st:        &cloudpolicy.Status{},
+			fetchErr:  errors.New("unauthenticated"),
+			wantFetch: true,
+			wantErr:   "unauthenticated",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newSyncConfig(t)
+			cfg.Config.Cloud.Policy = !tt.policyOff
+			if tt.fetched {
+				require.NoError(t, audit.WriteLastSyncAttempt(cfg.CloudPolicyLastRunPath()))
+			}
+			rec := &recorder{fetchErr: tt.fetchErr}
+
+			err := rec.steps(t).fetchIfNeeded(context.Background(), cfg, tt.st, DefaultFetchTimeout)
+
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.wantErr)
+			}
+			assert.Equal(t, tt.wantFetch, slices.Contains(rec.order, "policy"))
+			assert.NotContains(t, rec.order, "events", "the required fetch sends no events")
+		})
+	}
+}
+
+func TestCheckPolicy(t *testing.T) {
+	offline := fmt.Errorf("fetch policy: %w", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
+	noEntitlement := fmt.Errorf("fetch policy: %w", usefulerror.NewUsefulError().WithCode(usefulerror.ErrMissingEntitlements))
+	rejected := fmt.Errorf("%w: header names another tenant", configsync.ErrRejected)
+	applied := &cloudpolicy.Status{Applied: &cloudpolicy.AppliedHeader{Revision: 52}}
+	none := &cloudpolicy.Status{}
+
+	tests := []struct {
+		name         string
+		fetchErr     error
+		st           *cloudpolicy.Status
+		warns        bool
+		wantRevision uint64
+		wantRejected bool
+		wantCause    error
+	}{
+		{name: "a fetched policy that applies passes", st: applied},
+		{name: "a failed fetch warns when the last policy applies", fetchErr: offline, st: applied, warns: true, wantRevision: 52, wantCause: offline},
+		{name: "a plan without policy management warns", fetchErr: noEntitlement, st: none, warns: true, wantCause: noEntitlement},
+		{name: "a failed fetch with no policy fails", fetchErr: offline, st: none, wantCause: offline},
+		{name: "missing credentials with no policy fail", fetchErr: cloud.ErrMissingCredentials, st: none, wantCause: cloud.ErrMissingCredentials},
+		{name: "a busy sync lock with no policy fails", fetchErr: audit.ErrSyncInProgress, st: none, wantCause: audit.ErrSyncInProgress},
+		{name: "a fetched policy that pmg rejects fails", fetchErr: rejected, st: none, wantRejected: true, wantCause: rejected},
+		{name: "a fetch with no policy after it fails as rejected", st: none, wantRejected: true},
+		{name: "no status fails as rejected", wantRejected: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkPolicy(tt.fetchErr, tt.st)
+
+			if tt.st == applied && !tt.warns {
+				assert.NoError(t, err)
+				return
+			}
+			var warning *PolicyWarning
+			if tt.warns {
+				require.ErrorAs(t, err, &warning)
+				assert.Equal(t, tt.wantRevision, warning.Revision)
+				assert.ErrorIs(t, warning, tt.wantCause)
+				assert.NotErrorIs(t, err, ErrNoPolicy)
+				return
+			}
+			assert.False(t, errors.As(err, &warning))
+			assert.ErrorIs(t, err, ErrNoPolicy)
+			assert.Equal(t, tt.wantRejected, errors.Is(err, ErrPolicyRejected))
+			if tt.wantCause != nil {
+				assert.ErrorIs(t, err, tt.wantCause)
+			}
+		})
+	}
 }

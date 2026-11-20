@@ -150,6 +150,10 @@ type ProxyConfig struct {
 	// OnNetworkDecision receives every destination the proxy decides,
 	// allowed or denied, with or without a policy.
 	OnNetworkDecision func(NetworkDecision)
+
+	// OnBlock receives the reason and the facts of each request that an
+	// interceptor blocks.
+	OnBlock func(BlockReason, *BlockContext)
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -682,6 +686,10 @@ func (ps *proxyServer) registerHandlers() {
 				statusCode := resp.BlockCode
 				if statusCode == 0 {
 					statusCode = http.StatusForbidden
+				}
+
+				if ps.config.OnBlock != nil {
+					ps.config.OnBlock(resp.BlockReason, resp.BlockContext)
 				}
 
 				message := resp.BlockMessage

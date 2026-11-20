@@ -6,7 +6,7 @@ const lib = require('./lib');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { checkInputs, enforceMode, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
+const { checkInputs, enforceMode, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
 
 // withEnv sets the variables for one call and restores them after it.
 function withEnv(vars, fn) {
@@ -83,6 +83,16 @@ test('runnerCannotEnforce is true only for a runner error code', async (t) => {
     ['not a script error', new Error('x'), false],
   ]) {
     await t.test(name, () => assert.strictEqual(runnerCannotEnforce(err), want));
+  }
+});
+
+test('failedPolicyFetch is true only for the policy exit status of enforce.sh', async (t) => {
+  for (const [name, err, want] of [
+    ['no cloud policy', new lib.ScriptError('enforce.sh', 3, '', ['Network']), true],
+    ['a failed start', new lib.ScriptError('enforce.sh', 1, '', ['Network']), false],
+    ['not a script error', new Error('x'), false],
+  ]) {
+    await t.test(name, () => assert.strictEqual(failedPolicyFetch(err), want));
   }
 });
 

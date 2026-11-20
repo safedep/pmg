@@ -9,9 +9,17 @@ import (
 	"syscall"
 
 	"github.com/safedep/pmg/internal/platform"
+	pmgproxy "github.com/safedep/pmg/proxy"
 )
 
 const stateFileName = "proxy-state.json"
+
+// BlockedPackage is a package that the daemon blocked, with the facts of the
+// block. The presentation layer renders it.
+type BlockedPackage struct {
+	Reason  pmgproxy.BlockReason   `json:"reason"`
+	Context *pmgproxy.BlockContext `json:"context"`
+}
 
 // State is the on-disk record of a running persistent proxy. It is written by
 // the daemon and read by the stop/env/status commands.
@@ -20,6 +28,10 @@ type State struct {
 	Addr         string `json:"addr"`
 	CACertPath   string `json:"ca_cert_path"`
 	BlockedCount int    `json:"blocked_count"`
+
+	// Blocked lists each package that the daemon blocked, written at
+	// shutdown for the stop report.
+	Blocked []BlockedPackage `json:"blocked,omitempty"`
 
 	// ConfigPath and ConfigSource say which file the daemon loaded. A root
 	// daemon reads a different file than the user who started it edits.

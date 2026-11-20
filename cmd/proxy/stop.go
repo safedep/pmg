@@ -96,7 +96,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if _, werr := fmt.Fprint(os.Stdout, networkReport(res)+observationLine(res)); werr != nil {
+	if _, werr := fmt.Fprint(os.Stdout, blockedReport(res)+networkReport(res)+observationLine(res)); werr != nil {
 		ui.ErrorExit(werr)
 	}
 
@@ -158,6 +158,23 @@ func stopViolation(res proxyserver.StopResult) string {
 		violations = append(violations, fmt.Sprintf("%d connection(s) were denied by the network policy", denied))
 	}
 	return strings.Join(violations, " and ")
+}
+
+// blockedReport lists each package that the proxy blocked and the reason.
+// Empty when the proxy blocked none, or when the daemon predates the list.
+func blockedReport(res proxyserver.StopResult) string {
+	if len(res.Blocked) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Blocked packages:\n")
+	for _, p := range res.Blocked {
+		if p.Context == nil {
+			continue
+		}
+		b.WriteString("  " + ui.BlockedPackageLine(p.Reason, p.Context) + "\n")
+	}
+	return b.String()
 }
 
 // observationLine points at the proposal command. Empty when the proxy saw

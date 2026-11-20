@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -227,6 +228,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	proxyConfig.Interceptors = interceptorList
 	proxyConfig.BlockMessageRenderer = opts.BlockMessage
 
+	blocks := &blockLog{seen: map[string]bool{}}
+	proxyConfig.OnBlock = blocks.Record
+
 	networkDecisions := flows.NewNetworkDecisionLog(true)
 	proxyConfig.OnNetworkDecision = networkDecisions.Record
 	if network.policy != nil {
@@ -362,6 +366,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	// keeps `stop --fail-on-violation` correct in those cases.
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
+	state.Blocked = blocks.List()
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}
@@ -591,6 +596,36 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig, policy *cloudpolicy.Runtime) 
 		<-done
 		return total
 	}
+}
+
+// blockLog keeps each package that the daemon blocked, once for each reason,
+// for the stop report. A package manager that installs the same lockfile
+// again does not add lines.
+type blockLog struct {
+	mu      sync.Mutex
+	seen    map[string]bool
+	blocked []BlockedPackage
+}
+
+func (l *blockLog) Record(reason pmgproxy.BlockReason, blockCtx *pmgproxy.BlockContext) {
+	if blockCtx == nil {
+		return
+	}
+	key := fmt.Sprintf("%d/%d/%s@%s", reason, blockCtx.Ecosystem, blockCtx.PackageName, blockCtx.PackageVersion)
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.seen[key] {
+		return
+	}
+	l.seen[key] = true
+	l.blocked = append(l.blocked, BlockedPackage{Reason: reason, Context: blockCtx})
+}
+
+func (l *blockLog) List() []BlockedPackage {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.blocked)
 }
 
 // reloadIfCacheMoved reloads the policy when the cache holds another policy

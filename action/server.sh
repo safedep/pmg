@@ -15,6 +15,8 @@ done <<EOF
 $flags
 EOF
 
+"$PMG_ACTION_DIR/policy.sh" pmg
+
 # No cert install needed: `pmg proxy env` exports the CA path via
 # NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/PIP_CERT, so package managers trust
 # the proxy without touching the OS trust store.

@@ -14,6 +14,11 @@ const lib = require('./lib');
 // these.
 const runnerErrorCodes = ['EnforceRequirements', 'UnsupportedPlatform'];
 
+// policyFetchStatus is the exit status of enforce.sh when no cloud policy
+// applies after the fetch. Kernel enforcement did not fail, so the action
+// does not say so and does not fall back.
+const policyFetchStatus = 3;
+
 const enforceInputs = ['enforce-ports', 'enforce-exempt-users', 'enforce-exempt-executables', 'enforce-skip-destinations', 'enforce-namespaces'];
 
 // rootStatePath is the state file of the root daemon. enforce.sh starts the
@@ -161,6 +166,10 @@ function runnerCannotEnforce(err) {
   return err instanceof lib.ScriptError && err.codes.some((code) => runnerErrorCodes.includes(code));
 }
 
+function failedPolicyFetch(err) {
+  return err instanceof lib.ScriptError && err.status === policyFetchStatus;
+}
+
 function enforceInputsSet() {
   return enforceInputs.some((name) => lib.input(name) !== '');
 }
@@ -182,6 +191,9 @@ function startProxy(binDir, profile, enforceInput, jobContainer) {
       trustBundleForOldNode();
       return;
     } catch (err) {
+      if (failedPolicyFetch(err)) {
+        throw err;
+      }
       // Only a runner that cannot enforce falls back. A policy error, such
       // as a typo in an enforce-* input or in config-file, fails as
       // choice() does, and does not turn enforcement off.
@@ -329,4 +341,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkInputs, enforceMode, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };
+module.exports = { checkInputs, enforceMode, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };

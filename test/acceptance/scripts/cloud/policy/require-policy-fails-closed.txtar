@@ -1,0 +1,21 @@
+# guarantee: with cloud.policy on, no policy cache and an unreachable cloud,
+# pmg cloud sync --require-policy fails and names the cause.
+
+env HOME=$WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+env SAFEDEP_API_KEY=acceptance-key
+env SAFEDEP_TENANT_ID=acceptance.safedep.io
+env SAFEDEP_CLOUD_DATA_ADDR=127.0.0.1:1
+env PMG_CLOUD_ENABLED=
+env PMG_CLOUD_ENDPOINT_ID=acceptance-policy
+mkdir $WORK/home
+
+! exec pmg cloud sync --require-policy
+stderr 'No cloud policy applies yet'
+
+-- config/config.yml --
+cloud:
+  enabled: true
+  policy: true
+  auto_sync:
+    enabled: false

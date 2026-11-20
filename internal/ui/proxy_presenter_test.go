@@ -217,3 +217,76 @@ func TestPolicyRuleBlockMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestBlockedPackageLine(t *testing.T) {
+	npm := func(name, version string, rule *proxy.PolicyRuleBlock) *proxy.BlockContext {
+		return &proxy.BlockContext{
+			Ecosystem:      packagev1.Ecosystem_ECOSYSTEM_NPM,
+			PackageName:    name,
+			PackageVersion: version,
+			PolicyRule:     rule,
+		}
+	}
+
+	tests := []struct {
+		name     string
+		reason   proxy.BlockReason
+		blockCtx *proxy.BlockContext
+		expected string
+	}{
+		{
+			name:     "a cloud rule names the rule and the revision",
+			reason:   proxy.BlockReasonPolicyRule,
+			blockCtx: npm("@types/ms", "2.1.0", &proxy.PolicyRuleBlock{RuleID: "r_caa0632yb5", Cloud: true, Revision: 125}),
+			expected: "pkg:npm/@types/ms@2.1.0 · rule r_caa0632yb5 · policy revision 125",
+		},
+		{
+			name:     "a local rule names the file",
+			reason:   proxy.BlockReasonPolicyRule,
+			blockCtx: npm("ms", "2.1.2", &proxy.PolicyRuleBlock{RuleID: "local_1", File: "/etc/pmg/config.yml"}),
+			expected: "pkg:npm/ms@2.1.2 · blocked_packages in /etc/pmg/config.yml",
+		},
+		{
+			name:     "malware",
+			reason:   proxy.BlockReasonMalware,
+			blockCtx: npm("safedep-test-pkg", "0.1.3", nil),
+			expected: "pkg:npm/safedep-test-pkg@0.1.3 · malware",
+		},
+		{
+			name:     "a suspicious package that the daemon declined",
+			reason:   proxy.BlockReasonUserDeclined,
+			blockCtx: npm("odd", "1.0.0", nil),
+			expected: "pkg:npm/odd@1.0.0 · suspicious",
+		},
+		{
+			name:     "a suspicious package whose confirmation failed",
+			reason:   proxy.BlockReasonConfirmationFailed,
+			blockCtx: npm("odd", "1.0.0", nil),
+			expected: "pkg:npm/odd@1.0.0 · suspicious",
+		},
+		{
+			name:     "a cooldown block",
+			reason:   proxy.BlockReasonDependencyCooldown,
+			blockCtx: &proxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI, PackageName: "young", PackageVersion: "1.0.0"},
+			expected: "pkg:pypi/young@1.0.0 · dependency cooldown",
+		},
+		{
+			name:     "a context with no ecosystem",
+			reason:   proxy.BlockReasonDependencyCooldown,
+			blockCtx: &proxy.BlockContext{PackageName: "young", PackageVersion: "1.0.0"},
+			expected: "young@1.0.0 · dependency cooldown",
+		},
+		{
+			name:     "a reason that this version does not know",
+			reason:   proxy.BlockReasonNone,
+			blockCtx: npm("ms", "2.1.2", nil),
+			expected: "pkg:npm/ms@2.1.2 · blocked",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, BlockedPackageLine(tt.reason, tt.blockCtx))
+		})
+	}
+}
