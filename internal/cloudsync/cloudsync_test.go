@@ -216,7 +216,7 @@ func TestRequirePolicyWithCloudOrPolicyOff(t *testing.T) {
 				cfg.Config.Cloud.Policy = false
 			}
 
-			st, err := RequirePolicy(context.Background(), cfg)
+			st, err := RequirePolicy(context.Background(), cfg, DefaultFetchTimeout)
 
 			assert.NoError(t, err)
 			require.NotNil(t, st)
@@ -327,7 +327,7 @@ func TestFetchIfNeeded(t *testing.T) {
 			}
 			rec := &recorder{fetchErr: tt.fetchErr}
 
-			err := rec.steps(t).fetchIfNeeded(context.Background(), cfg, tt.st)
+			err := rec.steps(t).fetchIfNeeded(context.Background(), cfg, tt.st, DefaultFetchTimeout)
 
 			if tt.wantErr == "" {
 				assert.NoError(t, err)

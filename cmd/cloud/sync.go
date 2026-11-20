@@ -34,7 +34,7 @@ func newSyncCommand() *cobra.Command {
 
 	cmd.Flags().DurationVar(&syncTimeout, "timeout", 15*time.Minute, "Maximum time to spend on the sync")
 	cmd.Flags().BoolVar(&requirePolicy, "require-policy", false,
-		"Fetch only the cloud policy, and fail when no cloud policy applies. Run it before the first install of a CI job. Ignores --timeout")
+		"Fetch only the cloud policy, and fail when no cloud policy applies. Run it before the first install of a CI job. With this flag, --timeout defaults to 10s")
 
 	return cmd
 }
@@ -46,7 +46,11 @@ func runSync(cmd *cobra.Command, args []string) error {
 		// The command sends no events, so it must not start the background
 		// event sync either.
 		audit.SuppressBackgroundSync()
-		st, err := cloudsync.RequirePolicy(cmd.Context(), cfg)
+		timeout := cloudsync.DefaultFetchTimeout
+		if cmd.Flags().Changed("timeout") {
+			timeout = syncTimeout
+		}
+		st, err := cloudsync.RequirePolicy(cmd.Context(), cfg, timeout)
 		var warning *cloudsync.PolicyWarning
 		switch {
 		case errors.As(err, &warning):

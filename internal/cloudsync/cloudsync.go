@@ -117,7 +117,10 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*Result, er
 // must not hold the job for long.
 const (
 	fetchLockWait = 5 * time.Second
-	fetchTimeout  = 10 * time.Second
+
+	// DefaultFetchTimeout caps the fetch of RequirePolicy when the caller
+	// sets no timeout.
+	DefaultFetchTimeout = 10 * time.Second
 )
 
 // PolicyWarning is a failed policy fetch that does not stop the command. A
@@ -133,17 +136,19 @@ func (w *PolicyWarning) Unwrap() error { return w.err }
 
 // RequirePolicy is for a CI job that must not install without a cloud policy.
 // It fetches the policy when no cloud policy applies, or when the fetch of the
-// policy that applies is due. It returns the status after the fetch. The
+// policy that applies is due. The fetch runs for at most timeout, after a
+// wait of at most 5 seconds for the sync lock. It returns the status after
+// the fetch. The
 // error is a *PolicyWarning when the command can go on, and any other error
 // when no cloud policy applies. With cloud or cloud.policy off, it does not
 // fetch and returns no error.
-func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig) (*cloudpolicy.Status, error) {
+func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig, timeout time.Duration) (*cloudpolicy.Status, error) {
 	policy := cloudpolicy.Global()
 	if !cfg.CloudPolicyEnabled() {
 		return policy.Peek(cfg), nil
 	}
 
-	fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Status())
+	fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Status(), timeout)
 	st := policy.Peek(cfg)
 	return st, checkPolicy(fetchErr, st)
 }
@@ -198,7 +203,7 @@ func isRejectedPolicy(err error) bool {
 	return false
 }
 
-func (s steps) fetchIfNeeded(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status) error {
+func (s steps) fetchIfNeeded(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status, timeout time.Duration) error {
 	if !cfg.CloudPolicyEnabled() {
 		return nil
 	}
@@ -206,7 +211,7 @@ func (s steps) fetchIfNeeded(ctx context.Context, cfg *config.RuntimeConfig, st 
 		return nil
 	}
 
-	res, err := s.run(ctx, cfg, Plan{Policy: StepForce, LockTimeout: fetchLockWait, Timeout: fetchTimeout})
+	res, err := s.run(ctx, cfg, Plan{Policy: StepForce, LockTimeout: fetchLockWait, Timeout: timeout})
 	if err != nil {
 		return err
 	}
