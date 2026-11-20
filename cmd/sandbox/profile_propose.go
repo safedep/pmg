@@ -35,7 +35,8 @@ const (
 	proposeDaemonParent = "exec"
 
 	// proposeGitHubActionsParent replaces proposeDaemonParent on a GitHub
-	// Actions runner. It holds the runner hosts and no filesystem rules.
+	// Actions runner. It holds the runner hosts, the SafeDep hosts of PMG
+	// and no filesystem rules.
 	proposeGitHubActionsParent = "github-actions"
 )
 

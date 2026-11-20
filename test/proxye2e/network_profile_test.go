@@ -294,3 +294,54 @@ func TestProxyFlow_GitHubActionsStorage(t *testing.T) {
 		},
 	})
 }
+
+// The github-actions profile allows the SafeDep hosts that PMG calls, so a
+// profile that inherits it does not refuse the cloud sync or the malware
+// analysis. It names each host, so another safedep.io host stays refused.
+func TestProxyFlow_GitHubActionsSafeDepHosts(t *testing.T) {
+	const inheritsGitHubActions = "name: ci\ninherits: github-actions\n"
+	listed := []string{"api.safedep.io", "cloud.safedep.io", "community-api.safedep.io"}
+	unlisted := []string{"attacker.safedep.io", "example.com"}
+	RunCases(t, []TestCase{
+		{
+			Name:    "each SafeDep host of PMG is allowed",
+			Options: []Option{profilePolicy(t, inheritsGitHubActions, nil, nil)},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				for _, host := range listed {
+					res.Requests = append(res.Requests, h.get("https://"+host+"/x", nil))
+				}
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Empty(t, h.NetworkDecisions())
+				for _, host := range listed {
+					assert.Contains(t, h.DialedAddrs(), host+":443")
+				}
+			},
+		},
+		{
+			Name:    "a host that the profile does not name is refused before the dial",
+			Options: []Option{profilePolicy(t, inheritsGitHubActions, nil, nil)},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				for _, host := range unlisted {
+					res.Requests = append(res.Requests, h.get("https://"+host+"/x", nil))
+				}
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Empty(t, h.DialedAddrs())
+				decisions := h.NetworkDecisions()
+				require.Len(t, decisions, len(unlisted))
+				for i, host := range unlisted {
+					require.Error(t, res.Requests[i].Err, host)
+					assert.Contains(t, res.Requests[i].Err.Error(), "Forbidden", host)
+					assert.Equal(t, host, decisions[i].Host)
+					assert.Equal(t, "*:*", decisions[i].Rule)
+					assert.True(t, decisions[i].Enforced)
+				}
+			},
+		},
+	})
+}

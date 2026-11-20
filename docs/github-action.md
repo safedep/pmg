@@ -412,7 +412,13 @@ Under kernel enforcement, the runner's traffic to GitHub also goes through the p
 See [Runner traffic](#runner-traffic). The built-in `github-actions` profile
 allows the hosts of the runner, its agents, GitHub releases, and the cache
 and artifact storage, so a profile that inherits it does not list them. Run
-`pmg sandbox profile show github-actions` to see them. An action that
+`pmg sandbox profile show github-actions` to see them. It also allows the
+SafeDep hosts that PMG calls: `api.safedep.io:443`, `cloud.safedep.io:443`
+and `community-api.safedep.io:443`. The proxy daemon connects to these hosts
+directly. The other pmg processes of the job, such as `pmg cloud sync` and
+the background fetch of the cloud policy, connect through the proxy. When
+`SAFEDEP_CLOUD_DATA_ADDR` or `SAFEDEP_CLOUD_CONTROL_ADDR` names another
+host, add that host to your profile. An action that
 downloads from another host needs a rule in your profile. Make your profile
 inherit `github-actions` and add the registry hosts to it, as
 `pmg sandbox profile propose` does. Do not inherit another built-in, such
@@ -458,7 +464,9 @@ Three runs take a job from no profile to `enforce`.
    every destination the job needs. Save the proposal as
    `.pmg/network.yml` and commit it. Set `network-profile:
    .pmg/network.yml` on the PMG step. The proposal inherits
-   `github-actions`, which refuses each host that no rule allows.
+   `github-actions`, which refuses each host that no rule allows. The
+   proposal does not list the hosts of the runner or the SafeDep hosts of
+   PMG, because `github-actions` allows them.
 
    Each later run in `audit` lists the destinations the profile does not
    allow, in the summary and as a warning on the run. The summary shows the
