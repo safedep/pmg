@@ -106,10 +106,12 @@ policy in the background at most every 5 minutes. Set `cloud.policy: false` to s
   minutes since the last fetch have passed. The fetch takes 15 seconds at most. The command fails
   when no policy applies after the fetch. When the fetch fails and the last policy applies, it
   prints a warning. When your SafeDep plan does not include the cloud policy, it prints a warning
-  and does not fail. Set `cloud.policy: false` to turn off that warning.
+  and does not fail. Set `cloud.policy: false` to turn off that warning. With `cloud.enabled` or
+  `cloud.policy` off, the command does nothing and does not fail.
 - Run `pmg cloud sync --require-policy` as the first step of a CI job, so the first install of the
   job applies the policy and the job stops when no policy applies. The GitHub Action runs it for
-  you. `pmg proxy start` does not need a policy to start, and applies it at its first sync.
+  you. `pmg proxy start` does not need a policy to start. The daemon fetches the policy in the
+  background, at most every 5 minutes.
 - A block entry and the cooldown do not apply to a package that the package manager installs from
   its own cache. See [Blocked Packages](#blocked-packages).
 - PMG keeps the policy in `cloud-policy/` in the config directory. When the fetch fails or you log

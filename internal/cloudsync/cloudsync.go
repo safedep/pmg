@@ -124,14 +124,14 @@ const (
 // It fetches the policy when no cloud policy applies, or when the fetch of the
 // policy that applies is due. It returns the status after the fetch, a
 // warning for the user or "", and an error when no cloud policy applies. With
-// cloud.policy off, it does not fetch and returns no error.
+// cloud or cloud.policy off, it does not fetch and returns no error.
 func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig) (*cloudpolicy.Status, string, error) {
 	policy := cloudpolicy.Global()
 	if !cfg.CloudPolicyEnabled() {
 		return policy.Peek(cfg), "", nil
 	}
 
-	fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Peek(cfg))
+	fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Status())
 	st := policy.Peek(cfg)
 	warning, err := checkPolicy(fetchErr, st)
 	return st, warning, err
@@ -154,8 +154,9 @@ func checkPolicy(fetchErr error, st *cloudpolicy.Status) (string, error) {
 	}
 
 	switch {
-	case fetchErr == nil:
+	case fetchErr == nil, isRejectedPolicy(fetchErr):
 		return "", usefulerror.NewUsefulError().
+			Wrap(fetchErr).
 			WithCode(errcodes.Lifecycle).
 			WithHumanError("No cloud policy applies. pmg did not accept the policy that it fetched").
 			WithHelp("Run 'pmg setup doctor' to see why the cloud policy does not apply")
@@ -164,6 +165,20 @@ func checkPolicy(fetchErr error, st *cloudpolicy.Status) (string, error) {
 	default:
 		return "", PolicyFetchFailureError(fetchErr, 0)
 	}
+}
+
+// isRejectedPolicy reports whether pmg got a policy from the cloud and did
+// not accept it.
+func isRejectedPolicy(err error) bool {
+	for _, rejected := range []error{
+		configsync.ErrRejected, configsync.ErrDigestMismatch, configsync.ErrInvalidDigest,
+		configsync.ErrLowerRevision, configsync.ErrTooLarge, configsync.ErrTenantMismatch,
+	} {
+		if errors.Is(err, rejected) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s steps) fetchIfNeeded(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status) error {
@@ -193,6 +208,10 @@ func (s steps) run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*
 		lockCtx, cancel := context.WithTimeout(ctx, plan.LockTimeout)
 		defer cancel()
 		locked, err = lock.TryLockContext(lockCtx, 250*time.Millisecond)
+		// flock reports the end of the wait as the error of the context.
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			locked, err = false, nil
+		}
 	} else {
 		locked, err = lock.TryLock()
 	}

@@ -12,7 +12,7 @@ inputs:
     default: latest
 
   api-key:
-    description: SafeDep Cloud API key. When set together with tenant-id, cloud sync is enabled and credentials are passed via env (no keychain needed in CI).
+    description: SafeDep Cloud API key. When set together with tenant-id, cloud sync is enabled and credentials are passed via env (no keychain needed in CI). The action then fetches the cloud policy, and the step fails when no cloud policy applies.
     required: false
     default: ""
   tenant-id:

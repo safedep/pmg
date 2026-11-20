@@ -6,6 +6,7 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/safedep/pmg/internal/ui"
@@ -40,14 +41,10 @@ func newSyncCommand() *cobra.Command {
 func runSync(cmd *cobra.Command, args []string) error {
 	cfg := config.Get()
 
-	if !cfg.Config.Cloud.Enabled {
-		ui.ErrorExit(usefulerror.NewUsefulError().
-			WithCode(errcodes.Lifecycle).
-			WithHumanError("Cloud sync is not enabled").
-			WithHelp("Set 'cloud.enabled: true' in PMG config to enable cloud sync"))
-	}
-
 	if requirePolicy {
+		// The command sends no events, so it must not start the background
+		// event sync either.
+		audit.SuppressBackgroundSync()
 		st, warning, err := cloudsync.RequirePolicy(cmd.Context(), cfg)
 		if err != nil {
 			ui.ErrorExit(err)
@@ -59,6 +56,13 @@ func runSync(cmd *cobra.Command, args []string) error {
 			ui.Successf("Cloud policy revision %d applies", st.Applied.Revision)
 		}
 		return nil
+	}
+
+	if !cfg.Config.Cloud.Enabled {
+		ui.ErrorExit(usefulerror.NewUsefulError().
+			WithCode(errcodes.Lifecycle).
+			WithHumanError("Cloud sync is not enabled").
+			WithHelp("Set 'cloud.enabled: true' in PMG config to enable cloud sync"))
 	}
 
 	// The policy fetch runs first, so a user or IT can force a fetch.

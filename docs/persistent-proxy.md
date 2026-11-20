@@ -291,10 +291,14 @@ The daemon delivers events only when both `cloud.enabled` and
 auto-sync off, the events stay local and stop prints no sync line. Store
 the credentials with `pmg cloud login`, or set `SAFEDEP_API_KEY` and
 `SAFEDEP_TENANT_ID`. A root daemon uses the credentials of root, so pass the
-variables through sudo or store the credentials for root. To fetch the
-[cloud policy](config.md#cloud-policy) before a systemd unit starts the
-proxy, add `ExecStartPre=-/usr/local/bin/pmg cloud sync --require-policy`.
-The `-` prefix keeps a failed fetch from stopping the proxy.
+variables through sudo or store the credentials for root.
+
+To fetch the [cloud policy](config.md#cloud-policy) before a systemd unit
+starts the proxy, add `ExecStartPre=-/usr/local/bin/pmg cloud sync --require-policy`.
+A system unit cannot read the keychain, so give the unit the credentials
+with `EnvironmentFile=`. Point it to a file that only root can read and that
+sets `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID`. The `-` prefix keeps a failed
+fetch from stopping the proxy.
 
 On a runner that is destroyed when the job ends, run `pmg proxy stop`
 before the job ends. The daemon records each blocked

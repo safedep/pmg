@@ -112,7 +112,7 @@ Use exactly lowercase `true` for `cache`, `sandbox`, and `skip-event-logging`. T
 | Input | Effect when set | PMG default if empty |
 |---|---|---|
 | `version` | PMG release tag (for example `v0.42.0`) or `latest` | `latest` |
-| `api-key` | SafeDep Cloud API key. Set it with `tenant-id`. Use a secret to hold the value. | unset (cloud sync disabled) |
+| `api-key` | SafeDep Cloud API key. Set it with `tenant-id`. Use a secret to hold the value. The action then fetches the cloud policy, and the step fails when no cloud policy applies. | unset (cloud sync disabled) |
 | `tenant-id` | SafeDep Cloud tenant ID | unset |
 | `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `gha/<owner>/<repo>` when `api-key` is set |
 | `paranoid` | `PMG_PARANOID` | `false` |

@@ -197,11 +197,33 @@ func TestRunRefusesWhileAnotherSyncHoldsTheLock(t *testing.T) {
 	require.True(t, locked)
 	t.Cleanup(func() { assert.NoError(t, lock.Unlock()) })
 
-	rec := &recorder{}
-	_, err = rec.steps(t).run(context.Background(), cfg, Plan{Policy: StepForce, Events: StepForce})
+	for _, wait := range []time.Duration{0, 50 * time.Millisecond} {
+		rec := &recorder{}
+		_, err = rec.steps(t).run(context.Background(), cfg, Plan{Policy: StepForce, Events: StepForce, LockTimeout: wait})
 
-	assert.ErrorIs(t, err, audit.ErrSyncInProgress)
-	assert.Empty(t, rec.order)
+		assert.ErrorIs(t, err, audit.ErrSyncInProgress, "lock wait %v", wait)
+		assert.Empty(t, rec.order)
+	}
+}
+
+func TestRequirePolicyWithCloudOrPolicyOff(t *testing.T) {
+	for _, off := range []string{"cloud", "policy"} {
+		t.Run(off, func(t *testing.T) {
+			cfg := newSyncConfig(t)
+			if off == "cloud" {
+				cfg.Config.Cloud.Enabled = false
+			} else {
+				cfg.Config.Cloud.Policy = false
+			}
+
+			st, warning, err := RequirePolicy(context.Background(), cfg)
+
+			assert.NoError(t, err)
+			assert.Empty(t, warning)
+			require.NotNil(t, st)
+			assert.Nil(t, st.Applied)
+		})
+	}
 }
 
 func TestRunWithCloudOff(t *testing.T) {
@@ -353,6 +375,13 @@ func TestCheckPolicy(t *testing.T) {
 			st:            none,
 			expectedCode:  errcodes.CloudCredentialsNotFound,
 			expectedHuman: "SafeDep Cloud credentials are not configured",
+		},
+		{
+			name:          "a fetched policy that pmg rejects fails",
+			fetchErr:      fmt.Errorf("%w: header names another tenant", configsync.ErrRejected),
+			st:            none,
+			expectedCode:  errcodes.Lifecycle,
+			expectedHuman: "No cloud policy applies. pmg did not accept the policy that it fetched",
 		},
 		{
 			name:          "a busy sync lock with no policy fails",

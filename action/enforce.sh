@@ -27,6 +27,14 @@ if [ -n "$INPUT_CONFIG_FILE" ]; then
   echo "PMG_PROXY_CONFIG_DIR=${PMG_CONFIG_DIR}" >> "$GITHUB_ENV"
 fi
 
+preserve_env=PMG_CONFIG_DIR,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_ACTOR,GITHUB_REF,GITHUB_REF_NAME,GITHUB_HEAD_REF,GITHUB_WORKFLOW,GITHUB_JOB,GITHUB_SERVER_URL
+
+# The fetch runs as root with the env of the daemon, so it fills the policy
+# cache that the daemon reads at start. It runs before the CA install, so a
+# failed fetch changes nothing on the runner. Exit status 3 tells main.js
+# that the fetch failed and enforcement did not.
+"$PMG_ACTION_DIR/policy.sh" sudo --preserve-env="$preserve_env" "$pmg_bin" || exit 3
+
 # Trust goes through the system store: the keypair lands in
 # /etc/safedep/pmg and the certificate in the trust store.
 sudo "$pmg_bin" setup cert install --system
@@ -43,12 +51,6 @@ enforce_flags=()
 if [ -n "$flags_out" ]; then
   mapfile -t enforce_flags <<<"$flags_out"
 fi
-
-preserve_env=PMG_CONFIG_DIR,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_ACTOR,GITHUB_REF,GITHUB_REF_NAME,GITHUB_HEAD_REF,GITHUB_WORKFLOW,GITHUB_JOB,GITHUB_SERVER_URL
-
-# The fetch runs as root with the env of the daemon, so it fills the policy
-# cache of root, which the daemon reads at start.
-"$PMG_ACTION_DIR/policy.sh" sudo --preserve-env="$preserve_env" "$pmg_bin"
 
 sudo --preserve-env="$preserve_env" \
   "$pmg_bin" proxy start --daemon --enforce --state "$state" "${enforce_flags[@]}"
