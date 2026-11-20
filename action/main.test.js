@@ -6,6 +6,7 @@ const lib = require('./lib');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { checkInputs, enforceMode, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
 
 // withEnv sets the variables for one call and restores them after it.
@@ -113,4 +114,45 @@ test('refuseSecondProxy fails when a proxy of an earlier step runs', (t) => {
 test('refuseSecondProxy passes when no proxy runs', (t) => {
   const bin = fakePMG(t, 'PMG proxy: not running');
   assert.doesNotThrow(() => refuseSecondProxy(bin));
+});
+
+test('config.sh exports the endpoint id of the repository', async (t) => {
+  for (const [name, repository, endpointID, want] of [
+    ['the default uses the form of pmg', 'octo-org/octo-repo', '', 'gh:octo-org/octo-repo'],
+    ['the endpoint-id input overrides the default', 'octo-org/octo-repo', 'gha/octo-org/octo-repo', 'gha/octo-org/octo-repo'],
+    ['no repository leaves the id to pmg', '', '', undefined],
+  ]) {
+    await t.test(name, (t) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmg-test-'));
+      t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+      const envFile = path.join(dir, 'env');
+      fs.writeFileSync(envFile, '');
+      const res = spawnSync('sh', [path.join(lib.actionDir, 'config.sh')], {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          HOME: dir,
+          GITHUB_ENV: envFile,
+          GH_REPOSITORY: repository,
+          INPUT_CONFIG_FILE: '',
+          IN_API_KEY: 'key',
+          IN_TENANT_ID: 'tenant',
+          IN_ENDPOINT_ID: endpointID,
+          IN_SERVER_MODE: 'true',
+          IN_PROXY_MODE: '',
+          IN_PARANOID: '',
+          IN_COOLDOWN_ENABLED: '',
+          IN_COOLDOWN_DAYS: '',
+          IN_SANDBOX: '',
+          IN_SANDBOX_DRIVER: '',
+          IN_VERBOSITY: '',
+          IN_DISABLE_TELEMETRY: '',
+          IN_SKIP_EVENT_LOGGING: '',
+        },
+      });
+      assert.strictEqual(res.status, 0, res.stderr);
+      const exported = new Map(lib.parseKeyValues(fs.readFileSync(envFile, 'utf8')));
+      assert.strictEqual(exported.get('PMG_CLOUD_ENDPOINT_ID'), want);
+    });
+  }
 });
