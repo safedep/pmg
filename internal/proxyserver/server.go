@@ -102,6 +102,9 @@ type RunOptions struct {
 	// CertificateRejected receives the server's log line for a handshake
 	// a client refused under kernel enforcement.
 	CertificateRejected func(line string)
+
+	// UpstreamFailed receives a line for each failed upstream request.
+	UpstreamFailed func(line string)
 }
 
 // EnforceOverrides are policy lists from the command line. Each list adds to
@@ -227,6 +230,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
 	proxyConfig.BlockMessageRenderer = opts.BlockMessage
+	proxyConfig.OnUpstreamFailure = opts.UpstreamFailed
 
 	blocks := &blockLog{seen: map[string]bool{}}
 	proxyConfig.OnBlock = blocks.Record

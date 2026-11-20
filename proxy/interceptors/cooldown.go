@@ -79,7 +79,8 @@ func forceUncompressedNonConditionalResponse(headers http.Header) {
 // A CheckRedirect function replaces the default limit of Go, so the function
 // keeps that limit.
 var cooldownFetchClient = &http.Client{
-	Timeout: 10 * time.Second,
+	Timeout:   10 * time.Second,
+	Transport: newCooldownFetchTransport(),
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if via[0].Header.Get("Authorization") != "" {
 			return http.ErrUseLastResponse
@@ -89,6 +90,12 @@ var cooldownFetchClient = &http.Client{
 		}
 		return nil
 	},
+}
+
+func newCooldownFetchTransport() *http.Transport {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = proxy.NewUpstreamTLSConfig()
+	return tr
 }
 
 // cooldownFetchMaxRedirects is the default redirect limit of net/http.

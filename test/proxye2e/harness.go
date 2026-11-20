@@ -63,6 +63,12 @@ type options struct {
 	networkEnforce bool
 	noInterceptors bool
 	policy         cloudpolicy.Source
+	upstreamConn   func(net.Conn) net.Conn
+}
+
+// WithUpstreamConn wraps every upstream connection, to model a network path.
+func WithUpstreamConn(wrap func(net.Conn) net.Conn) Option {
+	return func(o *options) { o.upstreamConn = wrap }
 }
 
 type Option func(*options)
@@ -254,7 +260,11 @@ func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *
 		if _, port, err := net.SplitHostPort(addr); err == nil && port == "80" || addr == registry.plainAddr() {
 			target = registry.plainAddr()
 		}
-		return (&net.Dialer{}).DialContext(ctx, network, target)
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, target)
+		if err != nil || o.upstreamConn == nil {
+			return conn, err
+		}
+		return o.upstreamConn(conn), nil
 	}
 	// Test-only: the mock's self-signed cert cannot match the real registry SNIs
 	// the proxy presents upstream, so verification is skipped for this in-process
