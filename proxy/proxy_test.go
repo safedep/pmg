@@ -59,6 +59,7 @@ func TestUpstreamHandshakeTimeoutIsReportedOnce(t *testing.T) {
 	ps, ok := server.(*proxyServer)
 	require.True(t, ok)
 	ps.proxy.Tr.TLSHandshakeTimeout = 100 * time.Millisecond
+	ps.proxy.Tr.Proxy = nil
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://pypi.org/simple/six/", nil)
 	require.NoError(t, err)
