@@ -677,12 +677,11 @@ func (ps *proxyServer) reportUpstreamFailure(req *http.Request, err error, elaps
 		return
 	}
 	line := fmt.Sprintf("upstream %s %s failed after %s: %v", req.Method, req.URL.Host, elapsed.Round(time.Millisecond), err)
-	switch {
-	case ps.config.OnUpstreamFailure == nil:
+	if ps.config.OnUpstreamFailure == nil {
 		log.Warnf("%s", line)
-	default:
-		ps.config.OnUpstreamFailure(line)
+		return
 	}
+	ps.config.OnUpstreamFailure(line)
 }
 
 // isReplayableRequest reports whether a request can be safely retried after an
