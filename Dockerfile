@@ -21,7 +21,7 @@ RUN --mount=type=secret,id=pmg-ca,target=/run/secrets/pmg-ca.pem,mode=0444 \
     if [ -f /run/secrets/pmg-ca.pem ]; then export SSL_CERT_FILE=/run/secrets/pmg-ca.pem; fi; \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make
 
-FROM debian:13-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 # Original: debian:13-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
