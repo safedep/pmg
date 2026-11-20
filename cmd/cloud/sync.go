@@ -1,6 +1,7 @@
 package cloud
 
 import (
+	"errors"
 	"time"
 
 	"github.com/safedep/dry/usefulerror"
@@ -45,12 +46,13 @@ func runSync(cmd *cobra.Command, args []string) error {
 		// The command sends no events, so it must not start the background
 		// event sync either.
 		audit.SuppressBackgroundSync()
-		st, warning, err := cloudsync.RequirePolicy(cmd.Context(), cfg)
-		if err != nil {
+		st, err := cloudsync.RequirePolicy(cmd.Context(), cfg)
+		var warning *cloudsync.PolicyWarning
+		switch {
+		case errors.As(err, &warning):
+			ui.ShowWarning(warning.Error())
+		case err != nil:
 			ui.ErrorExit(err)
-		}
-		if warning != "" {
-			ui.ShowWarning(warning)
 		}
 		if st.Applied != nil {
 			ui.Successf("Cloud policy revision %d applies", st.Applied.Revision)

@@ -120,50 +120,67 @@ const (
 	fetchTimeout  = 10 * time.Second
 )
 
+// PolicyWarning is a failed policy fetch that does not stop the command. A
+// cloud policy still applies, or the plan of the tenant has no cloud policy.
+type PolicyWarning struct {
+	msg string
+	err error
+}
+
+func (w *PolicyWarning) Error() string { return w.msg }
+
+func (w *PolicyWarning) Unwrap() error { return w.err }
+
 // RequirePolicy is for a CI job that must not install without a cloud policy.
 // It fetches the policy when no cloud policy applies, or when the fetch of the
-// policy that applies is due. It returns the status after the fetch, a
-// warning for the user or "", and an error when no cloud policy applies. With
-// cloud or cloud.policy off, it does not fetch and returns no error.
-func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig) (*cloudpolicy.Status, string, error) {
+// policy that applies is due. It returns the status after the fetch. The
+// error is a *PolicyWarning when the command can go on, and any other error
+// when no cloud policy applies. With cloud or cloud.policy off, it does not
+// fetch and returns no error.
+func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig) (*cloudpolicy.Status, error) {
 	policy := cloudpolicy.Global()
 	if !cfg.CloudPolicyEnabled() {
-		return policy.Peek(cfg), "", nil
+		return policy.Peek(cfg), nil
 	}
 
 	fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Status())
 	st := policy.Peek(cfg)
-	warning, err := checkPolicy(fetchErr, st)
-	return st, warning, err
+	return st, checkPolicy(fetchErr, st)
 }
 
-func checkPolicy(fetchErr error, st *cloudpolicy.Status) (string, error) {
+func checkPolicy(fetchErr error, st *cloudpolicy.Status) error {
 	if st != nil && st.Applied != nil {
 		if fetchErr != nil {
-			return fmt.Sprintf("Cannot fetch the cloud policy (%v). The last policy still applies (revision %d).",
-				fetchErr, st.Applied.Revision), nil
+			return &PolicyWarning{
+				msg: fmt.Sprintf("Cannot fetch the cloud policy (%v). The last policy still applies (revision %d).",
+					fetchErr, st.Applied.Revision),
+				err: fetchErr,
+			}
 		}
-		return "", nil
+		return nil
 	}
 
 	// A tenant whose plan has no policy management cannot have a policy, so
 	// a missing policy is expected there and does not stop the command.
 	if usefulErr, ok := usefulerror.AsUsefulError(fetchErr); ok && usefulErr.Code() == usefulerror.ErrMissingEntitlements {
-		return "Your SafeDep plan does not include the cloud policy, so no cloud policy applies. " +
-			"Set 'cloud.policy: false' in the PMG config to turn off this warning.", nil
+		return &PolicyWarning{
+			msg: "Your SafeDep plan does not include the cloud policy, so no cloud policy applies. " +
+				"Set 'cloud.policy: false' in the PMG config to turn off this warning.",
+			err: fetchErr,
+		}
 	}
 
 	switch {
 	case fetchErr == nil, isRejectedPolicy(fetchErr):
-		return "", usefulerror.NewUsefulError().
+		return usefulerror.NewUsefulError().
 			Wrap(fetchErr).
 			WithCode(errcodes.Lifecycle).
 			WithHumanError("No cloud policy applies. pmg did not accept the policy that it fetched").
 			WithHelp("Run 'pmg setup doctor' to see why the cloud policy does not apply")
 	case errors.Is(fetchErr, audit.ErrSyncInProgress), errors.Is(fetchErr, cloud.ErrMissingCredentials):
-		return "", SyncFailureError(fetchErr)
+		return SyncFailureError(fetchErr)
 	default:
-		return "", PolicyFetchFailureError(fetchErr, 0)
+		return PolicyFetchFailureError(fetchErr, 0)
 	}
 }
 

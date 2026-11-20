@@ -186,6 +186,7 @@ When your SafeDep plan does not include the cloud policy, the step prints a warn
 On a self-hosted runner that keeps its policy cache, a failed fetch prints a warning, and the last policy applies.
 A PMG `version` without `pmg cloud sync --require-policy` does not fail the step.
 The action then runs the full sync and prints a warning only when that sync fails.
+That sync waits up to 30 seconds for the sync lock and then runs for up to 10 seconds.
 
 With `api-key`, `endpoint-id` defaults to `gha/${{ github.repository }}`.
 Each workflow on the same repository appears as one endpoint in the

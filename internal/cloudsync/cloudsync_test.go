@@ -216,10 +216,9 @@ func TestRequirePolicyWithCloudOrPolicyOff(t *testing.T) {
 				cfg.Config.Cloud.Policy = false
 			}
 
-			st, warning, err := RequirePolicy(context.Background(), cfg)
+			st, err := RequirePolicy(context.Background(), cfg)
 
 			assert.NoError(t, err)
-			assert.Empty(t, warning)
 			require.NotNil(t, st)
 			assert.Nil(t, st.Applied)
 		})
@@ -405,8 +404,14 @@ func TestCheckPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			warning, err := checkPolicy(tt.fetchErr, tt.st)
-			assert.Equal(t, tt.warns, warning != "")
+			err := checkPolicy(tt.fetchErr, tt.st)
+			var warning *PolicyWarning
+			if tt.warns {
+				require.ErrorAs(t, err, &warning)
+				assert.ErrorIs(t, warning, tt.fetchErr)
+				return
+			}
+			assert.False(t, errors.As(err, &warning))
 			if tt.expectedCode == "" {
 				assert.NoError(t, err)
 				return
