@@ -34,6 +34,10 @@ LABEL org.opencontainers.image.source=https://github.com/safedep/pmg
 LABEL org.opencontainers.image.description="Package Manager Guard to protect against malicious open source packages"
 LABEL org.opencontainers.image.licenses=Apache-2.0
 
-COPY --from=build /build/bin/pmg /usr/local/bin/pmg
+# A runner image copies /opt/safedep/pmg to get pmg and its entrypoint
+# script. /usr/local/bin/pmg stays for images that copy only the binary.
+COPY --from=build /build/bin/pmg /opt/safedep/pmg/bin/pmg
+COPY --chmod=0755 scripts/container/pmg-entrypoint.sh /opt/safedep/pmg/bin/pmg-entrypoint.sh
+RUN ln -s /opt/safedep/pmg/bin/pmg /usr/local/bin/pmg
 
 ENTRYPOINT ["pmg"]
