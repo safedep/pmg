@@ -1,4 +1,4 @@
-package cloudsync
+package cloud
 
 import (
 	"errors"
@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -112,7 +113,7 @@ func TestSyncFailureError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := SyncFailureError(tt.err)
+			err := syncFailureError(tt.err)
 			require.Error(t, err)
 
 			usefulErr, ok := usefulerror.AsUsefulError(err)
@@ -194,7 +195,7 @@ func TestPolicyFetchFailureError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usefulErr, ok := usefulerror.AsUsefulError(PolicyFetchFailureError(tt.err, tt.applied))
+			usefulErr, ok := usefulerror.AsUsefulError(policyFetchFailureError(tt.err, tt.applied))
 			require.True(t, ok)
 
 			assert.Equal(t, tt.expectedCode, usefulErr.Code())
@@ -204,4 +205,59 @@ func TestPolicyFetchFailureError(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRequirePolicyError(t *testing.T) {
+	offline := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+
+	tests := []struct {
+		name          string
+		err           error
+		expectedCode  string
+		expectedHuman string
+	}{
+		{
+			name:          "a cloud that pmg cannot reach",
+			err:           fmt.Errorf("%w: %w", cloudsync.ErrNoPolicy, offline),
+			expectedCode:  errcodes.Network,
+			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. No cloud policy applies yet",
+		},
+		{
+			name:          "missing credentials",
+			err:           fmt.Errorf("%w: %w", cloudsync.ErrNoPolicy, cloud.ErrMissingCredentials),
+			expectedCode:  errcodes.CloudCredentialsNotFound,
+			expectedHuman: "SafeDep Cloud credentials are not configured",
+		},
+		{
+			name:          "a busy sync lock",
+			err:           fmt.Errorf("%w: %w", cloudsync.ErrNoPolicy, audit.ErrSyncInProgress),
+			expectedCode:  errcodes.Lifecycle,
+			expectedHuman: "Another cloud sync is already in progress",
+		},
+		{
+			name:          "a policy that pmg rejects",
+			err:           fmt.Errorf("%w: %w", cloudsync.ErrNoPolicy, cloudsync.ErrPolicyRejected),
+			expectedCode:  errcodes.Lifecycle,
+			expectedHuman: "No cloud policy applies. pmg did not accept the policy that it fetched",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usefulErr, ok := usefulerror.AsUsefulError(requirePolicyError(tt.err))
+			require.True(t, ok)
+			assert.Equal(t, tt.expectedCode, usefulErr.Code())
+			assert.Equal(t, tt.expectedHuman, usefulErr.HumanError())
+		})
+	}
+}
+
+func TestPolicyWarningText(t *testing.T) {
+	assert.Equal(t,
+		"Cannot fetch the cloud policy (offline). The last policy still applies (revision 52).",
+		policyWarningText(&cloudsync.PolicyWarning{Revision: 52, Err: errors.New("offline")}))
+	assert.Equal(t,
+		"Your SafeDep plan does not include the cloud policy, so no cloud policy applies. "+
+			"Set 'cloud.policy: false' in the PMG config to turn off this warning.",
+		policyWarningText(&cloudsync.PolicyWarning{Err: entitlementStatusErr(t, 0)}))
 }

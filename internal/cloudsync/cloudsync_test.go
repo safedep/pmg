@@ -17,7 +17,6 @@ import (
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/stretchr/testify/assert"
@@ -342,84 +341,53 @@ func TestFetchIfNeeded(t *testing.T) {
 
 func TestCheckPolicy(t *testing.T) {
 	offline := fmt.Errorf("fetch policy: %w", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
+	noEntitlement := fmt.Errorf("fetch policy: %w", usefulerror.NewUsefulError().WithCode(usefulerror.ErrMissingEntitlements))
+	rejected := fmt.Errorf("%w: header names another tenant", configsync.ErrRejected)
 	applied := &cloudpolicy.Status{Applied: &cloudpolicy.AppliedHeader{Revision: 52}}
 	none := &cloudpolicy.Status{}
 
 	tests := []struct {
-		name          string
-		fetchErr      error
-		st            *cloudpolicy.Status
-		warns         bool
-		expectedCode  string
-		expectedHuman string
+		name         string
+		fetchErr     error
+		st           *cloudpolicy.Status
+		warns        bool
+		wantRevision uint64
+		wantRejected bool
+		wantCause    error
 	}{
 		{name: "a fetched policy that applies passes", st: applied},
-		{name: "a failed fetch passes with a warning when the last policy applies", fetchErr: offline, st: applied, warns: true},
-		{
-			name:     "a plan without policy management passes with a warning",
-			fetchErr: fmt.Errorf("fetch policy: %w", entitlementStatusErr(t, 0)),
-			st:       none,
-			warns:    true,
-		},
-		{
-			name:          "a failed fetch with no policy fails",
-			fetchErr:      offline,
-			st:            none,
-			expectedCode:  errcodes.Network,
-			expectedHuman: "Cannot fetch the cloud policy from SafeDep Cloud. No cloud policy applies yet",
-		},
-		{
-			name:          "missing credentials with no policy fail with the login help",
-			fetchErr:      fmt.Errorf("resolve: %w", cloud.ErrMissingCredentials),
-			st:            none,
-			expectedCode:  errcodes.CloudCredentialsNotFound,
-			expectedHuman: "SafeDep Cloud credentials are not configured",
-		},
-		{
-			name:          "a fetched policy that pmg rejects fails",
-			fetchErr:      fmt.Errorf("%w: header names another tenant", configsync.ErrRejected),
-			st:            none,
-			expectedCode:  errcodes.Lifecycle,
-			expectedHuman: "No cloud policy applies. pmg did not accept the policy that it fetched",
-		},
-		{
-			name:          "a busy sync lock with no policy fails",
-			fetchErr:      audit.ErrSyncInProgress,
-			st:            none,
-			expectedCode:  errcodes.Lifecycle,
-			expectedHuman: "Another cloud sync is already in progress",
-		},
-		{
-			name:          "a fetched policy that pmg rejects fails",
-			st:            none,
-			expectedCode:  errcodes.Lifecycle,
-			expectedHuman: "No cloud policy applies. pmg did not accept the policy that it fetched",
-		},
-		{
-			name:          "no status fails",
-			expectedCode:  errcodes.Lifecycle,
-			expectedHuman: "No cloud policy applies. pmg did not accept the policy that it fetched",
-		},
+		{name: "a failed fetch warns when the last policy applies", fetchErr: offline, st: applied, warns: true, wantRevision: 52, wantCause: offline},
+		{name: "a plan without policy management warns", fetchErr: noEntitlement, st: none, warns: true, wantCause: noEntitlement},
+		{name: "a failed fetch with no policy fails", fetchErr: offline, st: none, wantCause: offline},
+		{name: "missing credentials with no policy fail", fetchErr: cloud.ErrMissingCredentials, st: none, wantCause: cloud.ErrMissingCredentials},
+		{name: "a busy sync lock with no policy fails", fetchErr: audit.ErrSyncInProgress, st: none, wantCause: audit.ErrSyncInProgress},
+		{name: "a fetched policy that pmg rejects fails", fetchErr: rejected, st: none, wantRejected: true, wantCause: rejected},
+		{name: "a fetch with no policy after it fails as rejected", st: none, wantRejected: true},
+		{name: "no status fails as rejected", wantRejected: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := checkPolicy(tt.fetchErr, tt.st)
-			var warning *PolicyWarning
-			if tt.warns {
-				require.ErrorAs(t, err, &warning)
-				assert.ErrorIs(t, warning, tt.fetchErr)
-				return
-			}
-			assert.False(t, errors.As(err, &warning))
-			if tt.expectedCode == "" {
+
+			if tt.st == applied && !tt.warns {
 				assert.NoError(t, err)
 				return
 			}
-			usefulErr, ok := usefulerror.AsUsefulError(err)
-			require.True(t, ok)
-			assert.Equal(t, tt.expectedCode, usefulErr.Code())
-			assert.Equal(t, tt.expectedHuman, usefulErr.HumanError())
+			var warning *PolicyWarning
+			if tt.warns {
+				require.ErrorAs(t, err, &warning)
+				assert.Equal(t, tt.wantRevision, warning.Revision)
+				assert.ErrorIs(t, warning, tt.wantCause)
+				assert.NotErrorIs(t, err, ErrNoPolicy)
+				return
+			}
+			assert.False(t, errors.As(err, &warning))
+			assert.ErrorIs(t, err, ErrNoPolicy)
+			assert.Equal(t, tt.wantRejected, errors.Is(err, ErrPolicyRejected))
+			if tt.wantCause != nil {
+				assert.ErrorIs(t, err, tt.wantCause)
+			}
 		})
 	}
 }

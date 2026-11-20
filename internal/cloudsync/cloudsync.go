@@ -14,9 +14,7 @@ import (
 	"github.com/safedep/dry/cloud/configsync"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/dry/log"
-	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/cloudpolicy"
@@ -123,25 +121,13 @@ const (
 	DefaultFetchTimeout = 10 * time.Second
 )
 
-// PolicyWarning is a failed policy fetch that does not stop the command. A
-// cloud policy still applies, or the plan of the tenant has no cloud policy.
-type PolicyWarning struct {
-	msg string
-	err error
-}
-
-func (w *PolicyWarning) Error() string { return w.msg }
-
-func (w *PolicyWarning) Unwrap() error { return w.err }
-
 // RequirePolicy is for a CI job that must not install without a cloud policy.
 // It fetches the policy when no cloud policy applies, or when the fetch of the
 // policy that applies is due. The fetch runs for at most timeout, after a
 // wait of at most 5 seconds for the sync lock. It returns the status after
-// the fetch. The
-// error is a *PolicyWarning when the command can go on, and any other error
-// when no cloud policy applies. With cloud or cloud.policy off, it does not
-// fetch and returns no error.
+// the fetch. The error is a *PolicyWarning when the command can go on, and
+// wraps ErrNoPolicy when no cloud policy applies. With cloud or cloud.policy
+// off, it does not fetch and returns no error.
 func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig, timeout time.Duration) (*cloudpolicy.Status, error) {
 	policy := cloudpolicy.Global()
 	if !cfg.CloudPolicyEnabled() {
@@ -151,56 +137,6 @@ func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig, timeout time.
 	fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Status(), timeout)
 	st := policy.Peek(cfg)
 	return st, checkPolicy(fetchErr, st)
-}
-
-func checkPolicy(fetchErr error, st *cloudpolicy.Status) error {
-	if st != nil && st.Applied != nil {
-		if fetchErr != nil {
-			return &PolicyWarning{
-				msg: fmt.Sprintf("Cannot fetch the cloud policy (%v). The last policy still applies (revision %d).",
-					fetchErr, st.Applied.Revision),
-				err: fetchErr,
-			}
-		}
-		return nil
-	}
-
-	// A tenant whose plan has no policy management cannot have a policy, so
-	// a missing policy is expected there and does not stop the command.
-	if usefulErr, ok := usefulerror.AsUsefulError(fetchErr); ok && usefulErr.Code() == usefulerror.ErrMissingEntitlements {
-		return &PolicyWarning{
-			msg: "Your SafeDep plan does not include the cloud policy, so no cloud policy applies. " +
-				"Set 'cloud.policy: false' in the PMG config to turn off this warning.",
-			err: fetchErr,
-		}
-	}
-
-	switch {
-	case fetchErr == nil, isRejectedPolicy(fetchErr):
-		return usefulerror.NewUsefulError().
-			Wrap(fetchErr).
-			WithCode(errcodes.Lifecycle).
-			WithHumanError("No cloud policy applies. pmg did not accept the policy that it fetched").
-			WithHelp("Run 'pmg setup doctor' to see why the cloud policy does not apply")
-	case errors.Is(fetchErr, audit.ErrSyncInProgress), errors.Is(fetchErr, cloud.ErrMissingCredentials):
-		return SyncFailureError(fetchErr)
-	default:
-		return PolicyFetchFailureError(fetchErr, 0)
-	}
-}
-
-// isRejectedPolicy reports whether pmg got a policy from the cloud and did
-// not accept it.
-func isRejectedPolicy(err error) bool {
-	for _, rejected := range []error{
-		configsync.ErrRejected, configsync.ErrDigestMismatch, configsync.ErrInvalidDigest,
-		configsync.ErrLowerRevision, configsync.ErrTooLarge, configsync.ErrTenantMismatch,
-	} {
-		if errors.Is(err, rejected) {
-			return true
-		}
-	}
-	return false
 }
 
 func (s steps) fetchIfNeeded(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status, timeout time.Duration) error {
