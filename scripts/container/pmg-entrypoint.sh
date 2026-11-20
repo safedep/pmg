@@ -42,9 +42,10 @@ elif ! PMG_BIN=$(command -v pmg); then
   exit 1
 fi
 
-# sudo drops the PMG_ variables, so pass them on.
+# sudo drops the environment. Pass on the PMG_ variables, and the Kubernetes
+# variables that PMG reads to identify the Pod in SafeDep Cloud.
 pmg_env=()
-for v in $(compgen -e PMG_); do pmg_env+=("$v=${!v}"); done
+for v in $(compgen -e PMG_) $(compgen -e KUBE_) $(compgen -e KUBERNETES_SERVICE_); do pmg_env+=("$v=${!v}"); done
 pmg_cgroup=""
 pmg_pid=""
 
@@ -96,8 +97,12 @@ attach_cgroup() {
   log "attach to $pmg_cgroup"
 }
 
+# write_config skips only the Kubernetes API server. PMG drops TLS without a
+# server name, and in-cluster kubectl and helm reach the API server by its IP.
+# Other private addresses go through PMG, so PMG logs a mirror that
+# proxy.registries does not list.
 write_config() {
-  local cloud=false
+  local cloud=false skip=""
   if $SUDO test -e "$PMG_CONFIG"; then
     log "use the config in $PMG_CONFIG"
     return
@@ -105,9 +110,12 @@ write_config() {
   if $SUDO test -r "$PMG_SECRET_DIR/SAFEDEP_API_KEY" && $SUDO test -r "$PMG_SECRET_DIR/SAFEDEP_TENANT_ID"; then
     cloud=true
   fi
+  case ${KUBERNETES_SERVICE_HOST:-} in
+    "") ;;
+    *:*) skip="'$KUBERNETES_SERVICE_HOST/128'" ;;
+    *) skip="'$KUBERNETES_SERVICE_HOST/32'" ;;
+  esac
   $SUDO mkdir -p "$(dirname "$PMG_CONFIG")"
-  # Private addresses are local containers, cluster services and internal
-  # hosts. A public registry is never there.
   $SUDO tee "$PMG_CONFIG" >/dev/null <<EOF
 proxy:
   server:
@@ -115,7 +123,7 @@ proxy:
       enabled: true
       ports: [80, 443]
       deny_udp: true
-      skip_destinations: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10']
+      skip_destinations: [$skip]
 cloud:
   enabled: $cloud
 EOF
@@ -203,11 +211,9 @@ run_wrapped() {
   child=$!
   trap 'kill -TERM "$child" 2>/dev/null' TERM INT
   set +e
-  while :; do
-    wait "$child"
-    rc=$?
-    kill -0 "$child" 2>/dev/null || break
-  done
+  while kill -0 "$child" 2>/dev/null; do wait "$child"; done
+  wait "$child"
+  rc=$?
   stop_all
   exit "$rc"
 }
