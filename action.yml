@@ -20,7 +20,7 @@ inputs:
     required: false
     default: ""
   endpoint-id:
-    description: Identifier reported to SafeDep Cloud for this runner. When empty and api-key is set, defaults to "gha/<owner>/<repo>" so events aggregate per repository instead of per ephemeral runner hostname.
+    description: Identifier reported to SafeDep Cloud for this runner. When empty and api-key is set, defaults to "gh:<owner>/<repo>" so events aggregate per repository instead of per ephemeral runner hostname.
     required: false
     default: ""
 
