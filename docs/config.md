@@ -408,10 +408,13 @@ This is the automatic hosted-CI provider currently supported.
 A self-hosted runner keeps machine identity, or gets Kubernetes workload identity in a Pod.
 Set an explicit ID for an ephemeral fleet that needs another stable grouping.
 
-The `safedep/pmg` action uses `gha/<owner>/<repo>` when its cloud credential inputs are set.
-Its `endpoint-id` input overrides that default, including on self-hosted runners.
+The `safedep/pmg` action sets the same `gh:<owner>/<repo>` ID when its cloud credential inputs are set.
+The action also sets this ID on a self-hosted runner.
+Its `endpoint-id` input overrides that default.
 That exported value overrides `cloud.endpoint_id` in `config-file` unless lockdown ignores overrides.
-Use the action input when configuring this identity. See [GitHub Action](github-action.md).
+Use the action input when configuring this identity.
+Earlier versions of the action used `gha/<owner>/<repo>`.
+See [GitHub Action](github-action.md) to set the input or to keep the old ID after an upgrade.
 
 ### Kubernetes
 
