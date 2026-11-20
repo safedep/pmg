@@ -24,7 +24,13 @@ function main() {
   const failOnViolation = lib.boolInput('fail-on-violation');
   const profile = lib.input('network-profile');
   const tmp = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'pmg-post-'));
-  const pmg = (args, opts = {}) => lib.runPMG(bin, args, { sudo: enforce, configDir: lib.state('config_dir'), ...opts });
+  const pmg = (args, opts = {}) => lib.runPMG(bin, args, {
+    sudo: enforce,
+    configDir: lib.state('config_dir'),
+    stateDir: lib.state('state_dir'),
+    cacheDir: lib.state('cache_dir'),
+    ...opts,
+  });
 
   if (!supportsReport(bin)) {
     return legacyStop(pmg, enforce, failOnViolation);

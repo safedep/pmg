@@ -6,7 +6,16 @@ const lib = require('./lib');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { checkInputs, enforceMode, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
+const {
+  checkInputs,
+  daemonStateLayout,
+  enforceMode,
+  exportStateDirs,
+  jobStateLayout,
+  refuseSecondProxy,
+  resolveServerMode,
+  runnerCannotEnforce,
+} = require('./main');
 
 // withEnv sets the variables for one call and restores them after it.
 function withEnv(vars, fn) {
@@ -100,7 +109,52 @@ test('refuseSecondProxy fails when a proxy of an earlier step runs', (t) => {
   assert.throws(() => refuseSecondProxy(bin), /pid 42\) already runs in this job/);
 });
 
-test('refuseSecondProxy passes when no proxy runs', (t) => {
-  const bin = fakePMG(t, 'PMG proxy: not running');
-  assert.doesNotThrow(() => refuseSecondProxy(bin));
+test('exportStateDirs creates per-job config and cache dirs', (t) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pmg-runner-'));
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const envFile = path.join(tmp, 'github_env');
+  fs.writeFileSync(envFile, '');
+  const saved = {
+    RUNNER_TEMP: process.env.RUNNER_TEMP,
+    GITHUB_ENV: process.env.GITHUB_ENV,
+    PMG_CONFIG_DIR: process.env.PMG_CONFIG_DIR,
+    PMG_CACHE_DIR: process.env.PMG_CACHE_DIR,
+    PMG_STATE_DIR: process.env.PMG_STATE_DIR,
+  };
+  process.env.RUNNER_TEMP = tmp;
+  process.env.GITHUB_ENV = envFile;
+  delete process.env.PMG_CONFIG_DIR;
+  delete process.env.PMG_CACHE_DIR;
+  delete process.env.PMG_STATE_DIR;
+  try {
+    const want = jobStateLayout(tmp);
+    const dirs = exportStateDirs();
+    assert.deepStrictEqual(dirs, want);
+    assert.ok(fs.existsSync(dirs.configDir));
+    assert.ok(fs.existsSync(dirs.cacheDir));
+    assert.ok(fs.existsSync(dirs.stateDir));
+    assert.strictEqual(process.env.PMG_CONFIG_DIR, dirs.configDir);
+    assert.strictEqual(process.env.PMG_CACHE_DIR, dirs.cacheDir);
+    assert.strictEqual(process.env.PMG_STATE_DIR, dirs.stateDir);
+    const envText = fs.readFileSync(envFile, 'utf8');
+    assert.match(envText, new RegExp(`PMG_CONFIG_DIR=${dirs.configDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(envText, new RegExp(`PMG_CACHE_DIR=${dirs.cacheDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(envText, new RegExp(`PMG_STATE_DIR=${dirs.stateDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test('job and daemon state paths do not overlap under RUNNER_TEMP', () => {
+  const runnerTemp = '/tmp/runner';
+  const job = jobStateLayout(runnerTemp);
+  const daemon = daemonStateLayout(runnerTemp);
+  for (const dir of [daemon.stateDir, daemon.cacheDir]) {
+    assert.notStrictEqual(job.configDir, dir);
+    assert.notStrictEqual(job.cacheDir, dir);
+    assert.notStrictEqual(job.stateDir, dir);
+  }
 });

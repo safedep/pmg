@@ -162,12 +162,14 @@ function run(shell, script, env, { captureStderr = false } = {}) {
   };
 }
 
+const sudoPMGPreserveEnv = 'PMG_CONFIG_DIR,PMG_STATE_DIR,PMG_CACHE_DIR,GITHUB_ACTIONS';
+
 // runPMG runs pmg as the runner user, or as root under enforce, where the
 // daemon and its event log belong to root. Only root gets the root
-// daemon's config directory. The runner user cannot write it, and every pmg
-// command opens the event log there. capture pipes stdout, and 'all'
-// pipes stderr too.
-function runPMG(bin, args, { sudo = false, configDir = '', capture = false } = {}) {
+// daemon's config, state and cache directories. The runner user cannot
+// write them, and every pmg command opens the event log there. capture
+// pipes stdout, and 'all' pipes stderr too.
+function runPMG(bin, args, { sudo = false, configDir = '', stateDir = '', cacheDir = '', capture = false } = {}) {
   let file = bin;
   let argv = args;
   const env = childEnv();
@@ -175,8 +177,14 @@ function runPMG(bin, args, { sudo = false, configDir = '', capture = false } = {
     if (configDir !== '') {
       env.PMG_CONFIG_DIR = configDir;
     }
+    if (stateDir !== '') {
+      env.PMG_STATE_DIR = stateDir;
+    }
+    if (cacheDir !== '') {
+      env.PMG_CACHE_DIR = cacheDir;
+    }
     file = 'sudo';
-    argv = ['-n', '--preserve-env=PMG_CONFIG_DIR,GITHUB_ACTIONS', bin, ...args];
+    argv = ['-n', `--preserve-env=${sudoPMGPreserveEnv}`, bin, ...args];
   }
   const res = spawnSync(file, argv, {
     env,
@@ -253,6 +261,7 @@ module.exports = {
   parseKeyValues,
   run,
   runPMG,
+  sudoPMGPreserveEnv,
   saveState,
   ScriptError,
   state,
