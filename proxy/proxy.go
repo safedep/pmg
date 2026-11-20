@@ -48,7 +48,7 @@ const upstreamTLSHandshakeTimeout = 10 * time.Second
 // it needs two TCP segments, and some network paths drop it with no error
 // (#624). Add a config switch to offer them again when a user needs
 // post-quantum key exchange to the registry.
-var upstreamCurves = []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384}
+var upstreamCurves = []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384, tls.CurveP521}
 
 // NewUpstreamTLSConfig returns the TLS config for a connection to a registry.
 func NewUpstreamTLSConfig() *tls.Config {

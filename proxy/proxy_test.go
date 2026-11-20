@@ -29,6 +29,8 @@ func TestNewProxyServerSecuresUpstreamTLSConfig(t *testing.T) {
 	assert.NotNil(t, internalProxy.proxy.Tr.TLSClientConfig)
 	assert.False(t, internalProxy.proxy.Tr.TLSClientConfig.InsecureSkipVerify, "upstream TLS verification must stay enabled")
 	assert.GreaterOrEqual(t, internalProxy.proxy.Tr.TLSClientConfig.MinVersion, uint16(tls.VersionTLS12), "minimum TLS version should be 1.2+")
+	assert.ElementsMatch(t, []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384, tls.CurveP521},
+		internalProxy.proxy.Tr.TLSClientConfig.CurvePreferences, "upstream TLS must offer only the classical groups")
 }
 
 func TestUpstreamHandshakeTimeoutIsReportedOnce(t *testing.T) {
