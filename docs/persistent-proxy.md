@@ -443,7 +443,8 @@ take a daemon from no policy to `enforce`.
    It adds a catch-all deny only when neither the parent nor the target has one. The start warning
    about filesystem, process and environment rules is expected for a profile
    that inherits `exec`. On a GitHub Actions runner it inherits
-   `github-actions`, which allows the hosts of the runner and the SafeDep hosts that PMG calls. A proposal from a one-shot run inherits the
+   `github-actions`, which allows the hosts of the runner and the SafeDep hosts.
+   A proposal from a one-shot run inherits the
    built-in profile of the package manager. It does not repeat the registry
    hosts that profile already allows. Review every rule. Commit the file.
 

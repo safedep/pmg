@@ -1,5 +1,5 @@
 name: github-actions
-description: Network base for a PMG proxy on a GitHub Actions runner. Allows the hosts the runner and the GitHub actions reach, and the SafeDep hosts that PMG calls.
+description: Network base for a PMG proxy on a GitHub Actions runner. Allows the hosts the runner and the GitHub actions reach, and the SafeDep hosts.
 # The persistent proxy serves every package manager of the job, so the
 # profile names the exec workload, as the exec base does.
 package_managers:
@@ -29,14 +29,19 @@ package_managers:
 # A release download redirects to release-assets.githubusercontent.com.
 # actions/setup-node and the other setup actions download from releases.
 #
-# PMG itself calls the SafeDep hosts. The proxy daemon connects to them
-# directly. The other pmg processes of the job connect through the proxy,
-# for example `pmg cloud sync` and the background fetch of the cloud
-# policy. api.safedep.io is the data plane of SafeDep Cloud.
-# community-api.safedep.io gives the malware analysis without credentials.
-# cloud.safedep.io is the control plane of SafeDep Cloud. When
-# SAFEDEP_CLOUD_DATA_ADDR or SAFEDEP_CLOUD_CONTROL_ADDR names another host,
-# the child profile must allow that host.
+# PMG calls api.safedep.io, the data plane of SafeDep Cloud, and
+# community-api.safedep.io, which gives the malware analysis without
+# credentials. The proxy daemon connects to them directly. The other pmg
+# processes of the job connect through the proxy, for example
+# `pmg cloud sync` and the background fetch of the cloud policy. When
+# SAFEDEP_CLOUD_DATA_ADDR names another host, the child profile must allow
+# that host.
+#
+# cloud.safedep.io is the control plane of SafeDep Cloud. PMG does not call
+# it today.
+#
+# These hosts accept the credentials of every SafeDep tenant. A child
+# profile that must refuse one of them adds a deny rule for that host.
 network:
   allow_outbound:
     - "*.actions.githubusercontent.com:443"

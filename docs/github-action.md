@@ -412,18 +412,23 @@ Under kernel enforcement, the runner's traffic to GitHub also goes through the p
 See [Runner traffic](#runner-traffic). The built-in `github-actions` profile
 allows the hosts of the runner, its agents, GitHub releases, and the cache
 and artifact storage, so a profile that inherits it does not list them. Run
-`pmg sandbox profile show github-actions` to see them. It also allows the
-SafeDep hosts that PMG calls: `api.safedep.io:443`, `cloud.safedep.io:443`
-and `community-api.safedep.io:443`. The proxy daemon connects to these hosts
-directly. The other pmg processes of the job, such as `pmg cloud sync` and
-the background fetch of the cloud policy, connect through the proxy. When
-`SAFEDEP_CLOUD_DATA_ADDR` or `SAFEDEP_CLOUD_CONTROL_ADDR` names another
-host, add that host to your profile. An action that
+`pmg sandbox profile show github-actions` to see them. An action that
 downloads from another host needs a rule in your profile. Make your profile
 inherit `github-actions` and add the registry hosts to it, as
 `pmg sandbox profile propose` does. Do not inherit another built-in, such
 as `npm-restrictive`. It does not allow the hosts of the runner, so the
 proxy refuses the runner's connections to GitHub.
+
+In PMG releases later than v0.36.0, the `github-actions` profile also allows
+the SafeDep hosts `api.safedep.io:443`, `community-api.safedep.io:443` and
+`cloud.safedep.io:443`. PMG calls the first two. `cloud.safedep.io` is the
+control plane of SafeDep Cloud, and PMG does not call it today. The proxy
+daemon connects to these hosts directly. The other pmg processes of the job,
+such as `pmg cloud sync` and the background fetch of the cloud policy, connect
+through the proxy. When `SAFEDEP_CLOUD_DATA_ADDR` names another host, add
+that host to your profile. These hosts accept the credentials of every
+SafeDep tenant. To refuse one of them, add a deny rule for that host to your
+profile.
 
 The runner, `actions/upload-artifact` and `actions/cache` store logs,
 artifacts and caches in Azure storage. `github-actions` allows only the

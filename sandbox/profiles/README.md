@@ -26,11 +26,13 @@ package manager. See [sandbox-exec.md](../../docs/sandbox-exec.md).
 
 Network base for the persistent PMG proxy on a GitHub Actions runner. It allows
 the hosts of the runner, its agents, GitHub releases, the GitHub container
-registry, and the cache and artifact storage. It also allows the SafeDep hosts
-that PMG calls: `api.safedep.io`, `cloud.safedep.io` and
-`community-api.safedep.io`, on port 443. When `SAFEDEP_CLOUD_DATA_ADDR` or
-`SAFEDEP_CLOUD_CONTROL_ADDR` names another host, the child profile must allow
-that host. The storage rules name each
+registry, and the cache and artifact storage. It also allows the SafeDep
+hosts `api.safedep.io`, `community-api.safedep.io` and `cloud.safedep.io`, on
+port 443. PMG calls the first two. `cloud.safedep.io` is the control plane of
+SafeDep Cloud, and PMG does not call it today. When `SAFEDEP_CLOUD_DATA_ADDR`
+names another host, the child profile must allow that host. These hosts accept
+the credentials of every SafeDep tenant, and a deny rule in the child profile
+refuses one of them. The storage rules name each
 GitHub storage account, not every Azure storage account. Run
 `pmg sandbox profile show github-actions` to see them. Its `*:*` deny rule
 matches every other host. Under `network-mode: enforce` the proxy refuses
