@@ -32,7 +32,7 @@ func newSyncCommand() *cobra.Command {
 
 	cmd.Flags().DurationVar(&syncTimeout, "timeout", 15*time.Minute, "Maximum time to spend on the sync")
 	cmd.Flags().BoolVar(&requirePolicy, "require-policy", false,
-		"Fetch only the cloud policy, as 'pmg proxy start' does, and fail when no cloud policy applies. Ignores --timeout")
+		"Fetch only the cloud policy, and fail when no cloud policy applies. Run it before the first install of a CI job. Ignores --timeout")
 
 	return cmd
 }
@@ -48,7 +48,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	if requirePolicy {
-		st, warning, err := cloudsync.RequirePolicy(cmd.Context(), cfg, cloudpolicy.Global().Peek)
+		st, warning, err := cloudsync.RequirePolicy(cmd.Context(), cfg)
 		if err != nil {
 			ui.ErrorExit(err)
 		}

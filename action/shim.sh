@@ -20,15 +20,4 @@ if [ -z "$found" ]; then
   exit 1
 fi
 
-# Fetch the cloud policy now, as `pmg proxy start` does in server mode,
-# so the first package manager command of the job applies it. The step
-# fails when no cloud policy applies. The fetch takes 15 seconds at most:
-# 5 seconds for the sync lock and 10 seconds for the fetch. A PMG release
-# without --require-policy runs the full sync, and a failure only warns.
-if [ "${PMG_CLOUD_ENABLED:-}" = "true" ]; then
-  if pmg cloud sync --help 2>/dev/null | grep -q -- '--require-policy'; then
-    pmg cloud sync --require-policy
-  elif ! pmg cloud sync --timeout 10s; then
-    printf '%s\n' "::warning::The PMG cloud sync failed. See the error above."
-  fi
-fi
+"$PMG_ACTION_DIR/policy.sh" pmg

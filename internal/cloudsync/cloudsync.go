@@ -113,35 +113,26 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*Result, er
 	return defaultSteps.run(ctx, cfg, plan)
 }
 
-// The fetch at start delays a command that needs the policy, such as `pmg
-// proxy start` in a CI job. An unreachable cloud must not hold the job for
-// long.
+// The fetch runs before the first install of a CI job. An unreachable cloud
+// must not hold the job for long.
 const (
-	startLockWait = 5 * time.Second
-	startTimeout  = 10 * time.Second
+	fetchLockWait = 5 * time.Second
+	fetchTimeout  = 10 * time.Second
 )
 
-// FetchAtStart fetches the cloud policy before a command loads it. st is the
-// status of the cache before the fetch. It fetches when no cloud policy
-// applies, and when a policy applies and its fetch is due, so a stale cache
-// gets the new rules too. It returns the error of the fetch.
-func FetchAtStart(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status) error {
-	return defaultSteps.fetchAtStart(ctx, cfg, st)
-}
-
-// RequirePolicy is for a command that must not run without a cloud policy. It
-// fetches the policy as FetchAtStart does, then loads it with load. It returns
-// the status after the load, a warning for the user or "", and an error when
-// no cloud policy applies. With cloud.policy off, it only loads.
-func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig,
-	load func(*config.RuntimeConfig) *cloudpolicy.Status,
-) (*cloudpolicy.Status, string, error) {
+// RequirePolicy is for a CI job that must not install without a cloud policy.
+// It fetches the policy when no cloud policy applies, or when the fetch of the
+// policy that applies is due. It returns the status after the fetch, a
+// warning for the user or "", and an error when no cloud policy applies. With
+// cloud.policy off, it does not fetch and returns no error.
+func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig) (*cloudpolicy.Status, string, error) {
+	policy := cloudpolicy.Global()
 	if !cfg.CloudPolicyEnabled() {
-		return load(cfg), "", nil
+		return policy.Peek(cfg), "", nil
 	}
 
-	fetchErr := FetchAtStart(ctx, cfg, cloudpolicy.Global().Peek(cfg))
-	st := load(cfg)
+	fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Peek(cfg))
+	st := policy.Peek(cfg)
 	warning, err := checkPolicy(fetchErr, st)
 	return st, warning, err
 }
@@ -175,7 +166,7 @@ func checkPolicy(fetchErr error, st *cloudpolicy.Status) (string, error) {
 	}
 }
 
-func (s steps) fetchAtStart(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status) error {
+func (s steps) fetchIfNeeded(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status) error {
 	if !cfg.CloudPolicyEnabled() {
 		return nil
 	}
@@ -183,7 +174,7 @@ func (s steps) fetchAtStart(ctx context.Context, cfg *config.RuntimeConfig, st *
 		return nil
 	}
 
-	res, err := s.run(ctx, cfg, Plan{Policy: StepForce, LockTimeout: startLockWait, Timeout: startTimeout})
+	res, err := s.run(ctx, cfg, Plan{Policy: StepForce, LockTimeout: fetchLockWait, Timeout: fetchTimeout})
 	if err != nil {
 		return err
 	}

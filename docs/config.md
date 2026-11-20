@@ -102,15 +102,14 @@ policy in the background at most every 5 minutes. Set `cloud.policy: false` to s
 - PMG fetches the policy in the background after a command, at most every 5 minutes, also when
   `cloud.auto_sync.enabled` is false. `pmg cloud sync` fetches it at once.
 - A new machine has no policy cache, so its first command applies only the PMG config.
-- `pmg proxy start` fetches the policy before it starts the proxy when no policy applies, and when
-  the 5 minutes since the last fetch have passed. The fetch takes 15 seconds at most. When no
-  policy applies after the fetch, the proxy does not start. This includes a machine with no
-  policy cache and no cloud credentials, such as a root daemon when root has no
-  `pmg cloud login`. When the fetch fails and the last
-  policy applies, the proxy starts with a warning. When your SafeDep plan does not include the
-  cloud policy, the proxy starts with a warning and no cloud policy. Set `cloud.policy: false` to
-  turn off that warning. `pmg cloud sync --require-policy` does the same fetch and check. The
-  GitHub Action runs it in shim mode.
+- `pmg cloud sync --require-policy` fetches the policy when no policy applies, and when the 5
+  minutes since the last fetch have passed. The fetch takes 15 seconds at most. The command fails
+  when no policy applies after the fetch. When the fetch fails and the last policy applies, it
+  prints a warning. When your SafeDep plan does not include the cloud policy, it prints a warning
+  and does not fail. Set `cloud.policy: false` to turn off that warning.
+- Run `pmg cloud sync --require-policy` as the first step of a CI job, so the first install of the
+  job applies the policy and the job stops when no policy applies. The GitHub Action runs it for
+  you. `pmg proxy start` does not need a policy to start, and applies it at its first sync.
 - A block entry and the cooldown do not apply to a package that the package manager installs from
   its own cache. See [Blocked Packages](#blocked-packages).
 - PMG keeps the policy in `cloud-policy/` in the config directory. When the fetch fails or you log

@@ -28,7 +28,6 @@ import (
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudpolicy"
-	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	appVersion "github.com/safedep/pmg/internal/version"
@@ -144,9 +143,7 @@ func main() {
 			// fails. An internal command loads no policy: it does not touch
 			// the keychain for each run of a sandbox helper.
 			if !isInternalCommand(cmd) {
-				if err := loadCloudPolicy(cmd); err != nil {
-					ui.ErrorExit(err)
-				}
+				cloudpolicy.Global().LoadAtStart(config.Get())
 			}
 			if err := config.RejectCloudPolicyFlagOverrides(cmd); err != nil {
 				ui.ErrorExit(err)
@@ -301,40 +298,6 @@ func isInternalCommand(cmd *cobra.Command) bool {
 		}
 	}
 	return false
-}
-
-// loadCloudPolicy loads the cloud policy cache. `pmg proxy start` fetches the
-// policy first, so the proxy applies a new policy from its first download in
-// the foreground and as a daemon. It does not start when no cloud policy
-// applies.
-func loadCloudPolicy(cmd *cobra.Command) error {
-	cfg := config.Get()
-	policy := cloudpolicy.Global()
-	if !fetchesPolicyAtStart(cmd) {
-		policy.LoadAtStart(cfg)
-		return nil
-	}
-
-	_, warning, err := cloudsync.RequirePolicy(cmd.Context(), cfg, policy.LoadAtStart)
-	if warning != "" {
-		ui.ShowWarning(warning)
-	}
-	return err
-}
-
-// fetchesPolicyAtStart reports whether cmd is `pmg proxy start`. The daemon
-// re-exec does not fetch, because its parent fetched already. When the flag
-// cannot be read, the start fetches, so it does not skip the policy check.
-func fetchesPolicyAtStart(cmd *cobra.Command) bool {
-	if cmd.Name() != "start" || !cmd.HasParent() || cmd.Parent().Name() != "proxy" {
-		return false
-	}
-	reexec, err := cmd.Flags().GetBool(proxyCmd.ForegroundInternalFlag)
-	if err != nil {
-		log.Warnf("cannot read --%s: %v", proxyCmd.ForegroundInternalFlag, err)
-		return true
-	}
-	return !reexec
 }
 
 // isProxyCommand reports whether cmd is `pmg proxy` or one of its subcommands.

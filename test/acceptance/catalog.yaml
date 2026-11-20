@@ -434,11 +434,11 @@
   tier: P1
   guarantee: "When the cloud policy sets the dependency cooldown, --skip-dependency-cooldown fails with a usage error that names the field and the revision."
   labels: [cloud, policy, cooldown, offline]
-- id: cloud/policy/start-fails-closed
-  title: "the proxy does not start when no cloud policy applies"
+- id: cloud/policy/require-policy-fails-closed
+  title: "pmg cloud sync --require-policy fails when no cloud policy applies"
   category: cloud
   tier: P0
-  guarantee: "With cloud.policy on, no policy cache and an unreachable cloud, pmg proxy start and pmg cloud sync --require-policy exit with an error, and the proxy does not start."
+  guarantee: "With cloud.policy on, no policy cache and an unreachable cloud, pmg cloud sync --require-policy exits with an error that names the cause."
   labels: [cloud, policy, offline]
 - id: cloud/policy/off-behaves-as-today
   title: "cloud.policy off ignores the policy cache"

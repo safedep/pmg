@@ -270,7 +270,7 @@ func TestRunCallsAfterPolicyBeforeTheCheckIn(t *testing.T) {
 	assert.Equal(t, []string{"policy", "after-policy", "events", "check-in"}, rec.order)
 }
 
-func TestFetchAtStart(t *testing.T) {
+func TestFetchIfNeeded(t *testing.T) {
 	applied := &cloudpolicy.Status{Applied: &cloudpolicy.AppliedHeader{Revision: 48}}
 
 	tests := []struct {
@@ -306,7 +306,7 @@ func TestFetchAtStart(t *testing.T) {
 			}
 			rec := &recorder{fetchErr: tt.fetchErr}
 
-			err := rec.steps(t).fetchAtStart(context.Background(), cfg, tt.st)
+			err := rec.steps(t).fetchIfNeeded(context.Background(), cfg, tt.st)
 
 			if tt.wantErr == "" {
 				assert.NoError(t, err)
@@ -314,7 +314,7 @@ func TestFetchAtStart(t *testing.T) {
 				assert.EqualError(t, err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantFetch, slices.Contains(rec.order, "policy"))
-			assert.NotContains(t, rec.order, "events", "the fetch at start sends no events")
+			assert.NotContains(t, rec.order, "events", "the required fetch sends no events")
 		})
 	}
 }

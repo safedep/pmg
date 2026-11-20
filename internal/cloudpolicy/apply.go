@@ -74,8 +74,7 @@ func (r *Runtime) LoadAtStart(cfg *config.RuntimeConfig) *Status {
 	return r.LoadAtStartForTenant(cfg, r.tenant(cfg))
 }
 
-// Peek loads the policy cache and returns its status. It applies nothing,
-// so a caller can decide to fetch before LoadAtStart.
+// Peek loads the policy cache and returns its status. It applies nothing.
 func (r *Runtime) Peek(cfg *config.RuntimeConfig) *Status {
 	return Load(cfg, r.tenant(cfg))
 }
