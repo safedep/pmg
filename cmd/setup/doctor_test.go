@@ -363,7 +363,20 @@ func TestEvaluateSandboxCheckWithoutASandbox(t *testing.T) {
 func TestEvaluateSandboxCheckDisabledIsOff(t *testing.T) {
 	got := evaluateSandboxCheck(nil, true, false)
 	assert.Equal(t, doctor.StatusOff, got.Status)
-	assert.Contains(t, got.Message, "optional")
+}
+
+func TestSplitHardening(t *testing.T) {
+	results := []doctor.CheckResult{
+		{Name: checkConfigFile},
+		{Name: checkSandbox},
+		{Name: checkCA},
+		{Name: checkProxyEnforce},
+		{Name: checkProtectionNpm},
+	}
+
+	core, hardening := splitHardening(results)
+	assert.Equal(t, []doctor.CheckResult{{Name: checkConfigFile}, {Name: checkProtectionNpm}}, core)
+	assert.Equal(t, []doctor.CheckResult{{Name: checkSandbox}, {Name: checkCA}, {Name: checkProxyEnforce}}, hardening)
 }
 
 func TestCutSummaryDetails(t *testing.T) {

@@ -617,7 +617,7 @@ func evaluateSandboxCheck(sb sandbox.Sandbox, supported bool, enabled bool) doct
 	if !enabled {
 		return doctor.CheckResult{
 			Status:  doctor.StatusOff,
-			Message: "Off (optional). Limits what install scripts can access",
+			Message: "Limits what install scripts can access",
 		}
 	}
 	if sb == nil || !sb.IsAvailable() {
@@ -648,7 +648,7 @@ func evaluateEnforceCheck(newErr error, probe netenforce.ProbeResult) doctor.Che
 			Message: fmt.Sprintf("Kernel enforcement available (kernel %s, cgroup %s)", probe.KernelVersion, probe.CgroupPath),
 		}
 	}
-	message := "Off (optional). Kernel enforcement unavailable"
+	message := "Kernel enforcement unavailable"
 	if len(probe.Missing) > 0 {
 		message += ": " + probe.Missing[0]
 	}
@@ -682,7 +682,7 @@ func evaluateCACheck(dir string, userTrusted, systemTrusted, userScopeSupported 
 	}
 
 	if !st.KeyPresent && !st.CertPresent {
-		return doctor.CheckResult{Status: doctor.StatusOff, Message: "Off (optional). Only for tools that ignore CA env vars"}
+		return doctor.CheckResult{Status: doctor.StatusOff, Message: "Only for tools that ignore CA env vars"}
 	}
 
 	st.UserTrusted, st.SystemTrusted = userTrusted, systemTrusted
@@ -706,7 +706,25 @@ func evaluateCACheck(dir string, userTrusted, systemTrusted, userScopeSupported 
 	return doctor.CheckResult{Status: doctor.StatusFail, Message: "CA on disk but not trusted; run pmg setup cert install"}
 }
 
+// hardeningChecks are optional layers on top of the default protection. Doctor
+// shows them in a section of their own, so that a feature the user did not
+// turn on does not look like a setup problem.
+var hardeningChecks = []string{checkSandbox, checkCA, checkProxyEnforce}
+
+func splitHardening(results []doctor.CheckResult) (core, hardening []doctor.CheckResult) {
+	for _, r := range results {
+		if slices.Contains(hardeningChecks, r.Name) {
+			hardening = append(hardening, r)
+		} else {
+			core = append(core, r)
+		}
+	}
+	return core, hardening
+}
+
 func printResults(results []doctor.CheckResult) {
+	core, hardening := splitHardening(results)
+
 	fmt.Println()
 	fmt.Println(ui.Colors.Cyan("Setup Diagnostics"))
 	fmt.Println(ui.Colors.Normal("--------------------"))
@@ -717,6 +735,37 @@ func printResults(results []doctor.CheckResult) {
 		ui.Colors.Bold("SUMMARY"),
 		ui.Colors.Bold("FIX"),
 	}}
+	rows = append(rows, resultRows(core)...)
+	rows = append(rows, resultRows(hardening)...)
+
+	// One table keeps the columns of both sections aligned. The hardening
+	// heading prints after the last core row.
+	printHardeningHeading := func(dataIdx int) error {
+		if len(hardening) == 0 || dataIdx != len(core)-1 {
+			return nil
+		}
+		_, err := fmt.Printf("\n%s\n%s\n", ui.Colors.Cyan("Optional Hardening"),
+			ui.Colors.Dim("Off by default. PMG protects installs without these."))
+		return err
+	}
+	if err := ui.RenderTable(os.Stdout, rows, printHardeningHeading); err != nil {
+		fmt.Fprintf(os.Stderr, "render error: %v\n", err)
+	}
+
+	if details := cutSummaryDetails(results); len(details) > 0 {
+		fmt.Println()
+		fmt.Println(ui.Colors.Bold("Details"))
+		for _, line := range details {
+			fmt.Println(line)
+		}
+	}
+
+	fmt.Println()
+	printSummaryLine(results)
+}
+
+func resultRows(results []doctor.CheckResult) [][]string {
+	rows := make([][]string, 0, len(results))
 	for _, r := range results {
 		fix := ui.Colors.Dim("—")
 		if r.Status != doctor.StatusPass {
@@ -732,21 +781,7 @@ func printResults(results []doctor.CheckResult) {
 			fix,
 		})
 	}
-
-	if err := ui.RenderTable(os.Stdout, rows, nil); err != nil {
-		fmt.Fprintf(os.Stderr, "render error: %v\n", err)
-	}
-
-	if details := cutSummaryDetails(results); len(details) > 0 {
-		fmt.Println()
-		fmt.Println(ui.Colors.Bold("Details"))
-		for _, line := range details {
-			fmt.Println(line)
-		}
-	}
-
-	fmt.Println()
-	printSummaryLine(results)
+	return rows
 }
 
 const doctorSummaryWidth = 60
