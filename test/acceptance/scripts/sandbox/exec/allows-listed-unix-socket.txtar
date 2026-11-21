@@ -1,6 +1,9 @@
 # guarantee: a profile with network.allow_unix_connect opens the listed unix
 # socket under `pmg sandbox exec` and keeps every other unix socket closed.
-# Bubblewrap cannot check a socket path, so it refuses the profile.
+# A run cannot replace a name on the way to the socket. Bubblewrap cannot
+# check a socket path, so it refuses the profile. The Landlock driver
+# refuses it below Landlock ABI 9, and from ABI 9 it leaves closed an entry
+# that a write rule could replace.
 
 [!exec:python3] skip
 
@@ -15,31 +18,41 @@ exec python3 $WORK/sock.py wait
 [bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/bwrap.yml -- python3 $WORK/sock.py host.sock
 [bubblewrap] stderr 'network.allow_unix_connect is not supported'
 
-# AppArmor userns confinement refuses every host socket connect, so the
-# listed socket skips there.
-[!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
-[!bubblewrap] [!apparmor-userns] stdout '^OK host$'
+# Linux below Landlock ABI 9: the Landlock driver refuses the list.
+[linux] [!bubblewrap] [!landlock-unix-connect] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[linux] [!bubblewrap] [!landlock-unix-connect] stderr 'needs Landlock ABI 9'
+[linux] [!bubblewrap] [!landlock-unix-connect] ! stdout .
 
-[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py other.sock
-[!bubblewrap] stdout '^DENIED connect E(ACCES|PERM)$'
+# Linux from Landlock ABI 9: host.sock is in the project, which the exec
+# profile can write, so a run could replace it. The entry stays closed.
+[landlock-unix-connect] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[landlock-unix-connect] stderr 'leaves .*/host.sock closed'
+[landlock-unix-connect] stdout '^DENIED connect E(ACCES|PERM)$'
+
+# macOS: Seatbelt checks each connect and each write in the kernel.
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[darwin] stdout '^OK host$'
+
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py other.sock
+[darwin] stdout '^DENIED connect E(ACCES|PERM)$'
 
 # A run cannot replace the listed socket, so it cannot choose the socket
 # that the next run reaches.
-[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py plant host.sock
-[!bubblewrap] stdout '^DENIED plant E(ACCES|PERM)$'
-[!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
-[!bubblewrap] [!apparmor-userns] stdout '^OK host$'
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py plant host.sock
+[darwin] stdout '^DENIED plant E(ACCES|PERM)$'
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[darwin] stdout '^OK host$'
 
 # The same holds for each link that a listed path follows, and for the
 # socket at the end.
 symlink mid.sock -> host.sock
 symlink link.sock -> mid.sock
-[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant mid.sock
-[!bubblewrap] stdout '^DENIED plant E(ACCES|PERM)$'
-[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant host.sock
-[!bubblewrap] stdout '^DENIED plant E(ACCES|PERM)$'
-[!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py link.sock
-[!bubblewrap] [!apparmor-userns] stdout '^OK host$'
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant mid.sock
+[darwin] stdout '^DENIED plant E(ACCES|PERM)$'
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant host.sock
+[darwin] stdout '^DENIED plant E(ACCES|PERM)$'
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py link.sock
+[darwin] stdout '^OK host$'
 
 # A run cannot repoint a linked directory on the way either. Before the
 # swap, a/host.sock -> b/host.sock -> host.sock. After it, b names decoy,
@@ -48,10 +61,10 @@ mkdir decoy
 symlink decoy/host.sock -> ../other.sock
 symlink b -> .
 symlink a -> b
-[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py swap b decoy
-[!bubblewrap] stdout '^DENIED plant E(ACCES|PERM)$'
-[!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py a/host.sock
-[!bubblewrap] [!apparmor-userns] stdout '^OK host$'
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py swap b decoy
+[darwin] stdout '^DENIED plant E(ACCES|PERM)$'
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py a/host.sock
+[darwin] stdout '^OK host$'
 
 kill listener
 

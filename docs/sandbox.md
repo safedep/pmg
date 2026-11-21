@@ -184,25 +184,25 @@ network:
   listed path, to the socket name through each symlink on the way (a symlink to a directory
   included), and to the socket, the same way as the mandatory credential denies. When a name on
   the way does not exist, or is a file where the path needs a directory, PMG denies writes to
-  that name instead of the socket. A run cannot
-  create, remove, move or replace any of them, so it cannot choose the socket that a later run
-  reaches.
+  that name instead of the socket. A run cannot create, remove, move or replace any of them, so
+  it cannot choose the socket that a later run reaches.
 - macOS: Seatbelt allows each path. It also allows the `/private` form of a path under `/var`,
-  `/tmp` or `/etc`, and each symlink target.
-- Linux, Landlock driver: the kernel allows `socket(AF_UNIX, SOCK_STREAM)`. Datagram and seqpacket
-  unix sockets stay blocked. Landlock refuses a bind to a path. The supervisor refuses a bind or a
-  listen on a unix socket, so a process cannot take an abstract name or take a connection from a
-  host client. An entry opens the socket that exists at the path when the sandbox
-  starts. A socket that is missing then, or that its server makes again later, stays blocked. So
-  does another socket that a process moves or links to the path. An entry that names a directory
-  or another kind of file opens nothing.
-  - On a kernel with Landlock ABI 9 or later, Landlock checks each connect. A socket that a
-    process in the sandbox makes itself also connects.
-  - On an older kernel, the PMG supervisor checks each connect. A hostile process can defeat that
-    check, see [Network lockdown gaps](sandbox-landlock.md#network-lockdown-gaps). PMG prints a
-    warning when the supervisor checks the list, and `pmg sandbox profile lint` warns on each
-    profile that sets it.
-  - `pmg sandbox profile show <name> --driver landlock` prints which one checks the list.
+  `/tmp` or `/etc`, and each symlink target. Seatbelt enforces the write denies in the kernel.
+- Linux, Landlock driver: the list needs Landlock ABI 9 or later, where Landlock checks each
+  connect in the kernel. On an older kernel PMG refuses the profile.
+  - The kernel allows `socket(AF_UNIX, SOCK_STREAM)`. Datagram and seqpacket unix sockets stay
+    blocked. Landlock refuses a bind to a path. The supervisor refuses a bind or a listen on a
+    unix socket, so a process cannot take an abstract name or take a connection from a host
+    client.
+  - An entry opens the socket that exists at the path when the sandbox starts. A socket that is
+    missing then, or that its server makes again later, stays blocked. So does another socket
+    that a process moves or links to the path. A socket that a process in the sandbox makes
+    itself also connects. An entry that names a directory or another kind of file opens nothing.
+  - The supervisor enforces the write denies on Landlock, and a hostile process can race it. So
+    PMG leaves an entry closed when a write rule of the profile covers a name on the way to the
+    socket, and prints a warning. Put a listed socket outside the directories that the profile
+    can write.
+  - `pmg sandbox profile show <name> --driver landlock` lists the open and the closed entries.
 - Linux, Bubblewrap driver: PMG refuses a profile with this list.
 
 `allow_unix_sockets: true` opens every unix socket, and the list then has no effect. With
