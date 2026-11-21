@@ -37,9 +37,11 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 
 	// Landlock runs before seccomp. It opens each rule path, and the
 	// supervisor would deny those opens against the deny list.
-	rules := shimFilesystemRules(policy.FilesystemRules)
+	rules, closeSocketRules := shimFilesystemRules(policy.FilesystemRules)
 	cfg := landlockSelectConfig(policy)
-	if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
+	err = cfg.BestEffort().RestrictPaths(rules...)
+	closeSocketRules()
+	if err != nil {
 		return fmt.Errorf("shim: landlock restrict: %w", err)
 	}
 
@@ -126,27 +128,55 @@ func sendFdToSocket(sockFd, fd int) error {
 // IgnoreIfMissing covers a missing path, but a path through a file, such as
 // .git/config in a linked worktree where .git is a file, fails with ENOTDIR
 // and would abort the sandbox. Skip every path that does not stat.
-func shimFilesystemRules(fsRules []landlockPathRule) []landlock.Rule {
+//
+// The returned function closes the descriptors that socket rules name. Call
+// it after the ruleset is applied.
+func shimFilesystemRules(fsRules []landlockPathRule) ([]landlock.Rule, func()) {
 	var rules []landlock.Rule
+	var socketFds []int
+	closeSockets := func() {
+		for _, fd := range socketFds {
+			_ = unix.Close(fd)
+		}
+	}
 	for _, r := range fsRules {
 		access := landlockAdjustAccessForPath(r.Path, r.Access)
 		if access == 0 {
 			// A zero-access rule is a no-op; go-landlock errors on it.
 			continue
 		}
-		info, err := os.Stat(r.Path)
-		if err != nil {
+		if access == uint64(llsyscall.AccessFSResolveUnix) {
+			if rule, fd, ok := shimSocketRule(r.Path); ok {
+				rules = append(rules, rule)
+				socketFds = append(socketFds, fd)
+			}
 			continue
 		}
-		// A resolve-unix rule on a directory would open every socket below
-		// it. An allow list entry names one socket, so any other file type
-		// gets no rule and the socket stays closed.
-		if access == uint64(llsyscall.AccessFSResolveUnix) && info.Mode().Type() != os.ModeSocket {
+		if _, err := os.Stat(r.Path); err != nil {
 			continue
 		}
 		rules = append(rules, landlock.PathAccess(
 			landlock.AccessFSSet(access), r.Path,
 		))
 	}
-	return rules
+	return rules, closeSockets
+}
+
+// shimSocketRule grants resolve-unix on one socket. A rule on a directory
+// would open every socket below it, so any other file type gets no rule and
+// the socket stays closed. go-landlock opens a rule path when it adds the
+// rule, so the rule names the descriptor that the check saw, not the path,
+// which can change in between.
+func shimSocketRule(path string) (landlock.Rule, int, bool) {
+	fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, -1, false
+	}
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil || st.Mode&unix.S_IFMT != unix.S_IFSOCK {
+		_ = unix.Close(fd)
+		return nil, -1, false
+	}
+	rule := landlock.PathAccess(landlock.AccessFSSet(llsyscall.AccessFSResolveUnix), fmt.Sprintf("/proc/self/fd/%d", fd))
+	return rule, fd, true
 }
