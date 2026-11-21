@@ -174,15 +174,16 @@ network:
 ```
 
 - An entry is an absolute path or starts with a variable. It cannot be a glob or an abstract
-  socket name. Lists merge by union, like the other lists.
+  socket name. PMG refuses a profile when an entry, its expanded value or a symlink target on the
+  way to the socket holds `*`, `?`, `[`, a quote, a backslash or a control character. Lists merge
+  by union, like the other lists.
 - The list allows connect only. Abstract sockets from outside the sandbox stay blocked. Deny rules
   do not close a listed socket.
 - PMG denies writes to each listed path, to each symlink that the path follows, and to the socket
   at the end, the same way as the mandatory credential denies. A run cannot remove, move or replace
   any of them, so it cannot choose the socket that a later run reaches.
 - macOS: Seatbelt allows each path. It also allows the `/private` form of a path under `/var`,
-  `/tmp` or `/etc`, and each symlink target. PMG refuses a profile whose symlink target holds a
-  quote, a backslash or a control character.
+  `/tmp` or `/etc`, and each symlink target.
 - Linux, Landlock driver: the kernel allows `socket(AF_UNIX, SOCK_STREAM)`. Datagram and seqpacket
   unix sockets stay blocked. Landlock refuses a bind to a path. The supervisor refuses a bind to
   an abstract name and a listen on a unix socket, so no host client can connect to a socket of the

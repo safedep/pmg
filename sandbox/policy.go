@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -202,39 +201,40 @@ func (p *SandboxPolicy) UnixConnectTargets() ([]string, error) {
 	return targets, nil
 }
 
-// unixSocketLinkChain returns path, each link target that the leaf follows,
-// and the resolved path when it exists. Links in the parent directories are
-// ancestors of these paths, so the ancestor pins of a driver cover them.
+// unixSocketLinkChain returns each name on the way from path to its socket:
+// path, path with its parent directory resolved, and each link target in the
+// same form. Seatbelt matches resolved paths. Links in the parent directories
+// are ancestors of these paths, so the ancestor pins of a driver cover them.
+// The chain stops at a name that pmg cannot look up. The sandbox runs as the
+// same user, so it cannot reach or replace that name either.
 func unixSocketLinkChain(path string) ([]string, error) {
 	chain := []string{path}
 	current := path
 	for range maxUnixConnectLinks {
-		info, err := os.Lstat(current)
-		if errors.Is(err, fs.ErrNotExist) {
+		// The kernel resolves each component of a link target in turn, so a
+		// ".." after a linked directory leaves the link target. The parent is
+		// split off without filepath.Dir, which would clean ".." first.
+		slash := strings.LastIndex(current, "/")
+		parent, name := current[:slash+1], current[slash+1:]
+		dir, err := filepath.EvalSymlinks(parent)
+		if err != nil || name == "" || name == "." || name == ".." {
 			return chain, nil
 		}
-		if err != nil {
-			return nil, err
-		}
-		if info.Mode()&fs.ModeSymlink == 0 {
-			resolved, err := filepath.EvalSymlinks(current)
-			if err != nil {
-				return nil, err
-			}
-			if resolved != current {
-				chain = append(chain, resolved)
-			}
+		current = filepath.Join(dir, name)
+		chain = append(chain, current)
+
+		info, err := os.Lstat(current)
+		if err != nil || info.Mode()&fs.ModeSymlink == 0 {
 			return chain, nil
 		}
 		target, err := os.Readlink(current)
 		if err != nil {
-			return nil, err
+			return chain, nil
 		}
 		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(current), target)
+			target = dir + "/" + target
 		}
-		current = filepath.Clean(target)
-		chain = append(chain, current)
+		current = target
 	}
 	return nil, fmt.Errorf("follows more than %d links", maxUnixConnectLinks)
 }
@@ -246,9 +246,6 @@ func unixSocketLinkChain(path string) ([]string, error) {
 func validateUnixSocketPath(path string) error {
 	if !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "${") {
 		return fmt.Errorf("%q: must be an absolute path or start with a variable", path)
-	}
-	if strings.ContainsAny(path, "*?[") {
-		return fmt.Errorf("%q: must be an exact path, not a glob", path)
 	}
 	return validateSocketPathChars(path)
 }
@@ -262,9 +259,14 @@ func ValidateUnixSocketTarget(path string) error {
 	return validateSocketPathChars(path)
 }
 
-// validateSocketPathChars also checks an expanded path, because a variable
-// can carry any character. A glob character there is a literal name.
+// validateSocketPathChars also checks an expanded path and a link target,
+// because a variable or a link can carry any character. The write denies on
+// these paths are glob patterns, so a glob character would stop the deny
+// from matching the socket.
 func validateSocketPathChars(path string) error {
+	if util.ContainsGlob(path) {
+		return fmt.Errorf("%q: must be an exact path, not a glob", path)
+	}
 	if strings.ContainsFunc(path, func(r rune) bool { return r == '"' || r == '\\' || unicode.IsControl(r) }) {
 		return fmt.Errorf("%q: must not contain a quote, a backslash or a control character", path)
 	}

@@ -492,6 +492,18 @@ func TestUnixConnectTargets(t *testing.T) {
 	require.NoError(t, os.Symlink(loop, loop))
 	unsafe := filepath.Join(dir, "unsafe.sock")
 	require.NoError(t, os.Symlink(filepath.Join(dir, `x"y.sock`), unsafe))
+	glob := filepath.Join(dir, "glob.sock")
+	require.NoError(t, os.Symlink(filepath.Join(dir, "host[1].sock"), glob))
+
+	// alias/hook.sock -> ../other.sock names real/other.sock, because ".."
+	// leaves the directory that alias names, not alias itself.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "real", "sub"), 0o700))
+	require.NoError(t, os.Symlink(filepath.Join(dir, "real", "sub"), filepath.Join(dir, "alias")))
+	viaAlias := filepath.Join(dir, "alias", "hook.sock")
+	require.NoError(t, os.Symlink("../other.sock", filepath.Join(dir, "real", "sub", "hook.sock")))
+	aliasTarget := filepath.Join(dir, "real", "other.sock")
+	require.NoError(t, os.WriteFile(aliasTarget, nil, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "other.sock"), nil, 0o600))
 
 	tests := []struct {
 		name    string
@@ -504,6 +516,8 @@ func TestUnixConnectTargets(t *testing.T) {
 		{name: "a missing path is its own target", entries: []string{filepath.Join(dir, "none.sock")}, want: []string{filepath.Join(dir, "none.sock")}},
 		{name: "a link loop fails", entries: []string{loop}, wantErr: "more than"},
 		{name: "a link to an invalid path fails", entries: []string{unsafe}, wantErr: "links to an invalid path"},
+		{name: "a link to a path with a glob character fails", entries: []string{glob}, wantErr: "not a glob"},
+		{name: "a relative link below a linked directory resolves from the real directory", entries: []string{viaAlias}, want: []string{viaAlias, filepath.Join(dir, "real", "sub", "hook.sock"), aliasTarget}},
 	}
 
 	for _, tt := range tests {
@@ -534,7 +548,7 @@ func TestUnixConnectPaths(t *testing.T) {
 		{name: "expands variables", home: "/home/dev", entries: []string{"/run/a.sock", "${HOME}/.b.sock"}, want: []string{"/run/a.sock", "/home/dev/.b.sock"}},
 		{name: "allow_unix_sockets opens every socket", home: "/home/dev", allowUnixSockets: utils.PtrTo(true), entries: []string{"/run/a.sock"}, want: nil},
 		{name: "a variable that expands to a relative path fails", home: "relative", entries: []string{"${HOME}/a.sock"}, wantErr: true},
-		{name: "a glob character from a variable is a literal name", home: "/home/[dev]", entries: []string{"${HOME}/a.sock"}, want: []string{"/home/[dev]/a.sock"}},
+		{name: "a glob character from a variable fails", home: "/home/[dev]", entries: []string{"${HOME}/a.sock"}, wantErr: true},
 		{name: "a quote from a variable fails", home: `/home/a")`, entries: []string{"${HOME}/a.sock"}, wantErr: true},
 	}
 
