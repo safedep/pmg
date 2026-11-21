@@ -175,8 +175,8 @@ network:
 
 - An entry is an absolute path or starts with a variable. It cannot be a glob or an abstract
   socket name. PMG refuses a profile when an entry, its expanded value or a symlink target on the
-  way to the socket holds `*`, `?`, `[`, a quote, a backslash, a control character or a `.` or
-  `..` component. PMG also refuses a path that follows a symlink to a directory and then `..`.
+  way to the socket holds `*`, `?`, `[`, a quote, a backslash, a control character, a `.` or
+  `..` component, or a `${` that is left after expansion. PMG also refuses a path that follows a symlink to a directory and then `..`.
   Lists merge by union, like the other lists.
 - The list allows connect only. Abstract sockets from outside the sandbox stay blocked. Deny rules
   do not close a listed socket.

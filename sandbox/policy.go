@@ -302,9 +302,14 @@ func hasDotComponent(path string) bool {
 
 // ValidateUnixSocketTarget checks a socket path that a driver resolved,
 // such as the target of a symlink, before the driver writes it into a rule.
+// The translators expand variables in each deny, so a "${" left in a
+// resolved name would make the deny name another path than the socket.
 func ValidateUnixSocketTarget(path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("%q: must be an absolute path", path)
+	}
+	if strings.Contains(path, "${") {
+		return fmt.Errorf("%q: must not hold an unexpanded variable", path)
 	}
 	return validateSocketPathChars(path)
 }

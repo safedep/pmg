@@ -496,6 +496,7 @@ func TestUnixSocketRoutes(t *testing.T) {
 	require.NoError(t, os.Symlink(in("loop.sock"), in("loop.sock")))
 	require.NoError(t, os.Symlink(in(`x"y.sock`), in("unsafe.sock")))
 	require.NoError(t, os.Symlink(in("host[1].sock"), in("glob.sock")))
+	require.NoError(t, os.Symlink(in("${HOME}", "agent.sock"), in("variable.sock")))
 
 	// alias/hook.sock -> ../other.sock names real/other.sock, because ".."
 	// leaves the directory that alias names, not alias itself.
@@ -529,6 +530,7 @@ func TestUnixSocketRoutes(t *testing.T) {
 		{name: "a link loop fails", entry: in("loop.sock"), wantErr: "more than"},
 		{name: "a link to an invalid path fails", entry: in("unsafe.sock"), wantErr: "links to an invalid path"},
 		{name: "a link to a path with a glob character fails", entry: in("glob.sock"), wantErr: "not a glob"},
+		{name: "a link to a path with a variable fails", entry: in("variable.sock"), wantErr: "unexpanded variable"},
 		{name: "a linked directory followed by .. fails", entry: in("dotdot.sock"), wantErr: "followed by"},
 	}
 
@@ -566,6 +568,7 @@ func TestUnixConnectPaths(t *testing.T) {
 		{name: "a glob character from a variable fails", home: "/home/[dev]", entries: []string{"${HOME}/a.sock"}, wantErr: true},
 		{name: "a quote from a variable fails", home: `/home/a")`, entries: []string{"${HOME}/a.sock"}, wantErr: true},
 		{name: "a dot component from a variable fails", home: "/home/alias/..", entries: []string{"${HOME}/a.sock"}, wantErr: true},
+		{name: "an unknown variable fails", home: "/home/dev", entries: []string{"${NOT_A_PMG_VAR}/a.sock"}, wantErr: true},
 	}
 
 	for _, tt := range tests {
