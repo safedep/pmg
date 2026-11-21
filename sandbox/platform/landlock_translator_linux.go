@@ -47,10 +47,19 @@ type landlockNetworkPolicy struct {
 	AllowBind      bool   `json:"allow_bind,omitempty"`
 	AllowDirectDNS bool   `json:"allow_direct_dns,omitempty"`
 
-	// UnixConnect lists the unix sockets that Landlock lets a process
-	// connect to. UnixConnectClosed lists the entries that stay closed.
-	UnixConnect       []string            `json:"unix_connect,omitempty"`
-	UnixConnectClosed []closedUnixConnect `json:"unix_connect_closed,omitempty"`
+	// UnixConnect lists the unix sockets that a process may connect to.
+	// UnixConnectByKernel is true when Landlock checks each connect. The
+	// supervisor checks it otherwise. UnixConnectClosed lists the entries
+	// that stay closed.
+	UnixConnect         []string            `json:"unix_connect,omitempty"`
+	UnixConnectByKernel bool                `json:"unix_connect_by_kernel,omitempty"`
+	UnixConnectClosed   []closedUnixConnect `json:"unix_connect_closed,omitempty"`
+}
+
+// supervisesUnixConnect reports whether the supervisor must check each
+// unix socket connect against UnixConnect.
+func (n landlockNetworkPolicy) supervisesUnixConnect() bool {
+	return len(n.UnixConnect) > 0 && !n.UnixConnectByKernel
 }
 
 // closedUnixConnect is an allow_unix_connect entry that a write rule makes
@@ -504,20 +513,22 @@ const landlockNameChangeAccess = uint64(llsyscall.AccessFSRemoveDir | llsyscall.
 	llsyscall.AccessFSMakeSym | llsyscall.AccessFSRefer)
 
 // landlockTranslateUnixConnect opens network.allow_unix_connect with
-// Landlock rules. It runs after every other rule, because the write rules
-// decide which entries stay closed.
+// Landlock rules, or for the supervisor when the profile asks for it below
+// ABI 9. It runs after every other rule, because the write rules decide
+// which entries stay closed.
 func landlockTranslateUnixConnect(policy *sandbox.SandboxPolicy, abi *landlockABI, ep *landlockExecPolicy) error {
 	routes, err := policy.UnixSocketRoutes()
 	if err != nil || len(routes) == 0 {
 		return err
 	}
-	if !abi.HasResolveUnix {
+	if !abi.HasResolveUnix && !utils.SafelyGetValue(policy.Network.AllowUnixConnectWithoutKernelCheck) {
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.UnsupportedPlatform).
 			WithHumanError(fmt.Sprintf("network.allow_unix_connect needs Landlock ABI 9, and this kernel has ABI %d", abi.Version)).
-			WithHelp("Run on Linux with Landlock ABI 9 or later, set allow_unix_sockets: true to open every unix socket, or remove network.allow_unix_connect from this profile. See docs/sandbox.md.").
+			WithHelp("Run on Linux with Landlock ABI 9 or later, set allow_unix_sockets: true to open every unix socket, or remove network.allow_unix_connect from this profile. To accept a check that a hostile process can race, set network.allow_unix_connect_without_kernel_check: true. See docs/sandbox.md.").
 			Wrap(fmt.Errorf("network.allow_unix_connect needs Landlock ABI 9 (have %d)", abi.Version))
 	}
+	ep.Network.UnixConnectByKernel = abi.HasResolveUnix
 
 	// The list opens unix stream sockets for connect only. Without
 	// MAKE_SOCK the kernel refuses a bind to a path, so a process cannot
@@ -535,6 +546,9 @@ func landlockTranslateUnixConnect(policy *sandbox.SandboxPolicy, abi *landlockAB
 			continue
 		}
 		ep.Network.UnixConnect = append(ep.Network.UnixConnect, route.Path)
+		if !ep.Network.UnixConnectByKernel {
+			continue
+		}
 		// The rule binds the socket inode that exists when the shim starts.
 		// A socket that is missing then, or made again later, stays closed.
 		ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{

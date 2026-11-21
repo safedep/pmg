@@ -254,13 +254,9 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 		lockdown bool
 		tcpWant  string
 	}
-	// Without the kernel check the helper still runs the stream-only filter
-	// and the bind and listen checks, which this test covers on any ABI.
-	// The translator refuses the list below ABI 9, so only the kernel modes
-	// check connects.
 	modes := []mode{
-		{name: "list", tcpWant: "OK"},
-		{name: "list under lockdown", lockdown: true, tcpWant: "DENIED ECONNREFUSED"},
+		{name: "supervisor", tcpWant: "OK"},
+		{name: "supervisor under lockdown", lockdown: true, tcpWant: "DENIED ECONNREFUSED"},
 	}
 	if abi.HasResolveUnix {
 		modes = append(modes,
@@ -316,8 +312,9 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 				policy := &landlockExecPolicy{
 					FilesystemRules: rules,
 					Network: landlockNetworkPolicy{
-						Lockdown:    m.lockdown,
-						UnixConnect: allowed,
+						Lockdown:            m.lockdown,
+						UnixConnect:         allowed,
+						UnixConnectByKernel: m.kernel,
 					},
 					SkipPIDNamespace: true,
 					SkipIPCNamespace: true,
@@ -329,12 +326,11 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 				return probeResult(stdout)
 			}
 
-			type probeCase struct {
+			tests := []struct {
 				name string
 				args []string
 				want string
-			}
-			connects := []probeCase{
+			}{
 				{"listed socket connects", []string{"unix", listed}, "OK"},
 				{"relative path to the listed socket connects", []string{"unix_in", dir, "host.sock"}, "OK"},
 				{"symlink to the listed socket connects", []string{"unix", filepath.Join(dir, "to-listed.sock")}, "OK"},
@@ -343,8 +339,6 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 				{"relative path to another socket is denied", []string{"unix_in", dir, "../" + filepath.Base(dir) + "/other.sock"}, "DENIED EACCES"},
 				{"another socket linked at a listed path that was missing is denied", []string{"unix_link", linkSource, later}, "DENIED EACCES"},
 				{"another socket moved over a listed socket is denied", []string{"unix_replace", moveSource, victim}, "DENIED EACCES"},
-			}
-			tests := []probeCase{
 				{"datagram socket is denied", []string{"unix_dgram"}, "DENIED EACCES"},
 				{"bind to an abstract name is denied", []string{"bind_abstract", "pmg-e2e-bind-" + filepath.Base(dir)}, "DENIED EACCES"},
 				{"bind to a tcp port still works", []string{"bind_tcp"}, "OK"},
@@ -354,22 +348,16 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 				{"listen from another thread still works", []string{"listen_tcp", "thread"}, "OK"},
 				{"tcp follows the network policy", []string{"tcp", tcpPort}, m.tcpWant},
 			}
-			if m.kernel {
-				tests = append(connects, tests...)
-			}
 			for _, tc := range tests {
 				t.Run(tc.name, func(t *testing.T) {
 					assert.Equal(t, tc.want, run(t, tc.args...))
 				})
 			}
 
-			// The Landlock scope closes abstract sockets from outside the
-			// sandbox from ABI 6.
-			if abi.HasScoping {
-				t.Run("abstract socket is denied", func(t *testing.T) {
-					assert.Equal(t, "DENIED EPERM", run(t, probes[1].args[1:]...))
-				})
-			}
+			// The Landlock scope gives EPERM and the supervisor gives EACCES.
+			t.Run("abstract socket is denied", func(t *testing.T) {
+				assert.Regexp(t, `^DENIED E(ACCES|PERM)$`, run(t, probes[1].args[1:]...))
+			})
 		})
 	}
 }
@@ -385,8 +373,9 @@ func acceptAndClose(t *testing.T, l net.Listener) {
 }
 
 // A listed socket that its server removes frees its inode number, and the
-// file system can give that number to the next socket. The Landlock rule
-// must keep the listed inode in use, so the number cannot pass.
+// file system can give that number to the next socket. The supervisor
+// matches on the number, and the Landlock rule names the inode, so each
+// must keep the listed inode in use.
 func TestLandlockHelper_UnixConnectRefusesReusedInode(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
@@ -395,55 +384,72 @@ func TestLandlockHelper_UnixConnectRefusesReusedInode(t *testing.T) {
 	if err != nil {
 		t.Skipf("Landlock not available: %v", err)
 	}
-	if !abi.HasResolveUnix {
-		t.Skip("Landlock below ABI 9 cannot check a unix socket connect")
+
+	modes := []struct {
+		name   string
+		kernel bool
+	}{{name: "supervisor"}}
+	if abi.HasResolveUnix {
+		modes = append(modes, struct {
+			name   string
+			kernel bool
+		}{name: "kernel", kernel: true})
 	}
 
-	dir := t.TempDir()
-	python, probes := seccompProbeTargets(t, dir)
-	victim := filepath.Join(dir, "victim.sock")
-	fresh := filepath.Join(dir, "fresh.sock")
-	victimListener, err := net.Listen("unix", victim)
-	require.NoError(t, err)
+	for _, m := range modes {
+		t.Run(m.name, func(t *testing.T) {
+			dir := t.TempDir()
+			python, probes := seccompProbeTargets(t, dir)
+			victim := filepath.Join(dir, "victim.sock")
+			fresh := filepath.Join(dir, "fresh.sock")
+			victimListener, err := net.Listen("unix", victim)
+			require.NoError(t, err)
 
-	policy := &landlockExecPolicy{
-		FilesystemRules: append(baseRules(),
-			landlockPathRule{Path: dir, Access: landlockRuleReadExec | landlockWriteAccessBase},
-			landlockPathRule{Path: victim, Access: uint64(llsyscall.AccessFSResolveUnix)}),
-		Network:          landlockNetworkPolicy{UnixConnect: []string{victim}},
-		SkipPIDNamespace: true,
-		SkipIPCNamespace: true,
-		Command:          python,
-		Args:             []string{probes[0].args[0], "unix_after", dir, fresh},
+			rules := append(baseRules(), landlockPathRule{Path: dir, Access: landlockRuleReadExec | landlockWriteAccessBase})
+			if m.kernel {
+				rules = append(rules, landlockPathRule{Path: victim, Access: uint64(llsyscall.AccessFSResolveUnix)})
+			}
+			policy := &landlockExecPolicy{
+				FilesystemRules: rules,
+				Network: landlockNetworkPolicy{
+					UnixConnect:         []string{victim},
+					UnixConnectByKernel: m.kernel,
+				},
+				SkipPIDNamespace: true,
+				SkipIPCNamespace: true,
+				Command:          python,
+				Args:             []string{probes[0].args[0], "unix_after", dir, fresh},
+			}
+			type result struct {
+				stdout, stderr string
+				exit           int
+			}
+			done := make(chan result, 1)
+			go func() {
+				stdout, stderr, exit := runHelper(t, writePolicyFile(t, policy))
+				done <- result{stdout, stderr, exit}
+			}()
+
+			require.Eventually(t, func() bool {
+				_, err := os.Stat(filepath.Join(dir, "ready"))
+				return err == nil
+			}, 30*time.Second, 20*time.Millisecond, "the target did not start")
+
+			var before syscall.Stat_t
+			require.NoError(t, syscall.Stat(victim, &before))
+			require.NoError(t, victimListener.Close())
+			freshListener, err := net.Listen("unix", fresh)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, freshListener.Close()) })
+			go acceptAndClose(t, freshListener)
+			var after syscall.Stat_t
+			require.NoError(t, syscall.Stat(fresh, &after))
+			t.Logf("victim inode %d, fresh inode %d", before.Ino, after.Ino)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "go"), nil, 0o600))
+
+			r := <-done
+			require.Equal(t, 0, r.exit, "stdout=%q stderr=%q", r.stdout, r.stderr)
+			assert.Equal(t, "DENIED EACCES", probeResult(r.stdout))
+		})
 	}
-	type result struct {
-		stdout, stderr string
-		exit           int
-	}
-	done := make(chan result, 1)
-	go func() {
-		stdout, stderr, exit := runHelper(t, writePolicyFile(t, policy))
-		done <- result{stdout, stderr, exit}
-	}()
-
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(filepath.Join(dir, "ready"))
-		return err == nil
-	}, 30*time.Second, 20*time.Millisecond, "the target did not start")
-
-	var before syscall.Stat_t
-	require.NoError(t, syscall.Stat(victim, &before))
-	require.NoError(t, victimListener.Close())
-	freshListener, err := net.Listen("unix", fresh)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, freshListener.Close()) })
-	go acceptAndClose(t, freshListener)
-	var after syscall.Stat_t
-	require.NoError(t, syscall.Stat(fresh, &after))
-	t.Logf("victim inode %d, fresh inode %d", before.Ino, after.Ino)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "go"), nil, 0o600))
-
-	r := <-done
-	require.Equal(t, 0, r.exit, "stdout=%q stderr=%q", r.stdout, r.stderr)
-	assert.Equal(t, "DENIED EACCES", probeResult(r.stdout))
 }

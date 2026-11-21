@@ -54,7 +54,11 @@ func RenderLandlock(policy *sandbox.SandboxPolicy) ([]byte, error) {
 	fmt.Fprintf(&sb, "allow_pty: %t\n", ep.AllowPTY)
 	fmt.Fprintf(&sb, "allow_unix_sockets: %t\n", ep.AllowUnixSockets)
 	if len(ep.Network.UnixConnect) > 0 {
-		fmt.Fprintf(&sb, "allow_unix_connect:\n")
+		enforcer := "supervisor"
+		if ep.Network.UnixConnectByKernel {
+			enforcer = "kernel"
+		}
+		fmt.Fprintf(&sb, "allow_unix_connect (%s):\n", enforcer)
 		for _, path := range ep.Network.UnixConnect {
 			fmt.Fprintf(&sb, "  - %s\n", path)
 		}

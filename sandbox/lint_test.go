@@ -438,12 +438,15 @@ network:
 
 func TestLintProfile_AllowUnixConnect(t *testing.T) {
 	tests := []struct {
-		name             string
-		allowUnixSockets *bool
-		entries          []string
-		want             []string
-		notWant          []string
+		name               string
+		allowUnixSockets   *bool
+		withoutKernelCheck *bool
+		entries            []string
+		want               []string
+		notWant            []string
 	}{
+		{name: "accepting the race warns about it", withoutKernelCheck: utils.PtrTo(true), entries: []string{"/run/a.sock"}, want: []string{"allow-unix-connect-without-kernel-check"}, notWant: []string{"allow-unix-connect-needs-landlock-abi-9"}},
+		{name: "accepting the race without a list has no effect", withoutKernelCheck: utils.PtrTo(true), want: []string{"allow-unix-connect-without-kernel-check-without-list"}, notWant: []string{"allow-unix-connect-without-kernel-check"}},
 		{name: "with allow_unix_sockets warns that the list is moot", allowUnixSockets: utils.PtrTo(true), entries: []string{"/run/a.sock"}, want: []string{"allow-unix-connect-with-allow-unix-sockets"}, notWant: []string{"allow-unix-connect-needs-landlock-abi-9"}},
 		{name: "alone warns that Linux needs Landlock ABI 9", entries: []string{"/run/a.sock"}, want: []string{"allow-unix-connect-needs-landlock-abi-9"}, notWant: []string{"allow-unix-connect-with-allow-unix-sockets", "vars.unresolved"}},
 		{name: "an unknown variable warns", entries: []string{"${USER}/a.sock"}, want: []string{"vars.unresolved"}},
@@ -454,6 +457,7 @@ func TestLintProfile_AllowUnixConnect(t *testing.T) {
 			policy := cleanPolicy()
 			policy.AllowUnixSockets = tc.allowUnixSockets
 			policy.Network.AllowUnixConnect = tc.entries
+			policy.Network.AllowUnixConnectWithoutKernelCheck = tc.withoutKernelCheck
 
 			var codes []string
 			for _, i := range LintProfile(policy) {

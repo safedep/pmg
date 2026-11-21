@@ -94,6 +94,8 @@ func TestMergeWithParent(t *testing.T) {
 					AllowOutbound:    []string{"registry.npmjs.org:443"},
 					DenyOutbound:     []string{"*:*"},
 					AllowUnixConnect: []string{"/run/a.sock"},
+
+					AllowUnixConnectWithoutKernelCheck: utils.PtrTo(true),
 				},
 				Process: ProcessPolicy{
 					AllowExec: []string{"/usr/bin/node"},
@@ -144,10 +146,26 @@ func TestMergeWithParent(t *testing.T) {
 				assert.ElementsMatch(t, []string{"registry.npmjs.org:443", "github.com:443"}, child.Network.AllowOutbound)
 				assert.ElementsMatch(t, []string{"*:*"}, child.Network.DenyOutbound)
 				assert.Equal(t, []string{"/run/a.sock", "/run/b.sock"}, child.Network.AllowUnixConnect)
+				assert.True(t, utils.SafelyGetValue(child.Network.AllowUnixConnectWithoutKernelCheck), "a child that does not set the key inherits it")
 
 				// Test process lists are unioned
 				assert.ElementsMatch(t, []string{"/usr/bin/node", "/usr/bin/git"}, child.Process.AllowExec)
 				assert.ElementsMatch(t, []string{"/usr/bin/curl"}, child.Process.DenyExec)
+			},
+		},
+		{
+			name: "child that turns off the unix connect kernel check key wins",
+			parent: &SandboxPolicy{
+				Name:    "parent",
+				Network: NetworkPolicy{AllowUnixConnectWithoutKernelCheck: utils.PtrTo(true)},
+			},
+			child: &SandboxPolicy{
+				Name:    "child",
+				Network: NetworkPolicy{AllowUnixConnectWithoutKernelCheck: utils.PtrTo(false)},
+			},
+			assert: func(t *testing.T, parent, child *SandboxPolicy) {
+				require.NotNil(t, child.Network.AllowUnixConnectWithoutKernelCheck)
+				assert.False(t, *child.Network.AllowUnixConnectWithoutKernelCheck)
 			},
 		},
 		{

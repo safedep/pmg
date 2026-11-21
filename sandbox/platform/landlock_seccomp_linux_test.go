@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -72,7 +73,8 @@ func TestLandlockNotifySyscalls(t *testing.T) {
 		{"path syscalls when deny paths exist", landlockNetworkPolicy{}, true, append(append([]uint32{}, execOnly...), pathSyscallNumbers()...)},
 		{"network under lockdown", landlockNetworkPolicy{Lockdown: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG))},
 		{"no network without lockdown", landlockNetworkPolicy{ProxyPort: 8080}, false, execOnly},
-		{"bind and listen under the unix allow list", landlockNetworkPolicy{UnixConnect: []string{"/run/a.sock"}}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_BIND), uint32(unix.SYS_LISTEN))},
+		{"connect, bind and listen when the supervisor checks the unix allow list", landlockNetworkPolicy{UnixConnect: []string{"/run/a.sock"}}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_BIND), uint32(unix.SYS_LISTEN))},
+		{"bind and listen when the kernel checks the unix allow list", landlockNetworkPolicy{UnixConnect: []string{"/run/a.sock"}, UnixConnectByKernel: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_BIND), uint32(unix.SYS_LISTEN))},
 	}
 
 	for _, tc := range tests {
@@ -805,6 +807,8 @@ func TestReadNetPeer(t *testing.T) {
 		wantFamily uint16
 		wantAddr   string
 		wantPort   uint16
+		wantPath   string
+		abstract   bool
 		wantErr    bool
 	}{
 		{
@@ -828,9 +832,33 @@ func TestReadNetPeer(t *testing.T) {
 			wantFamily: unix.AF_INET6, wantErr: true,
 		},
 		{
-			name:  "non-inet family parses family only",
+			name:  "unix path",
 			image: append([]byte{byte(unix.AF_UNIX), 0}, []byte("/run/resolver.socket")...), addrLen: 22,
+			wantFamily: unix.AF_UNIX, wantPath: "/run/resolver.socket",
+		},
+		{
+			name:  "unix path ends at the length",
+			image: append([]byte{byte(unix.AF_UNIX), 0}, []byte("/run/a.sockXYZ")...), addrLen: 13,
+			wantFamily: unix.AF_UNIX, wantPath: "/run/a.sock",
+		},
+		{
+			name:  "unix path ends at a NUL",
+			image: append([]byte{byte(unix.AF_UNIX), 0}, []byte("/run/a.sock\x00/other")...), addrLen: 20,
+			wantFamily: unix.AF_UNIX, wantPath: "/run/a.sock",
+		},
+		{
+			name:  "unix abstract name",
+			image: append([]byte{byte(unix.AF_UNIX), 0, 0}, []byte("dbus")...), addrLen: 7,
+			wantFamily: unix.AF_UNIX, abstract: true,
+		},
+		{
+			name: "unix address without a name parses family only", image: []byte{byte(unix.AF_UNIX), 0}, addrLen: 2,
 			wantFamily: unix.AF_UNIX,
+		},
+		{
+			name:  "other family parses family only",
+			image: []byte{byte(unix.AF_NETLINK), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, addrLen: 12,
+			wantFamily: unix.AF_NETLINK,
 		},
 	}
 
@@ -849,6 +877,8 @@ func TestReadNetPeer(t *testing.T) {
 				assert.Equal(t, netip.MustParseAddr(tc.wantAddr), peer.addr)
 			}
 			assert.Equal(t, tc.wantPort, peer.port)
+			assert.Equal(t, tc.wantPath, peer.path)
+			assert.Equal(t, tc.abstract, peer.abstract)
 		})
 	}
 }
@@ -1251,6 +1281,30 @@ func TestResolveDenyEntries(t *testing.T) {
 
 	assert.Equal(t, []string{filepath.Join(root, "homelink", "curl"), filepath.Join(home, "curl")},
 		resolveDenyExec(pid, []string{filepath.Join(root, "homelink", "curl")}))
+}
+
+// The pin must keep the inode of a listed socket after its server removes
+// it, so the file system cannot give the number to a new socket.
+func TestPinSocketKeepsInodeAfterRemoval(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.sock")
+	l, err := net.Listen("unix", path)
+	require.NoError(t, err)
+
+	socket, fd, err := pinSocket(path)
+	require.NoError(t, err)
+	pinned := pinnedSockets{inodes: []socketInode{socket}, fds: []int{fd}}
+	t.Cleanup(pinned.close)
+	require.NoError(t, l.Close())
+	_, err = os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	var st unix.Stat_t
+	require.NoError(t, unix.Fstat(fd, &st))
+	assert.Equal(t, socket, socketInode{dev: st.Dev, ino: st.Ino})
+	assert.Equal(t, uint64(0), uint64(st.Nlink), "the pinned inode is unlinked but still open")
+
+	_, _, err = pinSocket(t.TempDir())
+	assert.Error(t, err, "a directory is not a socket")
 }
 
 func TestWithoutCapabilitiesClearsTheEffectiveSet(t *testing.T) {
