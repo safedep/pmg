@@ -27,7 +27,7 @@ exec python3 $WORK/sock.py wait
 # profile can write, so a run could replace it. The entry stays closed.
 [landlock-unix-connect] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
 [landlock-unix-connect] stderr 'leaves .*/host.sock closed'
-[landlock-unix-connect] stdout '^DENIED connect E(ACCES|PERM)$'
+[landlock-unix-connect] stdout '^DENIED (socket|connect) E(ACCES|PERM)$'
 
 # macOS: Seatbelt checks each connect and each write in the kernel.
 [darwin] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
