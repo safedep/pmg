@@ -136,6 +136,7 @@ type statusReport struct {
 
 type doctorSummary struct {
 	Passed   int `json:"passed"`
+	Off      int `json:"off"`
 	Warnings int `json:"warnings"`
 	Failed   int `json:"failed"`
 }
@@ -168,11 +169,11 @@ func collectInfoReport(cfg *config.RuntimeConfig) statusReport {
 }
 
 func buildDoctorReport(cfg *config.RuntimeConfig, results []doctor.CheckResult) doctorReport {
-	passed, warnings, failed := countStatuses(results)
+	passed, off, warnings, failed := countStatuses(results)
 
 	return doctorReport{
 		statusReport: buildStatusReport(cfg, results),
-		Summary:      doctorSummary{Passed: passed, Warnings: warnings, Failed: failed},
+		Summary:      doctorSummary{Passed: passed, Off: off, Warnings: warnings, Failed: failed},
 	}
 }
 
@@ -185,7 +186,7 @@ func deriveStatus(results []doctor.CheckResult, insecure bool) (health, bool) {
 		return healthUnprotected, false
 	}
 	for _, r := range results {
-		if r.Status != doctor.StatusPass {
+		if r.Status != doctor.StatusPass && r.Status != doctor.StatusOff {
 			return healthDegraded, true
 		}
 	}
@@ -397,6 +398,8 @@ func statusString(s doctor.CheckStatus) string {
 	switch s {
 	case doctor.StatusPass:
 		return "pass"
+	case doctor.StatusOff:
+		return "off"
 	case doctor.StatusWarn:
 		return "warn"
 	case doctor.StatusFail:
@@ -406,18 +409,20 @@ func statusString(s doctor.CheckStatus) string {
 	}
 }
 
-func countStatuses(results []doctor.CheckResult) (passed, warnings, failed int) {
+func countStatuses(results []doctor.CheckResult) (passed, off, warnings, failed int) {
 	for _, r := range results {
 		switch r.Status {
 		case doctor.StatusPass:
 			passed++
+		case doctor.StatusOff:
+			off++
 		case doctor.StatusWarn:
 			warnings++
 		case doctor.StatusFail:
 			failed++
 		}
 	}
-	return passed, warnings, failed
+	return passed, off, warnings, failed
 }
 
 func findCheck(results []doctor.CheckResult, name string) (doctor.CheckResult, bool) {
