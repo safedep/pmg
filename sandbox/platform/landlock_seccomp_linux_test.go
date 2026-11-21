@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -1280,4 +1281,28 @@ func TestResolveDenyEntries(t *testing.T) {
 
 	assert.Equal(t, []string{filepath.Join(root, "homelink", "curl"), filepath.Join(home, "curl")},
 		resolveDenyExec(pid, []string{filepath.Join(root, "homelink", "curl")}))
+}
+
+// The pin must keep the inode of a listed socket after its server removes
+// it, so the file system cannot give the number to a new socket.
+func TestPinSocketKeepsInodeAfterRemoval(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.sock")
+	l, err := net.Listen("unix", path)
+	require.NoError(t, err)
+
+	socket, fd, err := pinSocket(path)
+	require.NoError(t, err)
+	pinned := pinnedSockets{inodes: []socketInode{socket}, fds: []int{fd}}
+	t.Cleanup(pinned.close)
+	require.NoError(t, l.Close())
+	_, err = os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	var st unix.Stat_t
+	require.NoError(t, unix.Fstat(fd, &st))
+	assert.Equal(t, socket, socketInode{dev: st.Dev, ino: st.Ino})
+	assert.Equal(t, uint64(0), uint64(st.Nlink), "the pinned inode is unlinked but still open")
+
+	_, _, err = pinSocket(t.TempDir())
+	assert.Error(t, err, "a directory is not a socket")
 }

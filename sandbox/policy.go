@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox/util"
@@ -188,7 +189,7 @@ func ValidateUnixSocketTarget(path string) error {
 // validateSocketPathChars also checks an expanded path, because a variable
 // can carry any character. A glob character there is a literal name.
 func validateSocketPathChars(path string) error {
-	if strings.ContainsAny(path, "\"\\\x00\n\r") {
+	if strings.ContainsFunc(path, func(r rune) bool { return r == '"' || r == '\\' || unicode.IsControl(r) }) {
 		return fmt.Errorf("%q: must not contain a quote, a backslash or a control character", path)
 	}
 	return nil

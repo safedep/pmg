@@ -239,6 +239,11 @@ func TestValidate(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			name:      "a tab in a unix socket path is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{"/run/a\t.sock"}}},
+			expectErr: true,
+		},
+		{
 			name:      "a quote in a unix socket path is refused",
 			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{`/run/a")) (allow default`}}},
 			expectErr: true,
