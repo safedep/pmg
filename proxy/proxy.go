@@ -39,6 +39,22 @@ const defaultServerReadWriteTimeout = 30 * time.Minute
 // (which surfaces to the client as a "socket hang up"/ECONNRESET).
 const defaultUpstreamRetries = 2
 
+// upstreamTLSHandshakeTimeout is shorter than the 15 s default socket timeout
+// of pip, so the proxy reports a stalled handshake before the client leaves.
+const upstreamTLSHandshakeTimeout = 10 * time.Second
+
+// upstreamCurves leaves out the hybrid post-quantum groups that Go offers by
+// default. The X25519MLKEM768 key share makes the ClientHello about 1.5 KB, so
+// it needs two TCP segments, and some network paths drop it with no error
+// (#624). Add a config switch to offer them again when a user needs
+// post-quantum key exchange to the registry.
+var upstreamCurves = []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384, tls.CurveP521}
+
+// NewUpstreamTLSConfig returns the TLS config for a connection to a registry.
+func NewUpstreamTLSConfig() *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS12, CurvePreferences: slices.Clone(upstreamCurves)}
+}
+
 // ProxyServer manages the proxy lifecycle
 type ProxyServer interface {
 	// Start begins listening on the configured address
@@ -105,7 +121,8 @@ type ProxyConfig struct {
 
 	// UpstreamTLSClientConfig, when set, overrides the TLS config used for
 	// upstream connections (e.g. to trust a mock registry's certificate). nil
-	// keeps the production default.
+	// keeps the production default. A nil CurvePreferences gets the curves of
+	// the production default.
 	UpstreamTLSClientConfig *tls.Config
 
 	// Transparent accepts clients that the kernel redirected to the listener
@@ -131,6 +148,11 @@ type ProxyConfig struct {
 	// certificate, at most once a minute. The caller owns the words the
 	// operator reads. nil means the log.
 	OnCertificateRejected func(line string)
+
+	// OnUpstreamFailure receives one line for each upstream request that
+	// fails while the client still waits. The caller owns where the operator
+	// reads it. nil means the log.
+	OnUpstreamFailure func(line string)
 
 	// RedirectOnlyAddrs are the IP addresses among AdditionalListenAddrs
 	// that serve redirected clients only. A connection to one of them
@@ -348,12 +370,12 @@ func newUpstreamTransport(config *ProxyConfig, control func(network, address str
 		dialContext = config.UpstreamDialContext
 	}
 
-	tlsClientConfig := &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: false,
-	}
+	tlsClientConfig := NewUpstreamTLSConfig()
 	if config.UpstreamTLSClientConfig != nil {
-		tlsClientConfig = config.UpstreamTLSClientConfig
+		tlsClientConfig = config.UpstreamTLSClientConfig.Clone()
+		if tlsClientConfig.CurvePreferences == nil {
+			tlsClientConfig.CurvePreferences = slices.Clone(upstreamCurves)
+		}
 	}
 
 	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so
@@ -383,7 +405,7 @@ func newUpstreamTransport(config *ProxyConfig, control func(network, address str
 		MaxIdleConns:          200,
 		MaxIdleConnsPerHost:   50,
 		IdleConnTimeout:       120 * time.Second,
-		TLSHandshakeTimeout:   config.ConnectTimeout,
+		TLSHandshakeTimeout:   upstreamTLSHandshakeTimeout,
 		ResponseHeaderTimeout: config.RequestTimeout,
 		TLSClientConfig:       tlsClientConfig,
 	}
@@ -608,6 +630,7 @@ func (ps *proxyServer) upstreamRoundTrip(req *http.Request) (*http.Response, err
 
 	var resp *http.Response
 	var err error
+	start := time.Now()
 
 	for attempt := 0; ; attempt++ {
 		resp, err = ps.proxy.Tr.RoundTrip(req)
@@ -615,7 +638,10 @@ func (ps *proxyServer) upstreamRoundTrip(req *http.Request) (*http.Response, err
 			return resp, nil
 		}
 
-		if attempt >= maxRetries || !isReplayableRequest(req) || req.Context().Err() != nil {
+		// A timeout repeats on the same network path, so a retry only makes
+		// the client wait longer.
+		if attempt >= maxRetries || !isReplayableRequest(req) || req.Context().Err() != nil || isTimeout(err) {
+			ps.reportUpstreamFailure(req, err, time.Since(start))
 			return resp, err
 		}
 
@@ -635,6 +661,27 @@ func (ps *proxyServer) upstreamRoundTrip(req *http.Request) (*http.Response, err
 			return resp, err
 		}
 	}
+}
+
+func isTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// reportUpstreamFailure tells the operator about a failed upstream request,
+// because goproxy logs the error only at debug level. A client that left
+// first is not a proxy failure.
+func (ps *proxyServer) reportUpstreamFailure(req *http.Request, err error, elapsed time.Duration) {
+	if req.Context().Err() != nil {
+		log.Debugf("client left during upstream %s %s: %v", req.Method, req.URL.Host, err)
+		return
+	}
+	line := fmt.Sprintf("upstream %s %s failed after %s: %v", req.Method, req.URL.Host, elapsed.Round(time.Millisecond), err)
+	if ps.config.OnUpstreamFailure == nil {
+		log.Warnf("%s", line)
+		return
+	}
+	ps.config.OnUpstreamFailure(line)
 }
 
 // isReplayableRequest reports whether a request can be safely retried after an

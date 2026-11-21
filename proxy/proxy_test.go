@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,6 +29,53 @@ func TestNewProxyServerSecuresUpstreamTLSConfig(t *testing.T) {
 	assert.NotNil(t, internalProxy.proxy.Tr.TLSClientConfig)
 	assert.False(t, internalProxy.proxy.Tr.TLSClientConfig.InsecureSkipVerify, "upstream TLS verification must stay enabled")
 	assert.GreaterOrEqual(t, internalProxy.proxy.Tr.TLSClientConfig.MinVersion, uint16(tls.VersionTLS12), "minimum TLS version should be 1.2+")
+	assert.ElementsMatch(t, []tls.CurveID{tls.X25519, tls.CurveP256, tls.CurveP384, tls.CurveP521},
+		internalProxy.proxy.Tr.TLSClientConfig.CurvePreferences, "upstream TLS must offer only the classical groups")
+}
+
+func TestUpstreamHandshakeTimeoutIsReportedOnce(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { require.NoError(t, ln.Close()) }()
+
+	accepted := make(chan net.Conn, 10)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- conn
+		}
+	}()
+
+	cfg := DefaultProxyConfig()
+	cfg.EnableMITM = false
+	cfg.UpstreamDialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, ln.Addr().String())
+	}
+	var reported []string
+	cfg.OnUpstreamFailure = func(line string) { reported = append(reported, line) }
+	server, err := NewProxyServer(cfg)
+	require.NoError(t, err)
+	ps, ok := server.(*proxyServer)
+	require.True(t, ok)
+	ps.proxy.Tr.TLSHandshakeTimeout = 100 * time.Millisecond
+	ps.proxy.Tr.Proxy = nil
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://pypi.org/simple/six/", nil)
+	require.NoError(t, err)
+
+	_, err = ps.upstreamRoundTrip(req)
+	require.Error(t, err)
+	assert.True(t, isTimeout(err), "error %v must be a timeout", err)
+	assert.Len(t, accepted, 1, "a handshake timeout must not be retried")
+	for len(accepted) > 0 {
+		require.NoError(t, (<-accepted).Close())
+	}
+	require.Len(t, reported, 1)
+	assert.Contains(t, reported[0], "upstream GET pypi.org failed after")
+	assert.Contains(t, reported[0], "TLS handshake timeout")
 }
 
 func TestNewProxyServerUpstreamTransportEnablesHTTP2(t *testing.T) {

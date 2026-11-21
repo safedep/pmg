@@ -14,6 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCooldownFetchClientUsesUpstreamCurves(t *testing.T) {
+	tr, ok := cooldownFetchClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, tr.TLSClientConfig)
+	assert.Equal(t, proxy.NewUpstreamTLSConfig().CurvePreferences, tr.TLSClientConfig.CurvePreferences)
+}
+
 func TestCooldownExemptVersions(t *testing.T) {
 	setTrustedPackagesForTest(t, []pmgconfig.TrustedPackage{
 		{Purl: "pkg:npm/pkg@2.0.0"},
