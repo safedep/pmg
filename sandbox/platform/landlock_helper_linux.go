@@ -187,9 +187,13 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	}
 
 	// Signals queue from before the shim starts, so an early interrupt
-	// counts toward the second-signal kill below.
+	// counts toward the second-signal kill.
 	sigCh := make(chan os.Signal, 3)
 	signal.Notify(sigCh, unix.SIGINT, unix.SIGTERM, unix.SIGQUIT)
+	defer func() {
+		signal.Stop(sigCh)
+		close(sigCh)
+	}()
 
 	runtime.LockOSThread()
 	extraCloneFlags := landlockBuildCloneflags(policy)
@@ -209,6 +213,22 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	}
 	_ = shimSockFile.Close() // child has its own copy
 	childPID := cmd.Process.Pid
+
+	// The target is the init of its PID namespace, and the kernel drops a
+	// signal that init has no handler for. A second signal kills it, so an
+	// interrupt cannot leave the run waiting. Forwarding starts before the
+	// setup below, which can block on the shim.
+	go func() {
+		forwarded := false
+		for sig := range sigCh {
+			if forwarded {
+				warnSignalFailure(cmd.Process.Kill(), unix.SIGKILL)
+				continue
+			}
+			forwarded = true
+			warnSignalFailure(cmd.Process.Signal(sig), sig)
+		}
+	}()
 
 	notifyFd, err := receiveNotifyFd(int(helperSockFile.Fd()))
 	if err != nil {
@@ -258,26 +278,9 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		log.Warnf("close /proc/%d/mem: %v", childPID, err)
 	}
 
-	// The target is the init of its PID namespace, and the kernel drops a
-	// signal that init has no handler for. A second signal kills it, so an
-	// interrupt cannot leave the run waiting.
-	go func() {
-		forwarded := false
-		for sig := range sigCh {
-			if forwarded {
-				warnSignalFailure(cmd.Process.Kill(), unix.SIGKILL)
-				continue
-			}
-			forwarded = true
-			warnSignalFailure(cmd.Process.Signal(sig), sig)
-		}
-	}()
-
 	waitErr := cmd.Wait()
 
 	_ = supervisor.Stop()
-	signal.Stop(sigCh)
-	close(sigCh)
 
 	exitCode := 0
 	if waitErr != nil {
