@@ -139,6 +139,7 @@ func runHelperCommand(t *testing.T, wrapper []string, policyPath, auditSocket st
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 	err := cmd.Run()
+	require.NoError(t, ctx.Err(), "the helper did not finish in time")
 	exit := 0
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
