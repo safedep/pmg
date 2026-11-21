@@ -184,8 +184,9 @@ network:
   `/tmp` or `/etc`, and each symlink target. PMG refuses a profile whose symlink target holds a
   quote, a backslash or a control character.
 - Linux, Landlock driver: the kernel allows `socket(AF_UNIX, SOCK_STREAM)`. Datagram and seqpacket
-  unix sockets stay blocked. Landlock refuses a bind to a path, and the supervisor refuses a bind
-  to an abstract name. An entry opens the socket that exists at the path when the sandbox
+  unix sockets stay blocked. Landlock refuses a bind to a path. The supervisor refuses a bind to
+  an abstract name and a listen on a unix socket, so no host client can connect to a socket of the
+  sandbox. An entry opens the socket that exists at the path when the sandbox
   starts. A socket that is missing then, or that its server makes again later, stays blocked. So
   does another socket that a process moves or links to the path. An entry that names a directory
   or another kind of file opens nothing.

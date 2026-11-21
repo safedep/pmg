@@ -62,6 +62,21 @@ elif probe == "bind_abstract":
     attempt(lambda: socket.socket(socket.AF_UNIX).bind("\0" + sys.argv[2]))
 elif probe == "bind_tcp":
     attempt(lambda: socket.socket(socket.AF_INET).bind(("127.0.0.1", 0)))
+elif probe == "listen_unix":
+    attempt(lambda: socket.socket(socket.AF_UNIX).listen())
+elif probe == "listen_tcp":
+    def listen_tcp():
+        s = socket.socket(socket.AF_INET)
+        s.bind(("127.0.0.1", 0))
+        s.listen()
+        if s.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN) != 1:
+            raise OSError(errno.EINVAL, "socket does not listen")
+    if len(sys.argv) > 2 and sys.argv[2] == "thread":
+        t = threading.Thread(target=lambda: attempt(listen_tcp))
+        t.start()
+        t.join()
+    else:
+        attempt(listen_tcp)
 elif probe == "unix_dgram":
     attempt(lambda: socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM))
 elif probe == "tcp":
@@ -310,6 +325,9 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 				{"datagram socket is denied", []string{"unix_dgram"}, "DENIED EACCES"},
 				{"bind to an abstract name is denied", []string{"bind_abstract", "pmg-e2e-bind-" + filepath.Base(dir)}, "DENIED EACCES"},
 				{"bind to a tcp port still works", []string{"bind_tcp"}, "OK"},
+				{"listen on a unix socket is denied", []string{"listen_unix"}, "DENIED EACCES"},
+				{"listen on a tcp socket still works", []string{"listen_tcp"}, "OK"},
+				{"listen from another thread still works", []string{"listen_tcp", "thread"}, "OK"},
 				{"tcp follows the network policy", []string{"tcp", tcpPort}, m.tcpWant},
 			}
 			for _, tc := range tests {

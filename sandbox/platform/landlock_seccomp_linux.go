@@ -13,6 +13,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -147,9 +148,10 @@ func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) 
 		syscalls = append(syscalls, uint32(unix.SYS_CONNECT))
 	}
 	// Landlock refuses a bind to a path in list mode, but nothing in the
-	// kernel refuses an abstract name, so the supervisor checks each bind.
+	// kernel refuses an abstract name, so the supervisor checks each bind
+	// and each listen.
 	if len(network.UnixConnect) > 0 {
-		syscalls = append(syscalls, uint32(unix.SYS_BIND))
+		syscalls = append(syscalls, uint32(unix.SYS_BIND), uint32(unix.SYS_LISTEN))
 	}
 	return syscalls
 }
@@ -498,6 +500,8 @@ func (s *seccompSupervisor) loop() {
 			s.handleConnect(notif, phase)
 		case int32(unix.SYS_BIND):
 			s.handleBind(notif, phase)
+		case int32(unix.SYS_LISTEN):
+			s.handleListen(notif, phase)
 		default:
 			if op, ok := seccompPathSyscalls[uint32(notif.Data.Nr)]; ok {
 				s.handlePathOp(notif, phase, op)
@@ -858,10 +862,10 @@ func (s *seccompSupervisor) handleUnixConnect(notif *seccompNotification, phase 
 }
 
 // handleBind refuses a bind to a unix address under the unix socket allow
-// list, which opens stream sockets for connect only. A process could
-// otherwise listen on an abstract name that a host client connects to. The
-// kernel reads the address again after the supervisor answers, so a thread
-// that changes it in between defeats this check.
+// list, which opens stream sockets for connect only. The kernel reads the
+// address again after the supervisor answers, so a thread that changes it in
+// between can still reserve an abstract name. handleListen stops that socket
+// from taking connections.
 func (s *seccompSupervisor) handleBind(notif *seccompNotification, phase *seccompPhase) {
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
@@ -885,6 +889,87 @@ func (s *seccompSupervisor) handleBind(notif *seccompNotification, phase *seccom
 		return
 	}
 	s.continueSyscall(notif.ID)
+}
+
+// handleListen refuses a listen on a unix socket under the unix socket allow
+// list, so no host client can connect to a socket of the sandbox. The
+// supervisor reads the domain of its own copy of the socket and calls listen
+// on that copy. The child's syscall never runs, so a thread that puts another
+// socket at the same descriptor number cannot change which socket listens.
+// Landlock does not restrict listen, so the copy loses no kernel check.
+func (s *seccompSupervisor) handleListen(notif *seccompNotification, phase *seccompPhase) {
+	sock, err := duplicateChildFd(notif.PID, int(int32(notif.Data.Args[0])))
+	if err != nil {
+		s.denyUnixConnect(notif, phase, "", fmt.Sprintf("cannot inspect the socket: %v", err))
+		return
+	}
+	defer closeDuplicateFd(sock)
+
+	if !s.notifValid(notif.ID) {
+		s.deny(notif.ID)
+		return
+	}
+	domain, err := unix.GetsockoptInt(sock, unix.SOL_SOCKET, unix.SO_DOMAIN)
+	if err != nil {
+		s.respondErrno(notif.ID, errnoOf(err))
+		return
+	}
+	if domain == unix.AF_UNIX {
+		traceSeccompDecision("deny listen pid=%d: unix socket", notif.PID)
+		s.denyUnixConnect(notif, phase, "", "listen on a unix socket")
+		return
+	}
+	s.respondErrno(notif.ID, errnoOf(unix.Listen(sock, int(int32(notif.Data.Args[1])))))
+}
+
+// duplicateChildFd returns a copy of descriptor fd of the process that holds
+// thread tid. Before Linux 6.9 pidfd_open takes only a thread group leader.
+func duplicateChildFd(tid uint32, fd int) (int, error) {
+	tgid, err := threadGroupOf(tid)
+	if err != nil {
+		return -1, err
+	}
+	pidfd, err := unix.PidfdOpen(tgid, 0)
+	if err != nil {
+		return -1, fmt.Errorf("pidfd_open: %w", err)
+	}
+	defer closeDuplicateFd(pidfd)
+	dup, err := unix.PidfdGetfd(pidfd, fd, 0)
+	if err != nil {
+		return -1, fmt.Errorf("pidfd_getfd: %w", err)
+	}
+	return dup, nil
+}
+
+func threadGroupOf(tid uint32) (int, error) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", tid))
+	if err != nil {
+		return 0, err
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if value, ok := strings.CutPrefix(line, "Tgid:"); ok {
+			return strconv.Atoi(strings.TrimSpace(value))
+		}
+	}
+	return 0, fmt.Errorf("no Tgid in /proc/%d/status", tid)
+}
+
+func closeDuplicateFd(fd int) {
+	if err := unix.Close(fd); err != nil {
+		log.Warnf("sandbox: failed to close a socket copy: %v", err)
+	}
+}
+
+// errnoOf returns the errno of err, or 0 when err is nil.
+func errnoOf(err error) unix.Errno {
+	if err == nil {
+		return 0
+	}
+	var errno unix.Errno
+	if errors.As(err, &errno) {
+		return errno
+	}
+	return unix.EIO
 }
 
 // readSockaddrFamily reads the family of the sockaddr at addrPtr.
@@ -989,6 +1074,8 @@ func syscallName(nr int32) string {
 		return "sendmsg"
 	case int32(unix.SYS_BIND):
 		return "bind"
+	case int32(unix.SYS_LISTEN):
+		return "listen"
 	default:
 		return fmt.Sprintf("syscall_%d", nr)
 	}
@@ -1103,6 +1190,12 @@ func (s *seccompSupervisor) continueSyscall(id uint64) {
 
 func (s *seccompSupervisor) deny(id uint64) {
 	warnRespond("deny", id, respondDeny(s.notifyFd, id))
+}
+
+// respondErrno answers with the result of a syscall that the supervisor ran
+// for the child. An errno of 0 is success.
+func (s *seccompSupervisor) respondErrno(id uint64, errno unix.Errno) {
+	warnRespond("result", id, respondErrno(s.notifyFd, id, errno))
 }
 
 func (s *seccompSupervisor) denyConnRefused(id uint64) {
