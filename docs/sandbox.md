@@ -189,9 +189,9 @@ network:
 - macOS: Seatbelt allows each path. It also allows the `/private` form of a path under `/var`,
   `/tmp` or `/etc`, and each symlink target.
 - Linux, Landlock driver: the kernel allows `socket(AF_UNIX, SOCK_STREAM)`. Datagram and seqpacket
-  unix sockets stay blocked. Landlock refuses a bind to a path. The supervisor refuses a bind to
-  an abstract name and a listen on a unix socket, so no host client can connect to a socket of the
-  sandbox. An entry opens the socket that exists at the path when the sandbox
+  unix sockets stay blocked. Landlock refuses a bind to a path. The supervisor refuses a bind or a
+  listen on a unix socket, so a process cannot take an abstract name or take a connection from a
+  host client. An entry opens the socket that exists at the path when the sandbox
   starts. A socket that is missing then, or that its server makes again later, stays blocked. So
   does another socket that a process moves or links to the path. An entry that names a directory
   or another kind of file opens nothing.

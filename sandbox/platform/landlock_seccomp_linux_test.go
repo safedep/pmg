@@ -1306,3 +1306,14 @@ func TestPinSocketKeepsInodeAfterRemoval(t *testing.T) {
 	_, _, err = pinSocket(t.TempDir())
 	assert.Error(t, err, "a directory is not a socket")
 }
+
+func TestWithoutCapabilitiesClearsTheEffectiveSet(t *testing.T) {
+	var data [2]unix.CapUserData
+	err := withoutCapabilities(func() error {
+		header := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+		return unix.Capget(&header, &data[0])
+	})
+	require.NoError(t, err)
+	assert.Zero(t, data[0].Effective)
+	assert.Zero(t, data[1].Effective)
+}

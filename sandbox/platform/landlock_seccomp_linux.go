@@ -861,43 +861,67 @@ func (s *seccompSupervisor) handleUnixConnect(notif *seccompNotification, phase 
 	s.denyUnixConnect(notif, phase, resolved, "not in network.allow_unix_connect")
 }
 
-// handleBind refuses a bind to a unix address under the unix socket allow
-// list, which opens stream sockets for connect only. The kernel reads the
-// address again after the supervisor answers, so a thread that changes it in
-// between can still reserve an abstract name. handleListen stops that socket
-// from taking connections.
+// handleBind refuses a bind on a unix socket under the unix socket allow
+// list, so a process cannot reserve an abstract name that a host service
+// needs. It copies the address from the process once and binds the
+// supervisor's copy of the socket with it, so a thread that rewrites the
+// address cannot change what the kernel binds.
 func (s *seccompSupervisor) handleBind(notif *seccompNotification, phase *seccompPhase) {
+	addr, errno := readBindAddress(phase, notif)
+	if errno != 0 {
+		s.respondErrno(notif.ID, errno)
+		return
+	}
+	s.brokerSocketCall(notif, phase, "bind", func(sock int) error {
+		var ptr unsafe.Pointer
+		if len(addr) > 0 {
+			ptr = unsafe.Pointer(&addr[0])
+		}
+		if _, _, errno := unix.Syscall(unix.SYS_BIND, uintptr(sock), uintptr(ptr), uintptr(len(addr))); errno != 0 {
+			return errno
+		}
+		return nil
+	})
+}
+
+// readBindAddress copies the sockaddr of a bind. The errors are the ones the
+// kernel gives for the same address.
+func readBindAddress(phase *seccompPhase, notif *seccompNotification) ([]byte, unix.Errno) {
+	addrPtr, addrLen := notif.Data.Args[1], notif.Data.Args[2]
+	if addrLen > uint64(unsafe.Sizeof(unix.RawSockaddrAny{})) {
+		return nil, unix.EINVAL
+	}
+	if addrLen == 0 {
+		return nil, 0
+	}
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
-		s.denyUnixConnect(notif, phase, "", "unreadable process memory")
-		return
+		return nil, unix.EACCES
 	}
 	defer closeMemFd(memFd)
-
-	family, err := readSockaddrFamily(memFd, notif.Data.Args[1], notif.Data.Args[2])
-	if err != nil {
-		s.denyUnixConnect(notif, phase, "", err.Error())
-		return
+	addr := make([]byte, addrLen)
+	if _, err := memFd.ReadAt(addr, int64(addrPtr)); err != nil {
+		return nil, unix.EFAULT
 	}
-	if !s.notifValid(notif.ID) {
-		s.deny(notif.ID)
-		return
-	}
-	if family == unix.AF_UNIX {
-		traceSeccompDecision("deny bind pid=%d: unix address", notif.PID)
-		s.denyUnixConnect(notif, phase, "", "bind to a unix address")
-		return
-	}
-	s.continueSyscall(notif.ID)
+	return addr, 0
 }
 
 // handleListen refuses a listen on a unix socket under the unix socket allow
-// list, so no host client can connect to a socket of the sandbox. The
-// supervisor reads the domain of its own copy of the socket and calls listen
-// on that copy. The child's syscall never runs, so a thread that puts another
-// socket at the same descriptor number cannot change which socket listens.
-// Landlock does not restrict listen, so the copy loses no kernel check.
+// list, so no host client can connect to a socket of the sandbox.
 func (s *seccompSupervisor) handleListen(notif *seccompNotification, phase *seccompPhase) {
+	backlog := int(int32(notif.Data.Args[1]))
+	s.brokerSocketCall(notif, phase, "listen", func(sock int) error {
+		return unix.Listen(sock, backlog)
+	})
+}
+
+// brokerSocketCall runs call on the supervisor's own copy of the socket that
+// the child names, refuses a unix socket, and answers with the result. The
+// child's syscall never runs, so a thread that puts another socket at the
+// same descriptor number cannot change which socket the call acts on.
+// Landlock adds no network rule in this driver, so the copy loses no kernel
+// check.
+func (s *seccompSupervisor) brokerSocketCall(notif *seccompNotification, phase *seccompPhase, name string, call func(sock int) error) {
 	sock, err := duplicateChildFd(notif.PID, int(int32(notif.Data.Args[0])))
 	if err != nil {
 		s.denyUnixConnect(notif, phase, "", fmt.Sprintf("cannot inspect the socket: %v", err))
@@ -915,11 +939,38 @@ func (s *seccompSupervisor) handleListen(notif *seccompNotification, phase *secc
 		return
 	}
 	if domain == unix.AF_UNIX {
-		traceSeccompDecision("deny listen pid=%d: unix socket", notif.PID)
-		s.denyUnixConnect(notif, phase, "", "listen on a unix socket")
+		traceSeccompDecision("deny %s pid=%d: unix socket", name, notif.PID)
+		s.denyUnixConnect(notif, phase, "", name+" on a unix socket")
 		return
 	}
-	s.respondErrno(notif.ID, errnoOf(unix.Listen(sock, int(int32(notif.Data.Args[1])))))
+	s.respondErrno(notif.ID, errnoOf(withoutCapabilities(func() error { return call(sock) })))
+}
+
+// withoutCapabilities runs call on a thread with no effective capability.
+// The child runs in its own user namespace, so it holds no capability in the
+// network namespace that it shares with the supervisor. A call that the
+// child could not make, such as a bind below port 1024 under a root pmg,
+// then fails the same way for the supervisor. The goroutine never unlocks
+// its thread, so the thread exits with it and no other goroutine runs
+// without the capabilities.
+func withoutCapabilities(call func() error) error {
+	result := make(chan error, 1)
+	go func() {
+		runtime.LockOSThread()
+		header := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+		var data [2]unix.CapUserData
+		if err := unix.Capget(&header, &data[0]); err != nil {
+			result <- fmt.Errorf("capget: %w", err)
+			return
+		}
+		data[0].Effective, data[1].Effective = 0, 0
+		if err := unix.Capset(&header, &data[0]); err != nil {
+			result <- fmt.Errorf("capset: %w", err)
+			return
+		}
+		result <- call()
+	}()
+	return <-result
 }
 
 // duplicateChildFd returns a copy of descriptor fd of the process that holds
@@ -970,18 +1021,6 @@ func errnoOf(err error) unix.Errno {
 		return errno
 	}
 	return unix.EIO
-}
-
-// readSockaddrFamily reads the family of the sockaddr at addrPtr.
-func readSockaddrFamily(memFd *os.File, addrPtr, addrLen uint64) (uint16, error) {
-	if addrPtr == 0 || addrLen < 2 {
-		return 0, errShortSockaddr
-	}
-	var buf [2]byte
-	if _, err := memFd.ReadAt(buf[:], int64(addrPtr)); err != nil {
-		return 0, fmt.Errorf("read sockaddr family: %w", err)
-	}
-	return binary.NativeEndian.Uint16(buf[:]), nil
 }
 
 // netSockaddrAddr extracts the destination sockaddr pointer and length from

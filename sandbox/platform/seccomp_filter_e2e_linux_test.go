@@ -61,7 +61,12 @@ elif probe == "unix_after":
 elif probe == "bind_abstract":
     attempt(lambda: socket.socket(socket.AF_UNIX).bind("\0" + sys.argv[2]))
 elif probe == "bind_tcp":
-    attempt(lambda: socket.socket(socket.AF_INET).bind(("127.0.0.1", 0)))
+    def bind_tcp():
+        s = socket.socket(socket.AF_INET)
+        s.bind(("127.0.0.1", int(sys.argv[2]) if len(sys.argv) > 2 else 0))
+        if s.getsockname()[1] == 0:
+            raise OSError(errno.EINVAL, "socket is not bound")
+    attempt(bind_tcp)
 elif probe == "listen_unix":
     attempt(lambda: socket.socket(socket.AF_UNIX).listen())
 elif probe == "listen_tcp":
@@ -257,6 +262,16 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 		modes = append(modes, mode{name: "kernel", kernel: true, tcpWant: "OK"})
 	}
 
+	// The child holds no capability in the network namespace, so a port
+	// below ip_unprivileged_port_start stays closed to it even under a root
+	// pmg, where the supervisor that runs the bind holds the capability.
+	privilegedBindWant := "DENIED EACCES"
+	start, err := os.ReadFile("/proc/sys/net/ipv4/ip_unprivileged_port_start")
+	require.NoError(t, err)
+	if port, err := strconv.Atoi(strings.TrimSpace(string(start))); err == nil && port <= 80 {
+		privilegedBindWant = "OK"
+	}
+
 	for _, m := range modes {
 		t.Run(m.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -325,6 +340,7 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 				{"datagram socket is denied", []string{"unix_dgram"}, "DENIED EACCES"},
 				{"bind to an abstract name is denied", []string{"bind_abstract", "pmg-e2e-bind-" + filepath.Base(dir)}, "DENIED EACCES"},
 				{"bind to a tcp port still works", []string{"bind_tcp"}, "OK"},
+				{"bind to a port below the unprivileged start is denied", []string{"bind_tcp", "80"}, privilegedBindWant},
 				{"listen on a unix socket is denied", []string{"listen_unix"}, "DENIED EACCES"},
 				{"listen on a tcp socket still works", []string{"listen_tcp"}, "OK"},
 				{"listen from another thread still works", []string{"listen_tcp", "thread"}, "OK"},
