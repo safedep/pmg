@@ -897,14 +897,18 @@ func TestLandlockTranslatePolicyFailsClosedWithoutHome(t *testing.T) {
 func TestLandlockTranslatePolicy_UnixConnect(t *testing.T) {
 	const socket = "/run/safedep/gryph/hook.sock"
 	tests := []struct {
-		name             string
-		abi              int
-		allowUnixSockets *bool
-		wantPaths        []string
-		wantErr          string
+		name               string
+		abi                int
+		allowUnixSockets   *bool
+		withoutKernelCheck *bool
+		wantPaths          []string
+		wantKernel         bool
+		wantErr            string
 	}{
 		{name: "refused below ABI 9", abi: 8, wantErr: "needs Landlock ABI 9 (have 8)"},
-		{name: "kernel checks from ABI 9", abi: 9, wantPaths: []string{socket}},
+		{name: "supervisor checks below ABI 9 when the profile accepts the race", abi: 8, withoutKernelCheck: utils.PtrTo(true), wantPaths: []string{socket}},
+		{name: "kernel checks from ABI 9", abi: 9, wantPaths: []string{socket}, wantKernel: true},
+		{name: "kernel checks from ABI 9 when the profile accepts the race", abi: 9, withoutKernelCheck: utils.PtrTo(true), wantPaths: []string{socket}, wantKernel: true},
 		{name: "allow_unix_sockets opens every socket", abi: 7, allowUnixSockets: utils.PtrTo(true)},
 	}
 
@@ -914,6 +918,7 @@ func TestLandlockTranslatePolicy_UnixConnect(t *testing.T) {
 			policy.Filesystem.AllowRead = []string{"/tmp"}
 			policy.AllowUnixSockets = tc.allowUnixSockets
 			policy.Network.AllowUnixConnect = []string{socket}
+			policy.Network.AllowUnixConnectWithoutKernelCheck = tc.withoutKernelCheck
 
 			ep, err := landlockTranslatePolicy(policy, newLandlockABI(tc.abi), nil)
 			if tc.wantErr != "" {
@@ -924,8 +929,9 @@ func TestLandlockTranslatePolicy_UnixConnect(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.wantPaths, ep.Network.UnixConnect)
+			assert.Equal(t, tc.wantKernel, ep.Network.UnixConnectByKernel)
 			rule := findRule(ep.FilesystemRules, socket)
-			if tc.wantPaths == nil {
+			if !tc.wantKernel {
 				assert.Nil(t, rule)
 				return
 			}
@@ -962,6 +968,15 @@ func TestLandlockTranslatePolicy_UnixConnectUnderWriteRuleStaysClosed(t *testing
 
 	ep, err := landlockTranslatePolicy(policy, newLandlockABI(9), nil)
 	require.NoError(t, err)
+
+	// The supervisor deny on a route name can be raced in the supervisor
+	// mode too, so the same entries stay closed there.
+	policy.Network.AllowUnixConnectWithoutKernelCheck = utils.PtrTo(true)
+	supervised, err := landlockTranslatePolicy(policy, newLandlockABI(7), nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{hostSocket}, supervised.Network.UnixConnect)
+	assert.Len(t, supervised.Network.UnixConnectClosed, 2)
+	policy.Network.AllowUnixConnectWithoutKernelCheck = nil
 
 	assert.Equal(t, []string{hostSocket}, ep.Network.UnixConnect)
 	require.Len(t, ep.Network.UnixConnectClosed, 2)

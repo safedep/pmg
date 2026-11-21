@@ -163,7 +163,26 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		})
 	}
 
-	if !utils.SafelyGetValue(policy.AllowUnixSockets) && len(policy.Network.AllowUnixConnect) > 0 {
+	withoutKernelCheck := utils.SafelyGetValue(policy.Network.AllowUnixConnectWithoutKernelCheck)
+	if withoutKernelCheck && len(policy.Network.AllowUnixConnect) == 0 {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-unix-connect-without-kernel-check-without-list",
+			Message: "network.allow_unix_connect_without_kernel_check has no effect without network.allow_unix_connect",
+			Field:   "network.allow_unix_connect_without_kernel_check",
+		})
+	}
+
+	if withoutKernelCheck && !utils.SafelyGetValue(policy.AllowUnixSockets) && len(policy.Network.AllowUnixConnect) > 0 {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-unix-connect-without-kernel-check",
+			Message: "on Linux below Landlock ABI 9 the supervisor checks network.allow_unix_connect, and a hostile process can race the check to reach any unix socket",
+			Field:   "network.allow_unix_connect_without_kernel_check",
+		})
+	}
+
+	if !withoutKernelCheck && !utils.SafelyGetValue(policy.AllowUnixSockets) && len(policy.Network.AllowUnixConnect) > 0 {
 		warns = append(warns, LintIssue{
 			Level:   LintLevelWarn,
 			Code:    "allow-unix-connect-needs-landlock-abi-9",

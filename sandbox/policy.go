@@ -95,6 +95,12 @@ type NetworkPolicy struct {
 	// when allow_unix_sockets opens every unix socket.
 	AllowUnixConnect []string `yaml:"allow_unix_connect,omitempty" json:"allow_unix_connect,omitempty"`
 
+	// AllowUnixConnectWithoutKernelCheck lets the Landlock driver below
+	// Landlock ABI 9 check allow_unix_connect in the supervisor. A process
+	// can race that check and reach any unix socket, so the profile must
+	// accept the race. Default false. A child wins when it sets the key.
+	AllowUnixConnectWithoutKernelCheck *bool `yaml:"allow_unix_connect_without_kernel_check,omitempty" json:"allow_unix_connect_without_kernel_check,omitempty"`
+
 	// DenyIPLiterals denies an IP literal, an address and not a name,
 	// unless an allow rule names that exact address. An allow list of
 	// names does not stop a client that connects to an address, and a
@@ -409,6 +415,9 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 	child.Network.DenyOutbound = unionStringSlices(parent.Network.DenyOutbound, child.Network.DenyOutbound)
 	child.Network.AllowBind = unionStringSlices(parent.Network.AllowBind, child.Network.AllowBind)
 	child.Network.AllowUnixConnect = unionStringSlices(parent.Network.AllowUnixConnect, child.Network.AllowUnixConnect)
+	if child.Network.AllowUnixConnectWithoutKernelCheck == nil {
+		child.Network.AllowUnixConnectWithoutKernelCheck = utils.PtrTo(utils.SafelyGetValue(parent.Network.AllowUnixConnectWithoutKernelCheck))
+	}
 	if child.Network.DenyIPLiterals == nil {
 		child.Network.DenyIPLiterals = utils.PtrTo(utils.SafelyGetValue(parent.Network.DenyIPLiterals))
 	}

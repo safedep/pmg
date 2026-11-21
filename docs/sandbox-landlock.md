@@ -339,6 +339,14 @@ These are the known holes in the current enforcement, in approximate priority or
   kernel there. Below ABI 9 PMG refuses a profile with the list. PMG leaves an entry closed when a
   write rule covers a name on the way to the socket, because the supervisor deny on that name can
   be raced.
+- **`network.allow_unix_connect_without_kernel_check` accepts a race below ABI 9.** The
+  supervisor then reads the socket path from process memory, resolves it in the view of the
+  process, and continues a connect to a listed socket inode. It holds an `O_PATH` descriptor on
+  each listed socket, so the inode number cannot pass to a new socket. The kernel looks the path
+  up again after the check. A second thread can rewrite the path, or a process can swap a symlink
+  on the path, before that lookup. So a hostile process can reach any unix socket. The
+  supervisor also traps every connect, a TCP connect included, and a connect fails with
+  `ECONNREFUSED` when the supervisor cannot read the memory of the process.
 - **The supervisor runs each bind and listen under `network.allow_unix_connect`.** No Landlock
   right covers a bind to an abstract name. The supervisor makes its own copy of the socket and of
   the bind address, refuses a unix socket, and runs the call on the copy for any other family. A

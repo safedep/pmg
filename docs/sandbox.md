@@ -189,7 +189,12 @@ network:
 - macOS: Seatbelt allows each path. It also allows the `/private` form of a path under `/var`,
   `/tmp` or `/etc`, and each symlink target. Seatbelt enforces the write denies in the kernel.
 - Linux, Landlock driver: the list needs Landlock ABI 9 or later, where Landlock checks each
-  connect in the kernel. On an older kernel PMG refuses the profile.
+  connect in the kernel. On an older kernel PMG refuses the profile, unless the profile sets
+  `network.allow_unix_connect_without_kernel_check: true`. The PMG supervisor then checks each
+  connect. A hostile process can defeat that check and reach any unix socket, see
+  [Network lockdown gaps](sandbox-landlock.md#network-lockdown-gaps). PMG prints a warning before
+  such a run, and `pmg sandbox profile lint` warns on each profile that sets the key. From ABI 9
+  the key has no effect.
   - The kernel allows `socket(AF_UNIX, SOCK_STREAM)`. Datagram and seqpacket unix sockets stay
     blocked. Landlock refuses a bind to a path. The supervisor refuses a bind or a listen on a
     unix socket, so a process cannot take an abstract name or take a connection from a host
@@ -202,7 +207,8 @@ network:
     PMG leaves an entry closed when a write rule of the profile covers a name on the way to the
     socket, and prints a warning. Put a listed socket outside the directories that the profile
     can write.
-  - `pmg sandbox profile show <name> --driver landlock` lists the open and the closed entries.
+  - `pmg sandbox profile show <name> --driver landlock` lists the open and the closed entries,
+    and prints whether the kernel or the supervisor checks the list.
 - Linux, Bubblewrap driver: PMG refuses a profile with this list.
 
 `allow_unix_sockets: true` opens every unix socket, and the list then has no effect. With

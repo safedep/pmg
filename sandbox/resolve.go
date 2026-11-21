@@ -102,6 +102,9 @@ func expandPolicyPaths(p *SandboxPolicy, opts ResolveOptions) (*SandboxPolicy, e
 	if p.Network.DenyIPLiterals != nil {
 		out.Network.DenyIPLiterals = utils.PtrTo(*p.Network.DenyIPLiterals)
 	}
+	if p.Network.AllowUnixConnectWithoutKernelCheck != nil {
+		out.Network.AllowUnixConnectWithoutKernelCheck = utils.PtrTo(*p.Network.AllowUnixConnectWithoutKernelCheck)
+	}
 
 	// Environment entries are variable-name globs, not paths, so they are
 	// deep-copied without expansion so the caller can safely mutate the result.
