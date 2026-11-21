@@ -513,6 +513,8 @@ func TestUnixSocketRoutes(t *testing.T) {
 	require.NoError(t, os.Symlink("real2", in("b")))
 	require.NoError(t, os.Symlink("b", in("a")))
 	require.NoError(t, os.Symlink("a/../real2/host.sock", in("dotdot.sock")))
+	require.NoError(t, os.WriteFile(in("plain"), nil, 0o600))
+	require.NoError(t, os.Symlink("plain/../other.sock", in("through-file.sock")))
 
 	tests := []struct {
 		name       string
@@ -527,6 +529,7 @@ func TestUnixSocketRoutes(t *testing.T) {
 		{name: "the first missing directory is a name", entry: in("none", "x.sock"), wantNames: []string{in("none", "x.sock"), in("none")}},
 		{name: "a relative link below a linked directory resolves from the real directory", entry: in("alias", "hook.sock"), wantNames: []string{in("alias", "hook.sock"), in("real", "sub", "hook.sock"), in("real", "other.sock")}, wantSocket: in("real", "other.sock")},
 		{name: "each linked directory is an ancestor of a name", entry: in("a", "host.sock"), wantNames: []string{in("a", "host.sock"), in("b", "host.sock"), in("real2", "host.sock")}, wantSocket: in("real2", "host.sock")},
+		{name: "a file on the way ends the route without a socket", entry: in("through-file.sock"), wantNames: []string{in("through-file.sock"), in("plain")}},
 		{name: "a link loop fails", entry: in("loop.sock"), wantErr: "more than"},
 		{name: "a link to an invalid path fails", entry: in("unsafe.sock"), wantErr: "links to an invalid path"},
 		{name: "a link to a path with a glob character fails", entry: in("glob.sock"), wantErr: "not a glob"},

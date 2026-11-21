@@ -183,7 +183,8 @@ network:
 - PMG looks up each listed path one name at a time, as the kernel does. It denies writes to the
   listed path, to the socket name through each symlink on the way (a symlink to a directory
   included), and to the socket, the same way as the mandatory credential denies. When a name on
-  the way does not exist, PMG denies writes to that name instead of the socket. A run cannot
+  the way does not exist, or is a file where the path needs a directory, PMG denies writes to
+  that name instead of the socket. A run cannot
   create, remove, move or replace any of them, so it cannot choose the socket that a later run
   reaches.
 - macOS: Seatbelt allows each path. It also allows the `/private` form of a path under `/var`,

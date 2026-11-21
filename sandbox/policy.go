@@ -246,6 +246,12 @@ func walkUnixSocketPath(path string) (UnixSocketRoute, error) {
 			return route, nil
 		}
 		if info.Mode()&fs.ModeSymlink == 0 {
+			// The kernel fails a lookup through a file with ENOTDIR. The
+			// name is denied, so a run cannot make it a directory or a link.
+			if len(rest) > 0 && !info.IsDir() {
+				route.addName(next)
+				return route, nil
+			}
 			resolved = next
 			continue
 		}
