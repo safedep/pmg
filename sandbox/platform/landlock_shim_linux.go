@@ -10,6 +10,7 @@ import (
 
 	"github.com/landlock-lsm/go-landlock/landlock"
 	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
+	"github.com/safedep/dry/log"
 	"golang.org/x/sys/unix"
 )
 
@@ -136,7 +137,9 @@ func shimFilesystemRules(fsRules []landlockPathRule) ([]landlock.Rule, func()) {
 	var socketFds []int
 	closeSockets := func() {
 		for _, fd := range socketFds {
-			_ = unix.Close(fd)
+			if err := unix.Close(fd); err != nil {
+				log.Warnf("sandbox: close socket rule descriptor: %v", err)
+			}
 		}
 	}
 	for _, r := range fsRules {
@@ -170,11 +173,19 @@ func shimFilesystemRules(fsRules []landlockPathRule) ([]landlock.Rule, func()) {
 func shimSocketRule(path string) (landlock.Rule, int, bool) {
 	fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
 	if err != nil {
+		log.Warnf("sandbox: network.allow_unix_connect %s stays closed: %v", path, err)
 		return nil, -1, false
 	}
 	var st unix.Stat_t
-	if err := unix.Fstat(fd, &st); err != nil || st.Mode&unix.S_IFMT != unix.S_IFSOCK {
-		_ = unix.Close(fd)
+	err = unix.Fstat(fd, &st)
+	if err == nil && st.Mode&unix.S_IFMT != unix.S_IFSOCK {
+		err = fmt.Errorf("not a socket")
+	}
+	if err != nil {
+		log.Warnf("sandbox: network.allow_unix_connect %s stays closed: %v", path, err)
+		if cerr := unix.Close(fd); cerr != nil {
+			log.Warnf("sandbox: close socket rule descriptor: %v", cerr)
+		}
 		return nil, -1, false
 	}
 	rule := landlock.PathAccess(landlock.AccessFSSet(llsyscall.AccessFSResolveUnix), fmt.Sprintf("/proc/self/fd/%d", fd))
