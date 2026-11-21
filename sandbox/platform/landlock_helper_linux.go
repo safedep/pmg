@@ -175,10 +175,15 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		cmd.ExtraFiles = []*os.File{shimSockFile}
 		attr := *procAttr
 		attr.Cloneflags = cloneflags
+		// The target must not outlive the helper and its supervisor.
+		// Pdeathsig follows the thread that starts the shim, and the
+		// helper keeps its main goroutine locked to that thread.
+		attr.Pdeathsig = syscall.SIGKILL
 		cmd.SysProcAttr = &attr
 		return cmd
 	}
 
+	runtime.LockOSThread()
 	extraCloneFlags := landlockBuildCloneflags(policy)
 	cmd, err := startShimWithFallback(newShimCmd, procAttr.Cloneflags|extraCloneFlags, extraCloneFlags, func(err error) {
 		if err := landlockWriteAuditEvent(auditWriter, auditEvent{
@@ -247,8 +252,17 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 
 	sigCh := make(chan os.Signal, 3)
 	signal.Notify(sigCh, unix.SIGINT, unix.SIGTERM, unix.SIGQUIT)
+	// The target is the init of its PID namespace, and the kernel drops a
+	// signal that init has no handler for. A second signal kills it, so an
+	// interrupt cannot leave the run waiting.
 	go func() {
+		forwarded := false
 		for sig := range sigCh {
+			if forwarded {
+				_ = cmd.Process.Kill()
+				continue
+			}
+			forwarded = true
 			_ = cmd.Process.Signal(sig)
 		}
 	}()

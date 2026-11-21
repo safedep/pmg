@@ -384,6 +384,16 @@ a constant cost. That cost explains most of the decisions above:
   The inherited `/proc` still exposes host process entries subject to Unix permissions.
   PMG does not apply Landlock signal scoping.
   Host signal permission checks and other host controls still apply.
+- **The target is the init of its PID namespace.** The kernel drops a signal that the target
+  has no handler for, SIGKILL excepted. So the first Ctrl-C or SIGTERM can have no effect on a
+  program such as `sleep`. The helper kills the target on a second signal. The target also
+  dies when the helper exits.
+- **Build PMG with `CGO_ENABLED=0`.** Release builds and `make` do. Below Landlock ABI 8,
+  go-landlock reaches each thread of the shim through the psx library. In a cgo build psx
+  lists `/proc/<getpid()>/task`. In the sandbox PID namespace `getpid()` is 1, but `/proc`
+  belongs to the parent namespace, so psx lists the threads of the parent namespace's init.
+  If that init has more than one thread, as in some containers and microVMs, the shim waits
+  forever.
 - **ABI limits affect the boundary.** On ABI 1, the kernel refuses every cross-directory
   rename or link with `EXDEV`.
   ABI 2 adds `REFER`, which permits them when the file gains no new access rights.
