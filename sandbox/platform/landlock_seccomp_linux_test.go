@@ -73,8 +73,8 @@ func TestLandlockNotifySyscalls(t *testing.T) {
 		{"path syscalls when deny paths exist", landlockNetworkPolicy{}, true, append(append([]uint32{}, execOnly...), pathSyscallNumbers()...)},
 		{"network under lockdown", landlockNetworkPolicy{Lockdown: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG))},
 		{"no network without lockdown", landlockNetworkPolicy{ProxyPort: 8080}, false, execOnly},
-		{"connect when the supervisor checks the unix allow list", landlockNetworkPolicy{UnixConnect: []string{"/run/a.sock"}}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT))},
-		{"no connect when the kernel checks the unix allow list", landlockNetworkPolicy{UnixConnect: []string{"/run/a.sock"}, UnixConnectByKernel: true}, false, execOnly},
+		{"connect and bind when the supervisor checks the unix allow list", landlockNetworkPolicy{UnixConnect: []string{"/run/a.sock"}}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_BIND))},
+		{"bind only when the kernel checks the unix allow list", landlockNetworkPolicy{UnixConnect: []string{"/run/a.sock"}, UnixConnectByKernel: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_BIND))},
 	}
 
 	for _, tc := range tests {

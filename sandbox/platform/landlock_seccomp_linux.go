@@ -146,6 +146,11 @@ func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) 
 	case network.supervisesUnixConnect():
 		syscalls = append(syscalls, uint32(unix.SYS_CONNECT))
 	}
+	// Landlock refuses a bind to a path in list mode, but nothing in the
+	// kernel refuses an abstract name, so the supervisor checks each bind.
+	if len(network.UnixConnect) > 0 {
+		syscalls = append(syscalls, uint32(unix.SYS_BIND))
+	}
 	return syscalls
 }
 
@@ -491,6 +496,8 @@ func (s *seccompSupervisor) loop() {
 			s.handleExec(notif, phase)
 		case int32(unix.SYS_CONNECT), int32(unix.SYS_SENDTO), int32(unix.SYS_SENDMSG):
 			s.handleConnect(notif, phase)
+		case int32(unix.SYS_BIND):
+			s.handleBind(notif, phase)
 		default:
 			if op, ok := seccompPathSyscalls[uint32(notif.Data.Nr)]; ok {
 				s.handlePathOp(notif, phase, op)
@@ -850,6 +857,48 @@ func (s *seccompSupervisor) handleUnixConnect(notif *seccompNotification, phase 
 	s.denyUnixConnect(notif, phase, resolved, "not in network.allow_unix_connect")
 }
 
+// handleBind refuses a bind to a unix address under the unix socket allow
+// list, which opens stream sockets for connect only. A process could
+// otherwise listen on an abstract name that a host client connects to. The
+// kernel reads the address again after the supervisor answers, so a thread
+// that changes it in between defeats this check.
+func (s *seccompSupervisor) handleBind(notif *seccompNotification, phase *seccompPhase) {
+	memFd := phase.memFdFor(notif.PID)
+	if memFd == nil {
+		s.denyUnixConnect(notif, phase, "", "unreadable process memory")
+		return
+	}
+	defer closeMemFd(memFd)
+
+	family, err := readSockaddrFamily(memFd, notif.Data.Args[1], notif.Data.Args[2])
+	if err != nil {
+		s.denyUnixConnect(notif, phase, "", err.Error())
+		return
+	}
+	if !s.notifValid(notif.ID) {
+		s.deny(notif.ID)
+		return
+	}
+	if family == unix.AF_UNIX {
+		traceSeccompDecision("deny bind pid=%d: unix address", notif.PID)
+		s.denyUnixConnect(notif, phase, "", "bind to a unix address")
+		return
+	}
+	s.continueSyscall(notif.ID)
+}
+
+// readSockaddrFamily reads the family of the sockaddr at addrPtr.
+func readSockaddrFamily(memFd *os.File, addrPtr, addrLen uint64) (uint16, error) {
+	if addrPtr == 0 || addrLen < 2 {
+		return 0, errShortSockaddr
+	}
+	var buf [2]byte
+	if _, err := memFd.ReadAt(buf[:], int64(addrPtr)); err != nil {
+		return 0, fmt.Errorf("read sockaddr family: %w", err)
+	}
+	return binary.NativeEndian.Uint16(buf[:]), nil
+}
+
 // netSockaddrAddr extracts the destination sockaddr pointer and length from
 // the intercepted syscall's arguments. hasDest is false when the syscall
 // carries no destination (sendto/sendmsg on a connected socket), in which
@@ -938,6 +987,8 @@ func syscallName(nr int32) string {
 		return "sendto"
 	case int32(unix.SYS_SENDMSG):
 		return "sendmsg"
+	case int32(unix.SYS_BIND):
+		return "bind"
 	default:
 		return fmt.Sprintf("syscall_%d", nr)
 	}

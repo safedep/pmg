@@ -1006,6 +1006,8 @@ func TestTranslateNetworkUnixSockets(t *testing.T) {
 					allow := `(allow network-outbound (remote unix-socket (path-literal "` + path + `")))`
 					assert.Contains(t, out, allow)
 					assert.Greater(t, strings.Index(out, allow), strings.Index(out, unixDeny), "SBPL is last-match-wins")
+					// A run must not replace the socket that the next run reaches.
+					assert.Contains(t, out, `(deny file-write* (subpath "`+path+`")`)
 				}
 			},
 		},

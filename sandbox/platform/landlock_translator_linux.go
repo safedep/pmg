@@ -465,6 +465,14 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 	}
 	ep.Network.UnixConnect = socketPaths
 	ep.Network.UnixConnectByKernel = len(socketPaths) > 0 && abi.HasResolveUnix
+	if len(socketPaths) > 0 {
+		// The list opens unix stream sockets for connect only. Without
+		// MAKE_SOCK the kernel refuses a bind to a path, so a process cannot
+		// put its own listener where a host client looks for one.
+		for i := range ep.FilesystemRules {
+			ep.FilesystemRules[i].Access &^= uint64(llsyscall.AccessFSMakeSock)
+		}
+	}
 	if ep.Network.UnixConnectByKernel {
 		// The rule binds the socket inode that exists when the shim starts.
 		// A socket that is missing then, or made again later, stays closed.

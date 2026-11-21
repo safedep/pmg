@@ -444,8 +444,8 @@ func TestLintProfile_AllowUnixConnect(t *testing.T) {
 		want             []string
 		notWant          []string
 	}{
-		{name: "with allow_unix_sockets warns", allowUnixSockets: utils.PtrTo(true), entries: []string{"/run/a.sock"}, want: []string{"allow-unix-connect-with-allow-unix-sockets"}},
-		{name: "alone is clean", entries: []string{"/run/a.sock"}, notWant: []string{"allow-unix-connect-with-allow-unix-sockets", "vars.unresolved"}},
+		{name: "with allow_unix_sockets warns that the list is moot", allowUnixSockets: utils.PtrTo(true), entries: []string{"/run/a.sock"}, want: []string{"allow-unix-connect-with-allow-unix-sockets"}, notWant: []string{"allow-unix-connect-weak-below-landlock-abi-9"}},
+		{name: "alone warns about the check below Landlock ABI 9", entries: []string{"/run/a.sock"}, want: []string{"allow-unix-connect-weak-below-landlock-abi-9"}, notWant: []string{"allow-unix-connect-with-allow-unix-sockets", "vars.unresolved"}},
 		{name: "an unknown variable warns", entries: []string{"${USER}/a.sock"}, want: []string{"vars.unresolved"}},
 	}
 

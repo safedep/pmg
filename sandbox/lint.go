@@ -163,6 +163,15 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		})
 	}
 
+	if !utils.SafelyGetValue(policy.AllowUnixSockets) && len(policy.Network.AllowUnixConnect) > 0 {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-unix-connect-weak-below-landlock-abi-9",
+			Message: "on Linux below Landlock ABI 9 a hostile process can race the check of network.allow_unix_connect and reach any unix socket",
+			Field:   "network.allow_unix_connect",
+		})
+	}
+
 	if utils.SafelyGetValue(policy.AllowUnixSockets) && len(policy.Network.AllowUnixConnect) > 0 {
 		warns = append(warns, LintIssue{
 			Level:   LintLevelWarn,

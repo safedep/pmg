@@ -18,10 +18,17 @@ exec python3 $WORK/sock.py wait
 # AppArmor userns confinement refuses every host socket connect, so the
 # listed socket skips there.
 [!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
-[!bubblewrap] [!apparmor-userns] stdout '^OK$'
+[!bubblewrap] [!apparmor-userns] stdout '^OK host$'
 
 [!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py other.sock
 [!bubblewrap] stdout '^DENIED connect E(ACCES|PERM)$'
+
+# A run cannot replace the listed socket, so it cannot choose the socket
+# that the next run reaches.
+[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py plant
+[!bubblewrap] stdout '^DENIED plant E(ACCES|PERM)$'
+[!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[!bubblewrap] [!apparmor-userns] stdout '^OK host$'
 
 kill listener
 
@@ -55,12 +62,14 @@ def listen():
         s = socket.socket(socket.AF_UNIX)
         s.bind(path)
         s.listen(8)
-        threading.Thread(target=serve, args=(s,), daemon=True).start()
+        threading.Thread(target=serve, args=(s, path.split(".")[0]), daemon=True).start()
     threading.Event().wait()
 
-def serve(s):
+def serve(s, name):
     while True:
-        s.accept()[0].close()
+        c = s.accept()[0]
+        c.sendall(name.encode())
+        c.close()
 
 def wait():
     for _ in range(100):
@@ -75,15 +84,27 @@ def connect(path):
         s = socket.socket(socket.AF_UNIX)
         stage = "connect"
         s.connect(path)
+        name = s.recv(16).decode()
     except OSError as e:
         print("DENIED " + stage + " " + errno.errorcode.get(e.errno, str(e.errno)))
         sys.exit(1)
-    print("OK")
+    print("OK " + name)
+
+def plant():
+    try:
+        os.unlink("host.sock")
+        os.symlink(os.path.abspath("other.sock"), "host.sock")
+    except OSError as e:
+        print("DENIED plant " + errno.errorcode.get(e.errno, str(e.errno)))
+        sys.exit(1)
+    print("PLANTED")
 
 mode = sys.argv[1]
 if mode == "listen":
     listen()
 elif mode == "wait":
     wait()
+elif mode == "plant":
+    plant()
 else:
     connect(mode)

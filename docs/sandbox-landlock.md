@@ -341,6 +341,10 @@ These are the known holes in the current enforcement, in approximate priority or
   rewrite the path, or a process can swap a symlink on the path, before that lookup. So a
   hostile process can reach any unix socket. From ABI 9, Landlock checks each connect in the
   kernel and this gap closes. From ABI 6, the kernel also blocks abstract sockets.
+- **The supervisor refuses an abstract bind under `network.allow_unix_connect`.** No Landlock
+  right covers a bind to an abstract name. The supervisor reads the address and refuses a unix
+  family. A second thread can rewrite the address before the kernel reads it again, so a hostile
+  process can listen on an abstract name, on every ABI.
 - **The list traps every connect.** Without network lockdown, the supervisor still reads the
   address of each connect, a TCP connect included. A connect fails with `ECONNREFUSED` when
   the supervisor cannot read the memory of the process.

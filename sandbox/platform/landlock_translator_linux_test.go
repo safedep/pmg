@@ -935,3 +935,32 @@ func TestLandlockTranslatePolicy_UnixConnect(t *testing.T) {
 		})
 	}
 }
+
+// A listed socket in a writable directory gets a write deny, so one run
+// cannot plant the socket that the next run binds. The list opens sockets
+// for connect only, so no rule grants MAKE_SOCK and a bind to a path fails.
+func TestLandlockTranslatePolicy_UnixConnectProtectsListedPath(t *testing.T) {
+	dir := t.TempDir()
+	socket := filepath.Join(dir, "agent.sock")
+	policy := newTestPolicy()
+	policy.Filesystem.AllowRead = []string{"/tmp"}
+	policy.Filesystem.AllowWrite = []string{dir + "/**"}
+	policy.Network.AllowUnixConnect = []string{socket}
+
+	ep, err := landlockTranslatePolicy(policy, newLandlockABI(7), nil)
+	require.NoError(t, err)
+
+	deny := findDenyPath(ep.DenyPaths, socket)
+	require.NotNil(t, deny, "the listed socket must be write-denied")
+	assert.NotEqual(t, denyRead, deny.Mode)
+	for _, r := range ep.FilesystemRules {
+		assert.Zero(t, r.Access&uint64(llsyscall.AccessFSMakeSock), "rule %s grants MAKE_SOCK", r.Path)
+	}
+
+	policy.Network.AllowUnixConnect = nil
+	ep, err = landlockTranslatePolicy(policy, newLandlockABI(7), nil)
+	require.NoError(t, err)
+	rule := findRule(ep.FilesystemRules, dir)
+	require.NotNil(t, rule)
+	assert.NotZero(t, rule.Access&uint64(llsyscall.AccessFSMakeSock), "without the list, write rules keep MAKE_SOCK")
+}

@@ -58,6 +58,10 @@ elif probe == "unix_after":
     while not os.path.exists(os.path.join(sys.argv[2], "go")):
         time.sleep(0.02)
     attempt(lambda: socket.socket(socket.AF_UNIX).connect(sys.argv[3]))
+elif probe == "bind_abstract":
+    attempt(lambda: socket.socket(socket.AF_UNIX).bind("\0" + sys.argv[2]))
+elif probe == "bind_tcp":
+    attempt(lambda: socket.socket(socket.AF_INET).bind(("127.0.0.1", 0)))
 elif probe == "unix_dgram":
     attempt(lambda: socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM))
 elif probe == "tcp":
@@ -304,6 +308,8 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 				{"another socket linked at a listed path that was missing is denied", []string{"unix_link", linkSource, later}, "DENIED EACCES"},
 				{"another socket moved over a listed socket is denied", []string{"unix_replace", moveSource, victim}, "DENIED EACCES"},
 				{"datagram socket is denied", []string{"unix_dgram"}, "DENIED EACCES"},
+				{"bind to an abstract name is denied", []string{"bind_abstract", "pmg-e2e-bind-" + filepath.Base(dir)}, "DENIED EACCES"},
+				{"bind to a tcp port still works", []string{"bind_tcp"}, "OK"},
 				{"tcp follows the network policy", []string{"tcp", tcpPort}, m.tcpWant},
 			}
 			for _, tc := range tests {
