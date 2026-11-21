@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCACheckAbsentIsWarn(t *testing.T) {
+func TestCACheckAbsentIsOff(t *testing.T) {
 	res := evaluateCACheck(t.TempDir(), false, false, true)
-	assert.Equal(t, doctor.StatusWarn, res.Status)
+	assert.Equal(t, doctor.StatusOff, res.Status)
 }
 
 func TestCACheckTrustedIsPass(t *testing.T) {

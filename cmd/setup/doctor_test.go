@@ -360,6 +360,25 @@ func TestEvaluateSandboxCheckWithoutASandbox(t *testing.T) {
 	assert.Equal(t, "Set sandbox.enabled: false in config", got.Fix)
 }
 
+func TestEvaluateSandboxCheckDisabledIsOff(t *testing.T) {
+	got := evaluateSandboxCheck(nil, true, false)
+	assert.Equal(t, doctor.StatusOff, got.Status)
+}
+
+func TestSplitHardening(t *testing.T) {
+	results := []doctor.CheckResult{
+		{Name: checkConfigFile},
+		{Name: checkSandbox},
+		{Name: checkCA},
+		{Name: checkProxyEnforce},
+		{Name: checkProtectionNpm},
+	}
+
+	core, hardening := splitHardening(results)
+	assert.Equal(t, []doctor.CheckResult{{Name: checkConfigFile}, {Name: checkProtectionNpm}}, core)
+	assert.Equal(t, []doctor.CheckResult{{Name: checkSandbox}, {Name: checkCA}, {Name: checkProxyEnforce}}, hardening)
+}
+
 func TestCutSummaryDetails(t *testing.T) {
 	long := "invalid blocked_packages configuration: entry 1 (not-a-purl): invalid purl: purl scheme is not \"pkg\""
 
