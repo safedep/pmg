@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/landlock-lsm/go-landlock/landlock"
+	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
 	"golang.org/x/sys/unix"
 )
 
@@ -29,9 +30,21 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 	// run on the same thread so the target inherits the filter.
 	runtime.LockOSThread()
 
+	// The helper sets the parent-death signal on the thread that it starts,
+	// but the runtime can move this goroutine to another thread before the
+	// lock. execve keeps only the signal of the calling thread, so without
+	// this call the target can outlive the helper and its supervisor.
+	if err := unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(unix.SIGKILL), 0, 0, 0); err != nil {
+		return fmt.Errorf("shim: prctl PR_SET_PDEATHSIG: %w", err)
+	}
+
 	policy, err := readLandlockPolicyFromFile(policyFile)
 	if err != nil {
 		return fmt.Errorf("shim: read policy: %w", err)
+	}
+
+	if err := checkCgoLandlock(); err != nil {
+		return fmt.Errorf("shim: %w", err)
 	}
 
 	// Landlock runs before seccomp. It opens each rule path, and the
@@ -129,4 +142,24 @@ func shimFilesystemRules(fsRules []landlockPathRule) []landlock.Rule {
 		))
 	}
 	return rules
+}
+
+// checkCgoLandlock refuses a run that would never finish. Below Landlock
+// ABI 8, go-landlock applies the ruleset to each thread through psx. In a
+// cgo build psx finds the threads in /proc/<getpid()>/task. In the shim's
+// PID namespace getpid() is 1, but /proc belongs to the parent namespace,
+// so psx signals the threads of the parent namespace's init. If that init
+// has more than one thread, psx waits forever for their replies.
+func checkCgoLandlock() error {
+	if !builtWithCgo || os.Getpid() != 1 {
+		return nil
+	}
+	if abi, err := llsyscall.LandlockGetABIVersion(); err != nil || abi >= 8 {
+		return nil
+	}
+	threads, err := os.ReadDir("/proc/1/task")
+	if err != nil || len(threads) <= 1 {
+		return nil
+	}
+	return fmt.Errorf("this pmg was built with cgo, and the Landlock driver cannot apply its rules in this PID namespace. Build pmg with CGO_ENABLED=0")
 }

@@ -31,6 +31,10 @@ GO_LDFLAGS=-ldflags "-w $(GO_CFLAGS)"
 
 all: pmg
 
+# Release builds set CGO_ENABLED=0, and so does this target. Under cgo the
+# Landlock shim can hang in its PID namespace. See the Limitations section of
+# docs/sandbox-landlock.md.
+pmg: export CGO_ENABLED := 0
 pmg: create_bin
 	$(GO) build ${GO_LDFLAGS} -o $(BIN) main.go
 

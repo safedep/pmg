@@ -257,6 +257,12 @@
   tier: P0
   guarantee: "Under `pmg sandbox exec`, the .git file and the gitdir and commondir files of a linked worktree cannot be rewritten, and a .git file that names the home directory or another repository grants no write there."
   labels: [sandbox, exec, block]
+- id: sandbox/exec/stops-target-with-pmg
+  title: "sandbox exec stops the program when pmg stops"
+  category: sandbox
+  tier: P1
+  guarantee: "On Linux, an interrupt to `pmg sandbox exec` or a kill of pmg stops the program, also a program such as `sleep` that has no signal handler."
+  labels: [sandbox, exec, offline]
 - id: sandbox/exec/requires-command
   title: "sandbox exec without a program fails with usage help"
   category: sandbox
