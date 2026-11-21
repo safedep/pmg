@@ -4,6 +4,9 @@ type CheckStatus int
 
 const (
 	StatusPass CheckStatus = iota
+	// StatusOff marks an optional feature that is not turned on. It is not a
+	// problem, so it does not count as a warning.
+	StatusOff
 	StatusWarn
 	StatusFail
 )

@@ -60,6 +60,15 @@ func TestDeriveStatus(t *testing.T) {
 			wantProtected: true,
 		},
 		{
+			name: "intercepting with an optional feature off is protected",
+			results: []doctor.CheckResult{
+				{Name: checkShimInPath, Status: doctor.StatusPass, ImpliesInterception: true},
+				{Name: checkSandbox, Status: doctor.StatusOff},
+			},
+			wantHealth:    healthProtected,
+			wantProtected: true,
+		},
+		{
 			name: "intercepting via aliases with a fail elsewhere is degraded not unprotected",
 			results: []doctor.CheckResult{
 				{Name: checkShellAliases, Status: doctor.StatusPass, ImpliesInterception: true},
@@ -90,6 +99,7 @@ func TestDeriveStatus(t *testing.T) {
 
 func TestStatusString(t *testing.T) {
 	assert.Equal(t, "pass", statusString(doctor.StatusPass))
+	assert.Equal(t, "off", statusString(doctor.StatusOff))
 	assert.Equal(t, "warn", statusString(doctor.StatusWarn))
 	assert.Equal(t, "fail", statusString(doctor.StatusFail))
 	assert.Equal(t, "unknown", statusString(doctor.CheckStatus(99)))
@@ -120,12 +130,14 @@ func TestCountStatuses(t *testing.T) {
 	results := []doctor.CheckResult{
 		{Status: doctor.StatusPass},
 		{Status: doctor.StatusPass},
+		{Status: doctor.StatusOff},
 		{Status: doctor.StatusWarn},
 		{Status: doctor.StatusFail},
 	}
 
-	passed, warnings, failed := countStatuses(results)
+	passed, off, warnings, failed := countStatuses(results)
 	assert.Equal(t, 2, passed)
+	assert.Equal(t, 1, off)
 	assert.Equal(t, 1, warnings)
 	assert.Equal(t, 1, failed)
 }

@@ -616,8 +616,8 @@ func evaluateSandboxCheck(sb sandbox.Sandbox, supported bool, enabled bool) doct
 	}
 	if !enabled {
 		return doctor.CheckResult{
-			Status:  doctor.StatusWarn,
-			Message: "Sandbox is disabled",
+			Status:  doctor.StatusOff,
+			Message: "Off (optional). Limits what install scripts can access",
 		}
 	}
 	if sb == nil || !sb.IsAvailable() {
@@ -634,7 +634,7 @@ func evaluateSandboxCheck(sb sandbox.Sandbox, supported bool, enabled bool) doct
 
 // evaluateEnforceCheck reports whether `pmg proxy start --enforce` can run
 // here. Enforcement is opt-in and Linux-only, so a host that cannot enforce
-// gets a warning, not a failure. newErr is the error from netenforce.New.
+// is optional, not a problem. newErr is the error from netenforce.New.
 func evaluateEnforceCheck(newErr error, probe netenforce.ProbeResult) doctor.CheckResult {
 	if newErr != nil {
 		return doctor.CheckResult{
@@ -648,11 +648,11 @@ func evaluateEnforceCheck(newErr error, probe netenforce.ProbeResult) doctor.Che
 			Message: fmt.Sprintf("Kernel enforcement available (kernel %s, cgroup %s)", probe.KernelVersion, probe.CgroupPath),
 		}
 	}
-	message := "Kernel enforcement unavailable"
+	message := "Off (optional). Kernel enforcement unavailable"
 	if len(probe.Missing) > 0 {
 		message += ": " + probe.Missing[0]
 	}
-	return doctor.CheckResult{Status: doctor.StatusWarn, Message: message}
+	return doctor.CheckResult{Status: doctor.StatusOff, Message: message}
 }
 
 // evaluateCACheck is the testable core of the CA doctor check. Trust booleans
@@ -682,7 +682,7 @@ func evaluateCACheck(dir string, userTrusted, systemTrusted, userScopeSupported 
 	}
 
 	if !st.KeyPresent && !st.CertPresent {
-		return doctor.CheckResult{Status: doctor.StatusWarn, Message: "MITM CA not installed (optional; run pmg setup cert install)"}
+		return doctor.CheckResult{Status: doctor.StatusOff, Message: "Off (optional). Only for tools that ignore CA env vars"}
 	}
 
 	st.UserTrusted, st.SystemTrusted = userTrusted, systemTrusted
@@ -769,6 +769,8 @@ func statusBadge(s doctor.CheckStatus) string {
 	switch s {
 	case doctor.StatusPass:
 		return ui.Colors.Green("OK")
+	case doctor.StatusOff:
+		return ui.Colors.Dim("OFF")
 	case doctor.StatusWarn:
 		return ui.Colors.Yellow("WARN")
 	case doctor.StatusFail:
@@ -891,9 +893,12 @@ func fixHint(name string) string {
 }
 
 func printSummaryLine(results []doctor.CheckResult) {
-	passCount, warnCount, failCount := countStatuses(results)
+	passCount, offCount, warnCount, failCount := countStatuses(results)
 
 	summary := fmt.Sprintf("%d passed", passCount)
+	if offCount > 0 {
+		summary += fmt.Sprintf(", %d optional off", offCount)
+	}
 	if warnCount > 0 {
 		summary += fmt.Sprintf(", %d warnings", warnCount)
 	}

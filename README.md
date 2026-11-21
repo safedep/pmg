@@ -112,6 +112,8 @@ Validate your installation and verify protection is working:
 pmg setup doctor
 ```
 
+`OFF` marks an optional feature, such as the sandbox or the MITM CA. PMG protects your installs without them.
+
 > **Optional:** PMG inspects HTTPS traffic with an on-the-fly CA that it injects into package
 > managers per run. To persist a single CA across runs and trust it in your OS trust store
 > (needed for tools that ignore CA environment variables, such as Go on macOS and Windows),
