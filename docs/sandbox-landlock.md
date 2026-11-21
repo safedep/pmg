@@ -387,7 +387,9 @@ a constant cost. That cost explains most of the decisions above:
 - **The target is the init of its PID namespace.** The kernel drops a signal that the target
   has no handler for, SIGKILL excepted. So the first Ctrl-C or SIGTERM can have no effect on a
   program such as `sleep`. The helper kills the target on a second signal. The target also
-  dies when the helper exits.
+  dies when the helper exits, and with the PID namespace its descendants die too. Without the
+  PID namespace, only the direct child dies. Its descendants keep running without the
+  supervisor, and each syscall that the supervisor traps fails.
 - **Build PMG with `CGO_ENABLED=0`.** Release builds and `make` do. Below Landlock ABI 8,
   go-landlock reaches each thread of the shim through the psx library. In a cgo build psx
   lists `/proc/<getpid()>/task`. In the sandbox PID namespace `getpid()` is 1, but `/proc`

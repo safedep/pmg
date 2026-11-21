@@ -131,6 +131,8 @@ func runHelperCommand(t *testing.T, wrapper []string, policyPath, auditSocket st
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	// A descendant that keeps the output pipes open must not block Wait.
+	cmd.WaitDelay = 5 * time.Second
 	// PMG_KEEP_POLICY ensures test state is visible on failure.
 	cmd.Env = append(os.Environ(), "PMG_KEEP_POLICY=1")
 	var outBuf, errBuf bytes.Buffer
@@ -908,11 +910,12 @@ func TestLandlockHelper_DefaultNamespacesKeepAbsolutePaths(t *testing.T) {
 
 // findProcess returns the pid of the process whose command line is args,
 // or 0 when none runs.
-func findProcess(t *testing.T, args ...string) int {
-	t.Helper()
+func findProcess(args ...string) int {
 	want := strings.Join(args, "\x00") + "\x00"
 	entries, err := os.ReadDir("/proc")
-	require.NoError(t, err)
+	if err != nil {
+		return 0
+	}
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
@@ -946,14 +949,14 @@ func TestLandlockHelper_TargetStopsWithHelper(t *testing.T) {
 	}{
 		{
 			name:     "the target dies with the helper",
-			duration: "61.25",
+			duration: "61",
 			stop: func(t *testing.T, helper *os.Process) {
 				require.NoError(t, helper.Kill())
 			},
 		},
 		{
 			name:     "a second signal stops a target without a handler",
-			duration: "62.25",
+			duration: "62",
 			stop: func(t *testing.T, helper *os.Process) {
 				require.NoError(t, helper.Signal(syscall.SIGTERM))
 				time.Sleep(300 * time.Millisecond)
@@ -964,10 +967,12 @@ func TestLandlockHelper_TargetStopsWithHelper(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			// The pid makes the command line unique to this test run.
+			duration := fmt.Sprintf("%s.%d", tc.duration, os.Getpid())
 			policy := &landlockExecPolicy{
 				FilesystemRules: baseRules(),
 				Command:         sleep,
-				Args:            []string{tc.duration},
+				Args:            []string{duration},
 			}
 			cmd := exec.Command(buildPmgBinary(t), "__landlock_sandbox_exec",
 				"--policy-file", writePolicyFile(t, policy),
@@ -979,13 +984,13 @@ func TestLandlockHelper_TargetStopsWithHelper(t *testing.T) {
 				close(done)
 			}()
 			t.Cleanup(func() {
-				if pid := findProcess(t, sleep, tc.duration); pid != 0 {
+				if pid := findProcess(sleep, duration); pid != 0 {
 					_ = syscall.Kill(pid, syscall.SIGKILL)
 				}
 				_ = cmd.Process.Kill()
 			})
 
-			require.Eventually(t, func() bool { return findProcess(t, sleep, tc.duration) != 0 },
+			require.Eventually(t, func() bool { return findProcess(sleep, duration) != 0 },
 				10*time.Second, 50*time.Millisecond, "the target did not start")
 			tc.stop(t, cmd.Process)
 
@@ -994,7 +999,7 @@ func TestLandlockHelper_TargetStopsWithHelper(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				require.Fail(t, "the helper did not exit")
 			}
-			assert.Eventually(t, func() bool { return findProcess(t, sleep, tc.duration) == 0 },
+			assert.Eventually(t, func() bool { return findProcess(sleep, duration) == 0 },
 				5*time.Second, 50*time.Millisecond, "the target outlived the helper")
 		})
 	}

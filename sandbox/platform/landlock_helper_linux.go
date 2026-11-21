@@ -177,11 +177,19 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		attr.Cloneflags = cloneflags
 		// The target must not outlive the helper and its supervisor.
 		// Pdeathsig follows the thread that starts the shim, and the
-		// helper keeps its main goroutine locked to that thread.
+		// helper keeps its main goroutine locked to that thread. In a new
+		// PID namespace, the Go child sees getppid() == 0 and sends
+		// SIGKILL to itself as a parent-death check. The kernel drops that
+		// signal, because the child is the init of the namespace.
 		attr.Pdeathsig = syscall.SIGKILL
 		cmd.SysProcAttr = &attr
 		return cmd
 	}
+
+	// Signals queue from before the shim starts, so an early interrupt
+	// counts toward the second-signal kill below.
+	sigCh := make(chan os.Signal, 3)
+	signal.Notify(sigCh, unix.SIGINT, unix.SIGTERM, unix.SIGQUIT)
 
 	runtime.LockOSThread()
 	extraCloneFlags := landlockBuildCloneflags(policy)
@@ -250,8 +258,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		log.Warnf("close /proc/%d/mem: %v", childPID, err)
 	}
 
-	sigCh := make(chan os.Signal, 3)
-	signal.Notify(sigCh, unix.SIGINT, unix.SIGTERM, unix.SIGQUIT)
 	// The target is the init of its PID namespace, and the kernel drops a
 	// signal that init has no handler for. A second signal kills it, so an
 	// interrupt cannot leave the run waiting.
