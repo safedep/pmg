@@ -1,0 +1,65 @@
+# guarantee: on Linux, `pmg sandbox exec` stops the program when pmg gets an
+# interrupt or is killed. The program is the init of its PID namespace, and
+# the kernel drops a signal that init has no handler for. sleep has no
+# handler, so it stays running unless pmg stops it. The check for the
+# program runs before wait, and the program does not hold the output of
+# pmg, so a regression fails in seconds instead of hanging the suite.
+
+[!linux] skip
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
+[!exec:python3] skip
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+# An interrupt to pmg stops the program.
+exec python3 $WORK/target.py prep seconds
+! exec pmg sandbox exec -- sh -c 'exec sleep "$(cat seconds)" </dev/null >/dev/null 2>&1' &interrupted&
+exec python3 $WORK/target.py started seconds
+kill -INT interrupted
+exec python3 $WORK/target.py gone seconds
+wait interrupted
+
+# A kill of pmg stops the program too.
+exec python3 $WORK/target.py prep seconds
+! exec pmg sandbox exec -- sh -c 'exec sleep "$(cat seconds)" </dev/null >/dev/null 2>&1' &killed&
+exec python3 $WORK/target.py started seconds
+kill -KILL killed
+exec python3 $WORK/target.py gone seconds
+wait killed
+
+-- proj/.keep --
+-- target.py --
+import os, sys, time
+
+# A unique sleep length names the program in /proc without a PID file. The
+# program is PID 1 in its namespace, so it cannot report its host PID.
+mode, path = sys.argv[1], sys.argv[2]
+
+def running(seconds):
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open("/proc/%s/cmdline" % pid, "rb") as f:
+                args = f.read().split(b"\0")
+        except OSError:
+            continue
+        if len(args) >= 2 and os.path.basename(args[0]) == b"sleep" and args[1] == seconds.encode():
+            return True
+    return False
+
+if mode == "prep":
+    with open(path, "w") as f:
+        f.write("600.%d" % os.getpid())
+    sys.exit(0)
+
+seconds = open(path).read().strip()
+want = mode == "started"
+for _ in range(200):
+    if running(seconds) == want:
+        sys.exit(0)
+    time.sleep(0.05)
+sys.exit("sleep %s %s" % (seconds, "did not start" if want else "is still running"))

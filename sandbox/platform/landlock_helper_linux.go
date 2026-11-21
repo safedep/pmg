@@ -265,11 +265,11 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		forwarded := false
 		for sig := range sigCh {
 			if forwarded {
-				_ = cmd.Process.Kill()
+				warnSignalFailure(cmd.Process.Kill(), unix.SIGKILL)
 				continue
 			}
 			forwarded = true
-			_ = cmd.Process.Signal(sig)
+			warnSignalFailure(cmd.Process.Signal(sig), sig)
 		}
 	}()
 
@@ -430,5 +430,13 @@ func landlockSelectConfig(policy *landlockExecPolicy) landlock.Config {
 		return landlock.V2
 	default:
 		return landlock.V1
+	}
+}
+
+// warnSignalFailure logs a signal that did not reach the shim. A shim that
+// already exited needs no signal.
+func warnSignalFailure(err error, sig os.Signal) {
+	if err != nil && !errors.Is(err, os.ErrProcessDone) {
+		log.Warnf("sandbox: send %v to the sandboxed program: %v", sig, err)
 	}
 }
