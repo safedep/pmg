@@ -63,6 +63,18 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 			Wrap(fmt.Errorf("network_via_proxy_only is not yet supported on this platform (%s sandbox)", b.Name()))
 	}
 
+	socketPaths, err := policy.UnixConnectPaths()
+	if err != nil {
+		return nil, err
+	}
+	if len(socketPaths) > 0 {
+		return nil, usefulerror.NewUsefulError().
+			WithCode(errcodes.UnsupportedPlatform).
+			WithHumanError("network.allow_unix_connect is not supported by the bubblewrap sandbox").
+			WithHelp("Use the landlock sandbox driver, or remove network.allow_unix_connect from this profile. See docs/sandbox.md.").
+			Wrap(fmt.Errorf("network.allow_unix_connect is not supported (%s sandbox)", b.Name()))
+	}
+
 	bwrapPath, err := exec.LookPath("bwrap")
 	if err != nil {
 		return nil, usefulerror.NewUsefulError().

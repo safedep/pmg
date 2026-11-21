@@ -312,3 +312,31 @@ func TestBubblewrapSandboxEssentialBindMounts(t *testing.T) {
 	err = result.Close()
 	assert.NoError(t, err)
 }
+
+// Bubblewrap has no supervisor and no Landlock ruleset to check a socket
+// path, so a profile that lists sockets fails closed.
+func TestBubblewrapSandboxRefusesUnixConnect(t *testing.T) {
+	sb, err := newBubblewrapSandbox()
+	require.NoError(t, err)
+
+	policy := &sandbox.SandboxPolicy{
+		Name:            "test",
+		PackageManagers: []string{"test"},
+		Filesystem:      sandbox.FilesystemPolicy{AllowRead: []string{"/usr"}},
+		Network:         sandbox.NetworkPolicy{AllowUnixConnect: []string{"/run/a.sock"}},
+	}
+
+	_, err = sb.Execute(context.Background(), exec.Command("/bin/echo", "test"), policy, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "network.allow_unix_connect is not supported")
+
+	policy.AllowUnixSockets = utils.PtrTo(true)
+	result, err := sb.Execute(context.Background(), exec.Command("/bin/echo", "test"), policy, nil)
+	if !sb.IsAvailable() {
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "allow_unix_connect", "allow_unix_sockets makes the list moot")
+		return
+	}
+	require.NoError(t, err, "allow_unix_sockets makes the list moot")
+	require.NoError(t, result.Close())
+}

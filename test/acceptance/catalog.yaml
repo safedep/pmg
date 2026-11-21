@@ -245,6 +245,12 @@
   tier: P1
   guarantee: "`pmg sandbox exec -- <cmd>` passes stdout and the exit status through, and program flags pass without `--`."
   labels: [sandbox, exec, clean]
+- id: sandbox/exec/allows-listed-unix-socket
+  title: "sandbox exec opens only the unix sockets that a profile lists"
+  category: sandbox
+  tier: P0
+  guarantee: "Under `pmg sandbox exec`, a profile with network.allow_unix_connect connects to the listed socket, another unix socket stays closed, and Bubblewrap refuses the profile."
+  labels: [sandbox, exec, allow, offline]
 - id: sandbox/exec/allows-loopback-bind
   title: "sandbox exec runs with a net-bind value that pmg accepts"
   category: sandbox

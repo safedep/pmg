@@ -1,0 +1,89 @@
+# guarantee: a profile with network.allow_unix_connect opens the listed unix
+# socket under `pmg sandbox exec` and keeps every other unix socket closed.
+# Bubblewrap cannot check a socket path, so it refuses the profile.
+
+[!exec:python3] skip
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+exec python3 $WORK/sock.py listen &listener&
+exec python3 $WORK/sock.py wait
+
+[bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/bwrap.yml -- python3 $WORK/sock.py host.sock
+[bubblewrap] stderr 'network.allow_unix_connect is not supported'
+
+# AppArmor userns confinement refuses every host socket connect, so the
+# listed socket skips there.
+[!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[!bubblewrap] [!apparmor-userns] stdout '^OK$'
+
+[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py other.sock
+[!bubblewrap] stdout '^DENIED connect E(ACCES|PERM)$'
+
+kill listener
+
+-- proj/.keep --
+-- allow.yml --
+name: exec-one-socket
+inherits: exec
+package_managers: [exec]
+network:
+  allow_unix_connect:
+    - ${CWD}/host.sock
+-- bwrap.yml --
+name: exec-one-socket-bwrap
+inherits: exec
+package_managers: [exec]
+network_via_proxy_only: false
+network:
+  allow_unix_connect:
+    - ${CWD}/host.sock
+-- sock.py --
+import errno, os, signal, socket, sys, threading, time
+
+# Relative paths stay below the macOS sun_path limit.
+SOCKETS = ["host.sock", "other.sock"]
+
+def listen():
+    signal.signal(signal.SIGINT, lambda *_: os._exit(0))
+    signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
+    threading.Timer(120, lambda: os._exit(0)).start()
+    for path in SOCKETS:
+        s = socket.socket(socket.AF_UNIX)
+        s.bind(path)
+        s.listen(8)
+        threading.Thread(target=serve, args=(s,), daemon=True).start()
+    threading.Event().wait()
+
+def serve(s):
+    while True:
+        s.accept()[0].close()
+
+def wait():
+    for _ in range(100):
+        if all(os.path.exists(p) for p in SOCKETS):
+            return
+        time.sleep(0.1)
+    sys.exit("listener did not start")
+
+def connect(path):
+    stage = "socket"
+    try:
+        s = socket.socket(socket.AF_UNIX)
+        stage = "connect"
+        s.connect(path)
+    except OSError as e:
+        print("DENIED " + stage + " " + errno.errorcode.get(e.errno, str(e.errno)))
+        sys.exit(1)
+    print("OK")
+
+mode = sys.argv[1]
+if mode == "listen":
+    listen()
+elif mode == "wait":
+    wait()
+else:
+    connect(mode)

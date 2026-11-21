@@ -21,7 +21,7 @@ import (
 var landlockABILinePattern = regexp.MustCompile(`(?m)^abi: \d+ \(\w+\)$`)
 
 // landlockFeaturesLinePattern normalizes the features line for the same reason.
-var landlockFeaturesLinePattern = regexp.MustCompile(`(?m)^features: refer=\w+ truncate=\w+ network=\w+ ioctl_dev=\w+ scoping=\w+$`)
+var landlockFeaturesLinePattern = regexp.MustCompile(`(?m)^features: refer=\w+ truncate=\w+ network=\w+ ioctl_dev=\w+ scoping=\w+ resolve_unix=\w+$`)
 
 func normalizeLandlockOutput(t *testing.T, b []byte) []byte {
 	t.Helper()

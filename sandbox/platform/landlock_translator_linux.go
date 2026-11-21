@@ -34,16 +34,28 @@ type landlockExecPolicy struct {
 	Env              []string              `json:"env,omitempty"`
 }
 
-// landlockNetworkPolicy carries network_via_proxy_only confinement to the
-// seccomp supervisor. The zero value disables network enforcement entirely —
-// no syscall interception, no behavior change. ProxyPort is 0 when the
-// policy is rendered without a runtime proxy (profile show); the shim then
-// denies every non-loopback destination, which is the fail-closed render.
+// landlockNetworkPolicy carries network_via_proxy_only confinement and the
+// unix socket allow list to the shim and the seccomp supervisor. The zero
+// value intercepts no network syscall. ProxyPort is 0 when the policy is
+// rendered without a runtime proxy (profile show); the shim then denies
+// every non-loopback destination, which is the fail-closed render.
 type landlockNetworkPolicy struct {
 	Lockdown       bool   `json:"lockdown"`
 	ProxyPort      uint16 `json:"proxy_port,omitempty"`
 	AllowBind      bool   `json:"allow_bind,omitempty"`
 	AllowDirectDNS bool   `json:"allow_direct_dns,omitempty"`
+
+	// UnixConnect lists the unix sockets that a process may connect to.
+	// UnixConnectByKernel is true when Landlock checks each connect. The
+	// supervisor checks it otherwise.
+	UnixConnect         []string `json:"unix_connect,omitempty"`
+	UnixConnectByKernel bool     `json:"unix_connect_by_kernel,omitempty"`
+}
+
+// supervisesUnixConnect reports whether the supervisor must check each
+// unix socket connect against UnixConnect.
+func (n landlockNetworkPolicy) supervisesUnixConnect() bool {
+	return len(n.UnixConnect) > 0 && !n.UnixConnectByKernel
 }
 
 // landlockPathRule represents a single Landlock filesystem rule mapping a path
@@ -85,15 +97,17 @@ var (
 	landlockExecuteAccess = uint64(llsyscall.AccessFSExecute | llsyscall.AccessFSReadFile)
 )
 
-// landlockFileAccess is the set of Landlock access flags valid for regular files.
-// Matches the go-landlock library's accessFile constant. All other access flags
-// are directory-only and must be stripped when the rule targets a non-directory.
+// landlockFileAccess is the set of Landlock access flags valid for a
+// non-directory, such as a regular file or a socket. All other access flags
+// are directory-only and must be stripped when the rule targets a
+// non-directory.
 var landlockFileAccess = uint64(
 	llsyscall.AccessFSReadFile |
 		llsyscall.AccessFSWriteFile |
 		llsyscall.AccessFSExecute |
 		llsyscall.AccessFSTruncate |
-		llsyscall.AccessFSIoctlDev)
+		llsyscall.AccessFSIoctlDev |
+		llsyscall.AccessFSResolveUnix)
 
 // landlockAdjustAccessForPath stats the given path and strips directory-only
 // access flags when the path refers to a regular file. If the path does not
@@ -445,6 +459,22 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 	allowPTY := utils.SafelyGetValue(policy.AllowPTY)
 	ep.AllowPTY = allowPTY
 	ep.AllowUnixSockets = utils.SafelyGetValue(policy.AllowUnixSockets)
+	socketPaths, err := policy.UnixConnectPaths()
+	if err != nil {
+		return nil, err
+	}
+	ep.Network.UnixConnect = socketPaths
+	ep.Network.UnixConnectByKernel = len(socketPaths) > 0 && abi.HasResolveUnix
+	if ep.Network.UnixConnectByKernel {
+		// The rule binds the socket inode that exists when the shim starts.
+		// A socket that is missing then, or made again later, stays closed.
+		for _, path := range socketPaths {
+			ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
+				Path:   path,
+				Access: uint64(llsyscall.AccessFSResolveUnix),
+			})
+		}
+	}
 	if allowPTY {
 		ptyAccess := landlockReadAccess | writeAccess
 		if abi.HasIoctlDev {

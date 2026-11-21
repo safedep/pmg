@@ -333,13 +333,19 @@ These are the known holes in the current enforcement, in approximate priority or
   This bypasses `network_via_proxy_only`.
   glibc also uses it for DNS, normally on an already connected socket.
 - **`allow_unix_sockets` opens every unix socket.** The kernel filter cannot read a
-  socket path, so the choice is all or nothing. With the default, glibc NSS modules that
-  use a socket (systemd-resolved, nscd) fail and glibc falls back to files and DNS.
+  socket path. With the default, glibc NSS modules that use a socket (systemd-resolved,
+  nscd) fail and glibc falls back to files and DNS.
+- **Below Landlock ABI 9, the supervisor checks `network.allow_unix_connect`.** It reads the
+  socket path from process memory, resolves it in the view of the process and continues a
+  listed connect. A second thread can rewrite the path before the kernel reads it again, so
+  a hostile process can reach any unix socket. From ABI 9, Landlock checks each connect in
+  the kernel and this gap closes. From ABI 6, the kernel also blocks abstract sockets.
 - **`allow_network_bind` also opens loopback port 53.** The supervisor allows a connect to
   every loopback port under that flag. A loopback DNS resolver is then reachable without
   `allow_direct_dns`.
 - **TOCTOU on the sockaddr.** A second thread in the target can rewrite the address
   between the memory read of the supervisor and the `CONTINUE`d syscall in the kernel.
+  This applies to the unix socket allow list below ABI 9 too.
   This is the same class as the `openat` TOCTOU. It is adequate for benign install
   scripts. It is not a hardened defense against a determined escape.
 - **`bind(2)` and `listen(2)` are unrestricted.** This gap is older than lockdown. A

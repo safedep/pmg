@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/landlock-lsm/go-landlock/landlock"
+	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
 	"golang.org/x/sys/unix"
 )
 
@@ -42,9 +43,21 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 		return fmt.Errorf("shim: landlock restrict: %w", err)
 	}
 
+	// The allow list opens unix stream sockets. Abstract sockets have no
+	// path to list, so the kernel closes those from outside the sandbox.
+	// Below ABI 6 the supervisor refuses them.
+	unixConnect := len(policy.Network.UnixConnect) > 0
+	if unixConnect {
+		scope := landlock.MustConfig(landlock.ScopedSet(llsyscall.ScopeAbstractUnixSocket))
+		if err := scope.BestEffort().RestrictScoped(); err != nil {
+			return fmt.Errorf("shim: landlock scope: %w", err)
+		}
+	}
+
 	filter := buildSeccompFilter(seccompFilterSpec{
-		Notify:           landlockNotifySyscalls(policy.Network, len(policy.DenyPaths) > 0),
-		AllowUnixSockets: policy.AllowUnixSockets,
+		Notify:            landlockNotifySyscalls(policy.Network, len(policy.DenyPaths) > 0),
+		AllowUnixSockets:  policy.AllowUnixSockets,
+		UnixStreamSockets: unixConnect,
 	})
 	notifyFd, err := installSeccompFilter(filter, unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
 	if err != nil {

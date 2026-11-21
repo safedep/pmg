@@ -156,3 +156,16 @@ func TestExpandPolicyPathsIsolatesBoolPointers(t *testing.T) {
 		assert.Equal(t, *f.source, *f.resolved, f.name)
 	}
 }
+
+func TestExpandPolicyPathsExpandsUnixConnect(t *testing.T) {
+	source := &SandboxPolicy{
+		Name:    "unix-connect",
+		Network: NetworkPolicy{AllowUnixConnect: []string{"${HOME}/a.sock", "${CWD}/b.sock"}},
+	}
+
+	resolved, err := expandPolicyPaths(source, ResolveOptions{CWD: "/x", Home: "/y"})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"/y/a.sock", "/x/b.sock"}, resolved.Network.AllowUnixConnect)
+	assert.Equal(t, []string{"${HOME}/a.sock", "${CWD}/b.sock"}, source.Network.AllowUnixConnect)
+}

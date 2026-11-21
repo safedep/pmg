@@ -979,8 +979,47 @@ func TestTranslateNetworkUnixSockets(t *testing.T) {
 				assert.Greater(t, strings.Index(out, unixAllow), lockdownDeny)
 			},
 		},
+		{
+			name: "allow_unix_connect opens each path in both forms after the deny",
+			mutate: func(p *sandbox.SandboxPolicy) {
+				p.Network.AllowUnixConnect = []string{"/var/db/safedep/gryph/hook.sock"}
+			},
+			assert: func(t *testing.T, out string) {
+				assert.NotContains(t, out, unixAllow)
+				for _, path := range []string{"/var/db/safedep/gryph/hook.sock", "/private/var/db/safedep/gryph/hook.sock"} {
+					allow := `(allow network-outbound (remote unix-socket (path-literal "` + path + `")))`
+					assert.Contains(t, out, allow)
+					assert.Greater(t, strings.Index(out, allow), strings.Index(out, unixDeny), "SBPL is last-match-wins")
+				}
+			},
+		},
+		{
+			name: "allow_unix_connect under lockdown opens the path after the deny",
+			mutate: func(p *sandbox.SandboxPolicy) {
+				p.NetworkViaProxyOnly = utils.PtrTo(true)
+				p.Network.AllowUnixConnect = []string{"${HOME}/agent.sock"}
+			},
+			assert: func(t *testing.T, out string) {
+				lockdownDeny := strings.Index(out, `|target=direct"))`)
+				require.GreaterOrEqual(t, lockdownDeny, 0)
+				allow := `(allow network-outbound (remote unix-socket (path-literal "/Users/dev/agent.sock")))`
+				assert.Greater(t, strings.Index(out, allow), lockdownDeny)
+			},
+		},
+		{
+			name: "allow_unix_sockets makes allow_unix_connect moot",
+			mutate: func(p *sandbox.SandboxPolicy) {
+				p.AllowUnixSockets = utils.PtrTo(true)
+				p.Network.AllowUnixConnect = []string{"/var/run/a.sock"}
+			},
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, unixAllow)
+				assert.NotContains(t, out, `(path-literal "/var/run/a.sock")`)
+			},
+		},
 	}
 
+	t.Setenv("HOME", "/Users/dev")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			policy := &sandbox.SandboxPolicy{

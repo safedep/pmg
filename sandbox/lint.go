@@ -80,6 +80,7 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		{"network.allow_outbound", policy.Network.AllowOutbound, false},
 		{"network.deny_outbound", policy.Network.DenyOutbound, false},
 		{"network.allow_bind", policy.Network.AllowBind, false},
+		{"network.allow_unix_connect", policy.Network.AllowUnixConnect, false},
 		{"process.allow_exec", policy.Process.AllowExec, true},
 		{"process.deny_exec", policy.Process.DenyExec, false},
 	}
@@ -159,6 +160,15 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 			Code:    "allow-direct-dns-without-lockdown",
 			Message: "allow_direct_dns has no effect unless network_via_proxy_only is true",
 			Field:   "allow_direct_dns",
+		})
+	}
+
+	if utils.SafelyGetValue(policy.AllowUnixSockets) && len(policy.Network.AllowUnixConnect) > 0 {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-unix-connect-with-allow-unix-sockets",
+			Message: "network.allow_unix_connect has no effect because allow_unix_sockets opens every unix socket",
+			Field:   "network.allow_unix_connect",
 		})
 	}
 

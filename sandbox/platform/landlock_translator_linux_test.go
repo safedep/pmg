@@ -893,3 +893,45 @@ func TestLandlockTranslatePolicyFailsClosedWithoutHome(t *testing.T) {
 	_, err := landlockTranslatePolicy(&sandbox.SandboxPolicy{}, newLandlockABI(3), nil)
 	assert.ErrorIs(t, err, assert.AnError)
 }
+
+func TestLandlockTranslatePolicy_UnixConnect(t *testing.T) {
+	const socket = "/run/safedep/gryph/hook.sock"
+	tests := []struct {
+		name             string
+		abi              int
+		allowUnixSockets *bool
+		wantPaths        []string
+		wantKernel       bool
+	}{
+		{name: "supervisor checks below ABI 9", abi: 7, wantPaths: []string{socket}},
+		{name: "kernel checks from ABI 9", abi: 9, wantPaths: []string{socket}, wantKernel: true},
+		{name: "allow_unix_sockets opens every socket", abi: 9, allowUnixSockets: utils.PtrTo(true)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := newTestPolicy()
+			policy.Filesystem.AllowRead = []string{"/tmp"}
+			policy.AllowUnixSockets = tc.allowUnixSockets
+			policy.Network.AllowUnixConnect = []string{socket}
+
+			ep, err := landlockTranslatePolicy(policy, newLandlockABI(tc.abi), nil)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.wantPaths, ep.Network.UnixConnect)
+			assert.Equal(t, tc.wantKernel, ep.Network.UnixConnectByKernel)
+			rule := findRule(ep.FilesystemRules, socket)
+			if !tc.wantKernel {
+				assert.Nil(t, rule)
+				return
+			}
+			require.NotNil(t, rule)
+			assert.Equal(t, uint64(llsyscall.AccessFSResolveUnix), rule.Access)
+
+			cfg := landlockSelectConfig(ep)
+			assert.NotZero(t, uint64(cfg.HandledAccessFS)&uint64(llsyscall.AccessFSResolveUnix), "the ruleset must handle resolve-unix")
+			assert.Equal(t, uint64(landlockSelectBaseConfig(ep).HandledAccessFS)|uint64(llsyscall.AccessFSResolveUnix), uint64(cfg.HandledAccessFS),
+				"resolve-unix must not handle the rights of the ABIs between")
+		})
+	}
+}

@@ -435,3 +435,37 @@ network:
 	assert.Equal(t, "filesystem.allow_read[0]", conflicts[0].Field)
 	assert.Contains(t, conflicts[0].Message, "a parent profile denies the rule")
 }
+
+func TestLintProfile_AllowUnixConnect(t *testing.T) {
+	tests := []struct {
+		name             string
+		allowUnixSockets *bool
+		entries          []string
+		want             []string
+		notWant          []string
+	}{
+		{name: "with allow_unix_sockets warns", allowUnixSockets: utils.PtrTo(true), entries: []string{"/run/a.sock"}, want: []string{"allow-unix-connect-with-allow-unix-sockets"}},
+		{name: "alone is clean", entries: []string{"/run/a.sock"}, notWant: []string{"allow-unix-connect-with-allow-unix-sockets", "vars.unresolved"}},
+		{name: "an unknown variable warns", entries: []string{"${USER}/a.sock"}, want: []string{"vars.unresolved"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := cleanPolicy()
+			policy.AllowUnixSockets = tc.allowUnixSockets
+			policy.Network.AllowUnixConnect = tc.entries
+
+			var codes []string
+			for _, i := range LintProfile(policy) {
+				codes = append(codes, i.Code)
+			}
+
+			for _, code := range tc.want {
+				assert.Contains(t, codes, code)
+			}
+			for _, code := range tc.notWant {
+				assert.NotContains(t, codes, code)
+			}
+		})
+	}
+}

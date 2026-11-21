@@ -32,16 +32,5 @@ func GetTmpdirParent() []string {
 	parent := strings.TrimSuffix(tmpdir, "/")
 	parent = strings.TrimSuffix(parent, "/T")
 
-	// Return both /var/ and /private/var/ versions
-	if strings.HasPrefix(parent, "/private/var/") {
-		// Already has /private prefix
-		withoutPrivate := strings.Replace(parent, "/private", "", 1)
-		return []string{parent, withoutPrivate}
-	} else if strings.HasPrefix(parent, "/var/") {
-		// Missing /private prefix
-		withPrivate := "/private" + parent
-		return []string{parent, withPrivate}
-	}
-
-	return []string{parent}
+	return DarwinPathAliases(parent)
 }

@@ -49,7 +49,7 @@ such as `.claude`, `.cursor`, `.devcontainer`, `.idea` and `.husky`.
   Each variable takes its default when its value is unset, empty or relative. It also takes its default, with a diagnostic warning visible through `--debug` or `--log <file>`, when its value is `/`, `$HOME`, a parent of `$HOME` or a glob pattern. Under `global_lockdown`, each variable always takes its default.
 
   The XDG spec treats an empty or relative value as unset, so the package manager also uses the default, and the rule matches its path. For `/`, `$HOME`, a parent of `$HOME` and a glob, PMG expands its rule to the default, but the package manager itself still writes to the value. The sandbox denies those writes, and the warning names the variable.
-- **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. Set `allow_unix_sockets: true` in a profile to open them. See [Unix Sockets](#unix-sockets).
+- **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. List the sockets that a process may connect to in `network.allow_unix_connect`, or set `allow_unix_sockets: true` to open all of them. See [Unix Sockets](#unix-sockets).
 - **Dangerous syscalls are blocked on Linux**: The kernel refuses nested namespaces, ptrace, `bpf`, `io_uring`, mounts, kernel modules and a few more on both Linux drivers. See [sandbox-landlock.md](sandbox-landlock.md).
 - **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Seatbelt and Bubblewrap turn the network off for a profile with no `allow_outbound` rule. Landlock does not confine the network without `network_via_proxy_only`. With `network_via_proxy_only`, Seatbelt and Landlock send direct traffic only to the PMG proxy. The loopback, DNS and Unix socket settings and the Landlock gaps leave other paths open, see [Platform-Specific Limitations](#platform-specific-limitations). Bubblewrap refuses that setting. The PMG proxy applies the host and port rules, see [Network rules](#network-rules).
 
@@ -159,14 +159,41 @@ Docker daemon gives root. So every built-in profile blocks unix socket connectio
   Under `network_via_proxy_only`, it opens only with `allow_direct_dns: true`.
 
 Tools that need a socket fail. Examples are `git` over SSH, `git+ssh` dependencies and the Docker
-CLI. Use HTTPS remotes, or a custom profile that sets `allow_unix_sockets: true`. A preset cannot
-set it. With `network_via_proxy_only`, `allow_unix_sockets` lets traffic go around the proxy
-through a host socket, and `pmg sandbox profile lint` warns about it.
+CLI. Use HTTPS remotes, or a custom profile that opens the socket. A preset cannot open a socket.
+
+To open specific sockets, list their exact paths in `network.allow_unix_connect`. All other unix
+sockets stay blocked:
+
+```yaml
+name: agent
+inherits: exec
+network:
+  allow_unix_connect:
+    - /run/safedep/gryph/hook.sock
+    - ${HOME}/.example/agent.sock
+```
+
+- An entry is an absolute path or starts with a variable. It cannot be a glob or an abstract
+  socket name. Lists merge by union, like the other lists.
+- The list allows connect only. Abstract sockets stay blocked.
+- macOS: Seatbelt allows each path, in both its `/var` and `/private/var` forms.
+- Linux, Landlock driver: the kernel allows `socket(AF_UNIX, SOCK_STREAM)`. Datagram and seqpacket
+  unix sockets stay blocked. On a kernel with Landlock ABI 9 or later, Landlock checks each connect.
+  The socket must exist when the sandbox starts, and a socket that its server makes again later
+  stays blocked. On an older kernel, the PMG supervisor checks each connect. A hostile process can
+  defeat that check, see [Network lockdown gaps](sandbox-landlock.md#network-lockdown-gaps).
+  `pmg sandbox profile show <name> --driver landlock` prints which one checks the list.
+- Linux, Bubblewrap driver: PMG refuses a profile with this list.
+
+`allow_unix_sockets: true` opens every unix socket, and the list then has no effect. With
+`network_via_proxy_only`, `allow_unix_sockets` lets traffic go around the proxy through a host
+socket, and `pmg sandbox profile lint` warns about it. A listed socket is also a way around the
+proxy, so list only the sockets that a program needs.
 
 Ubuntu 24.04 and later restrict unprivileged user namespaces with AppArmor by default.
 Ubuntu 23.10 does the same when `kernel.apparmor_restrict_unprivileged_userns` is 1.
 Under this restriction, AppArmor refuses a connect to a host socket from the Landlock driver's
-user namespace. The refusal also applies when the sandbox profile sets `allow_unix_sockets: true`. Install the pmg AppArmor profile
+user namespace. The refusal also applies to a socket that the profile opens. Install the pmg AppArmor profile
 described in [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
 to lift that restriction for pmg.
 

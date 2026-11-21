@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/safedep/dry/utils"
@@ -79,11 +80,16 @@ type FilesystemPolicy struct {
 }
 
 // NetworkPolicy defines allowed and denied network access patterns.
-// Patterns are in the format "host:port" or "*:*" for wildcards.
+// Outbound patterns are in the format "host:port" or "*:*" for wildcards.
 type NetworkPolicy struct {
 	AllowOutbound []string `yaml:"allow_outbound" json:"allow_outbound"`
 	DenyOutbound  []string `yaml:"deny_outbound" json:"deny_outbound"`
 	AllowBind     []string `yaml:"allow_bind" json:"allow_bind"`
+
+	// AllowUnixConnect lists the exact paths of the unix sockets that a
+	// process may connect to. Other unix sockets stay closed. No effect
+	// when allow_unix_sockets opens every unix socket.
+	AllowUnixConnect []string `yaml:"allow_unix_connect,omitempty" json:"allow_unix_connect,omitempty"`
 
 	// DenyIPLiterals denies an IP literal, an address and not a name,
 	// unless an allow rule names that exact address. An allow list of
@@ -124,6 +130,55 @@ func (p *SandboxPolicy) Validate() error {
 		}
 	}
 
+	for _, entry := range p.Network.AllowUnixConnect {
+		if err := validateUnixSocketPath(entry); err != nil {
+			return fmt.Errorf("network.allow_unix_connect: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// UnixConnectPaths returns the expanded socket paths of
+// network.allow_unix_connect for a driver to enforce. It returns nil when
+// allow_unix_sockets opens every unix socket, so a driver checks the list
+// only when the list decides.
+func (p *SandboxPolicy) UnixConnectPaths() ([]string, error) {
+	if utils.SafelyGetValue(p.AllowUnixSockets) {
+		return nil, nil
+	}
+
+	var paths []string
+	for _, entry := range p.Network.AllowUnixConnect {
+		path, err := util.ExpandVariables(entry)
+		if err != nil {
+			return nil, fmt.Errorf("network.allow_unix_connect: %w", err)
+		}
+		if !filepath.IsAbs(path) {
+			return nil, fmt.Errorf("network.allow_unix_connect: %q expands to %q, which is not absolute", entry, path)
+		}
+		if err := validateUnixSocketPath(path); err != nil {
+			return nil, fmt.Errorf("network.allow_unix_connect: %w", err)
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
+}
+
+// validateUnixSocketPath accepts an exact pathname socket, absolute or
+// rooted in a variable. A glob cannot name one inode for the kernel to
+// check. Seatbelt string literals carry no escapes, so a quote or a
+// backslash could change the rule.
+func validateUnixSocketPath(path string) error {
+	if !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "${") {
+		return fmt.Errorf("%q: must be an absolute path or start with a variable", path)
+	}
+	if strings.ContainsAny(path, "*?[") {
+		return fmt.Errorf("%q: must be an exact path, not a glob", path)
+	}
+	if strings.ContainsAny(path, "\"\\\x00\n\r") {
+		return fmt.Errorf("%q: must not contain a quote, a backslash or a control character", path)
+	}
 	return nil
 }
 
@@ -198,6 +253,7 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 	child.Network.AllowOutbound = unionStringSlices(parent.Network.AllowOutbound, child.Network.AllowOutbound)
 	child.Network.DenyOutbound = unionStringSlices(parent.Network.DenyOutbound, child.Network.DenyOutbound)
 	child.Network.AllowBind = unionStringSlices(parent.Network.AllowBind, child.Network.AllowBind)
+	child.Network.AllowUnixConnect = unionStringSlices(parent.Network.AllowUnixConnect, child.Network.AllowUnixConnect)
 	if child.Network.DenyIPLiterals == nil {
 		child.Network.DenyIPLiterals = utils.PtrTo(utils.SafelyGetValue(parent.Network.DenyIPLiterals))
 	}

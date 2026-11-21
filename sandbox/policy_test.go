@@ -5,6 +5,7 @@ import (
 
 	"github.com/safedep/dry/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnionStringSlices(t *testing.T) {
@@ -88,8 +89,9 @@ func TestMergeWithParent(t *testing.T) {
 					DenyWrite:  []string{"/etc/**"},
 				},
 				Network: NetworkPolicy{
-					AllowOutbound: []string{"registry.npmjs.org:443"},
-					DenyOutbound:  []string{"*:*"},
+					AllowOutbound:    []string{"registry.npmjs.org:443"},
+					DenyOutbound:     []string{"*:*"},
+					AllowUnixConnect: []string{"/run/a.sock"},
 				},
 				Process: ProcessPolicy{
 					AllowExec: []string{"/usr/bin/node"},
@@ -109,8 +111,9 @@ func TestMergeWithParent(t *testing.T) {
 					DenyWrite:  []string{"/usr/**"},
 				},
 				Network: NetworkPolicy{
-					AllowOutbound: []string{"github.com:443"},
-					DenyOutbound:  []string{},
+					AllowOutbound:    []string{"github.com:443"},
+					DenyOutbound:     []string{},
+					AllowUnixConnect: []string{"/run/b.sock", "/run/a.sock"},
 				},
 				Process: ProcessPolicy{
 					AllowExec: []string{"/usr/bin/git"},
@@ -138,6 +141,7 @@ func TestMergeWithParent(t *testing.T) {
 				// Test network lists are unioned
 				assert.ElementsMatch(t, []string{"registry.npmjs.org:443", "github.com:443"}, child.Network.AllowOutbound)
 				assert.ElementsMatch(t, []string{"*:*"}, child.Network.DenyOutbound)
+				assert.Equal(t, []string{"/run/a.sock", "/run/b.sock"}, child.Network.AllowUnixConnect)
 
 				// Test process lists are unioned
 				assert.ElementsMatch(t, []string{"/usr/bin/node", "/usr/bin/git"}, child.Process.AllowExec)
@@ -209,6 +213,34 @@ func TestValidate(t *testing.T) {
 				Name:    "test",
 				Network: NetworkPolicy{AllowBind: []string{"192.168.1.5:3000"}},
 			},
+			expectErr: true,
+		},
+		{
+			name: "absolute and variable unix socket paths are valid",
+			policy: &SandboxPolicy{
+				Name:    "test",
+				Network: NetworkPolicy{AllowUnixConnect: []string{"/run/safedep/gryph/hook.sock", "${HOME}/.agent.sock"}},
+			},
+			expectErr: false,
+		},
+		{
+			name:      "a relative unix socket path is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{"run/a.sock"}}},
+			expectErr: true,
+		},
+		{
+			name:      "an abstract unix socket name is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{"@dbus"}}},
+			expectErr: true,
+		},
+		{
+			name:      "a unix socket glob is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{"/run/*.sock"}}},
+			expectErr: true,
+		},
+		{
+			name:      "a quote in a unix socket path is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{`/run/a")) (allow default`}}},
 			expectErr: true,
 		},
 		{
@@ -436,6 +468,36 @@ func TestMergeWithParentDenyIPLiterals(t *testing.T) {
 
 			assert.NotNil(t, child.Network.DenyIPLiterals)
 			assert.Equal(t, tt.expected, *child.Network.DenyIPLiterals)
+		})
+	}
+}
+
+func TestUnixConnectPaths(t *testing.T) {
+	tests := []struct {
+		name             string
+		home             string
+		allowUnixSockets *bool
+		entries          []string
+		want             []string
+		wantErr          bool
+	}{
+		{name: "no entries", home: "/home/dev", want: nil},
+		{name: "expands variables", home: "/home/dev", entries: []string{"/run/a.sock", "${HOME}/.b.sock"}, want: []string{"/run/a.sock", "/home/dev/.b.sock"}},
+		{name: "allow_unix_sockets opens every socket", home: "/home/dev", allowUnixSockets: utils.PtrTo(true), entries: []string{"/run/a.sock"}, want: nil},
+		{name: "a variable that expands to a relative path fails", home: "relative", entries: []string{"${HOME}/a.sock"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", tt.home)
+			policy := &SandboxPolicy{AllowUnixSockets: tt.allowUnixSockets, Network: NetworkPolicy{AllowUnixConnect: tt.entries}}
+			got, err := policy.UnixConnectPaths()
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
