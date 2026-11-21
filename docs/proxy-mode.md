@@ -181,6 +181,12 @@ With SafeDep Cloud credentials, PMG also needs `api.safedep.io:443`, or the addr
 Analyzer failures appear in diagnostic logs, not an install warning.
 Use `pmg --debug npm install` or `pmg --log pmg-debug.log npm install` to inspect them.
 
+The proxy daemon connects to these hosts directly.
+Another pmg process, such as `pmg cloud sync`, connects through the persistent proxy when the proxy variables are set.
+The network profile of that proxy must then allow these hosts.
+The built-in `github-actions` profile allows `community-api.safedep.io:443`, `api.safedep.io:443` and `cloud.safedep.io:443`.
+When `SAFEDEP_CLOUD_DATA_ADDR` names another address, the profile must allow that address.
+
 `PMG_INSECURE_INSTALLATION=true` bypasses malware analysis and unresolved-identity blocking.
 It does not disable cooldown or network policy.
 A concrete artifact handled by the insecure bypass emits an insecure-bypass audit event.
