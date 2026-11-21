@@ -336,7 +336,8 @@ These are the known holes in the current enforcement, in approximate priority or
   socket path. With the default, glibc NSS modules that use a socket (systemd-resolved,
   nscd) fail and glibc falls back to files and DNS.
 - **`network.allow_unix_connect` needs Landlock ABI 9.** Landlock checks each connect in the
-  kernel there. Below ABI 9 PMG refuses a profile with the list. PMG leaves an entry closed when a
+  kernel there. Below ABI 9 PMG refuses a profile with the list, unless the profile sets
+  `network.allow_unix_connect_without_kernel_check`. PMG leaves an entry closed when a
   write rule covers a name on the way to the socket, because the supervisor deny on that name can
   be raced.
 - **`network.allow_unix_connect_without_kernel_check` accepts a race below ABI 9.** The

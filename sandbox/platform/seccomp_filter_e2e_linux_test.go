@@ -259,7 +259,9 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 		{name: "supervisor under lockdown", lockdown: true, tcpWant: "DENIED ECONNREFUSED"},
 	}
 	if abi.HasResolveUnix {
-		modes = append(modes, mode{name: "kernel", kernel: true, tcpWant: "OK"})
+		modes = append(modes,
+			mode{name: "kernel", kernel: true, tcpWant: "OK"},
+			mode{name: "kernel under lockdown", kernel: true, lockdown: true, tcpWant: "DENIED ECONNREFUSED"})
 	}
 
 	// The child holds no capability in the network namespace, so a port
@@ -372,58 +374,82 @@ func acceptAndClose(t *testing.T, l net.Listener) {
 
 // A listed socket that its server removes frees its inode number, and the
 // file system can give that number to the next socket. The supervisor
-// matches on the number, so it must keep the listed inode in use.
+// matches on the number, and the Landlock rule names the inode, so each
+// must keep the listed inode in use.
 func TestLandlockHelper_UnixConnectRefusesReusedInode(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
 	}
-	if _, err := landlockDetectABI(); err != nil {
+	abi, err := landlockDetectABI()
+	if err != nil {
 		t.Skipf("Landlock not available: %v", err)
 	}
 
-	dir := t.TempDir()
-	python, probes := seccompProbeTargets(t, dir)
-	victim := filepath.Join(dir, "victim.sock")
-	fresh := filepath.Join(dir, "fresh.sock")
-	victimListener, err := net.Listen("unix", victim)
-	require.NoError(t, err)
-
-	policy := &landlockExecPolicy{
-		FilesystemRules:  append(baseRules(), landlockPathRule{Path: dir, Access: landlockRuleReadExec | landlockWriteAccessBase}),
-		Network:          landlockNetworkPolicy{UnixConnect: []string{victim}},
-		SkipPIDNamespace: true,
-		SkipIPCNamespace: true,
-		Command:          python,
-		Args:             []string{probes[0].args[0], "unix_after", dir, fresh},
+	modes := []struct {
+		name   string
+		kernel bool
+	}{{name: "supervisor"}}
+	if abi.HasResolveUnix {
+		modes = append(modes, struct {
+			name   string
+			kernel bool
+		}{name: "kernel", kernel: true})
 	}
-	type result struct {
-		stdout, stderr string
-		exit           int
+
+	for _, m := range modes {
+		t.Run(m.name, func(t *testing.T) {
+			dir := t.TempDir()
+			python, probes := seccompProbeTargets(t, dir)
+			victim := filepath.Join(dir, "victim.sock")
+			fresh := filepath.Join(dir, "fresh.sock")
+			victimListener, err := net.Listen("unix", victim)
+			require.NoError(t, err)
+
+			rules := append(baseRules(), landlockPathRule{Path: dir, Access: landlockRuleReadExec | landlockWriteAccessBase})
+			if m.kernel {
+				rules = append(rules, landlockPathRule{Path: victim, Access: uint64(llsyscall.AccessFSResolveUnix)})
+			}
+			policy := &landlockExecPolicy{
+				FilesystemRules: rules,
+				Network: landlockNetworkPolicy{
+					UnixConnect:         []string{victim},
+					UnixConnectByKernel: m.kernel,
+				},
+				SkipPIDNamespace: true,
+				SkipIPCNamespace: true,
+				Command:          python,
+				Args:             []string{probes[0].args[0], "unix_after", dir, fresh},
+			}
+			type result struct {
+				stdout, stderr string
+				exit           int
+			}
+			done := make(chan result, 1)
+			go func() {
+				stdout, stderr, exit := runHelper(t, writePolicyFile(t, policy))
+				done <- result{stdout, stderr, exit}
+			}()
+
+			require.Eventually(t, func() bool {
+				_, err := os.Stat(filepath.Join(dir, "ready"))
+				return err == nil
+			}, 30*time.Second, 20*time.Millisecond, "the target did not start")
+
+			var before syscall.Stat_t
+			require.NoError(t, syscall.Stat(victim, &before))
+			require.NoError(t, victimListener.Close())
+			freshListener, err := net.Listen("unix", fresh)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, freshListener.Close()) })
+			go acceptAndClose(t, freshListener)
+			var after syscall.Stat_t
+			require.NoError(t, syscall.Stat(fresh, &after))
+			t.Logf("victim inode %d, fresh inode %d", before.Ino, after.Ino)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "go"), nil, 0o600))
+
+			r := <-done
+			require.Equal(t, 0, r.exit, "stdout=%q stderr=%q", r.stdout, r.stderr)
+			assert.Equal(t, "DENIED EACCES", probeResult(r.stdout))
+		})
 	}
-	done := make(chan result, 1)
-	go func() {
-		stdout, stderr, exit := runHelper(t, writePolicyFile(t, policy))
-		done <- result{stdout, stderr, exit}
-	}()
-
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(filepath.Join(dir, "ready"))
-		return err == nil
-	}, 30*time.Second, 20*time.Millisecond, "the target did not start")
-
-	var before syscall.Stat_t
-	require.NoError(t, syscall.Stat(victim, &before))
-	require.NoError(t, victimListener.Close())
-	freshListener, err := net.Listen("unix", fresh)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, freshListener.Close()) })
-	go acceptAndClose(t, freshListener)
-	var after syscall.Stat_t
-	require.NoError(t, syscall.Stat(fresh, &after))
-	t.Logf("victim inode %d, fresh inode %d", before.Ino, after.Ino)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "go"), nil, 0o600))
-
-	r := <-done
-	require.Equal(t, 0, r.exit, "stdout=%q stderr=%q", r.stdout, r.stderr)
-	assert.Equal(t, "DENIED EACCES", probeResult(r.stdout))
 }

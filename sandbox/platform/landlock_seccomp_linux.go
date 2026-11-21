@@ -134,7 +134,8 @@ func landlockWriteAuditEvent(w io.Writer, evt auditEvent) error {
 // deny rules exist. connect, sendto and sendmsg go under network lockdown.
 // connect alone goes when the supervisor checks the unix socket allow list,
 // because a stream socket sends nothing to a path without connect. sendmmsg
-// does not go. See docs/sandbox-landlock.md.
+// does not go. bind and listen go under the unix socket allow list. See
+// docs/sandbox-landlock.md.
 func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) []uint32 {
 	syscalls := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
 	if interceptPaths {
@@ -361,9 +362,13 @@ func (p pinnedSockets) contains(socket socketInode) bool {
 
 func (p pinnedSockets) close() {
 	for _, fd := range p.fds {
-		if err := unix.Close(fd); err != nil {
-			log.Warnf("close pinned socket: %v", err)
-		}
+		closePinnedFd(fd)
+	}
+}
+
+func closePinnedFd(fd int) {
+	if err := unix.Close(fd); err != nil {
+		log.Warnf("close pinned socket: %v", err)
 	}
 }
 
@@ -375,12 +380,12 @@ func pinSocket(path string) (socketInode, int, error) {
 	}
 	var st unix.Stat_t
 	if err := unix.Fstat(fd, &st); err != nil {
-		_ = unix.Close(fd)
+		closePinnedFd(fd)
 		return socketInode{}, -1, err
 	}
 	socket, err := socketInodeOf(&st, path)
 	if err != nil {
-		_ = unix.Close(fd)
+		closePinnedFd(fd)
 		return socketInode{}, -1, err
 	}
 	return socket, fd, nil
@@ -701,9 +706,11 @@ func readNetPeer(memFd *os.File, addrPtr, addrLen uint64) (netPeer, error) {
 		peer.addr = netip.AddrFrom16(addr).Unmap()
 	case unix.AF_UNIX:
 		// The kernel reads sun_path up to addrLen, and a NUL ends the name.
-		// A first byte of NUL names an abstract socket.
+		// A first byte of NUL names an abstract socket. An address without a
+		// name has no path, so the supervisor refuses it and the kernel
+		// gives EINVAL when the supervisor does not check the list.
 		if addrLen <= 2 {
-			return peer, fmt.Errorf("%w: AF_UNIX needs a name, got %d", errShortSockaddr, addrLen)
+			return peer, nil
 		}
 		buf := make([]byte, min(addrLen, uint64(unix.SizeofSockaddrUnix)))
 		if _, err := memFd.ReadAt(buf, int64(addrPtr)); err != nil {

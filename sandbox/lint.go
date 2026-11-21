@@ -177,7 +177,7 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		warns = append(warns, LintIssue{
 			Level:   LintLevelWarn,
 			Code:    "allow-unix-connect-without-kernel-check",
-			Message: "on Linux below Landlock ABI 9 the supervisor checks network.allow_unix_connect, and a hostile process can race the check to reach any unix socket",
+			Message: "on Linux below Landlock ABI 9 the supervisor checks network.allow_unix_connect, and a hostile process can race the check to reach any unix socket. Bubblewrap refuses the list, and an entry stays closed when a write rule covers its path",
 			Field:   "network.allow_unix_connect_without_kernel_check",
 		})
 	}

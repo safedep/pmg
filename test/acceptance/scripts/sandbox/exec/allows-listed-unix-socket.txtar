@@ -2,7 +2,8 @@
 # socket under `pmg sandbox exec` and keeps every other unix socket closed.
 # A run cannot replace a name on the way to the socket. Bubblewrap cannot
 # check a socket path, so it refuses the profile. The Landlock driver
-# refuses it below Landlock ABI 9, and from ABI 9 it leaves closed an entry
+# refuses it below Landlock ABI 9, unless the profile sets
+# network.allow_unix_connect_without_kernel_check. It leaves closed an entry
 # that a write rule could replace.
 
 [!exec:python3] skip
@@ -30,6 +31,15 @@ exec python3 $WORK/sock.py wait
 [linux] [!bubblewrap] [!landlock-unix-connect] stderr 'leaves .*/host.sock closed'
 [linux] [!bubblewrap] [!landlock-unix-connect] ! stderr 'needs Landlock ABI 9'
 [linux] [!bubblewrap] [!landlock-unix-connect] stdout '^DENIED (socket|connect) E(ACCES|PERM)$'
+
+# A profile that cannot write the project keeps host.sock open. Below
+# Landlock ABI 9 the supervisor checks the list and pmg warns about the race.
+[linux] [!bubblewrap] exec pmg sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py host.sock
+[linux] [!bubblewrap] stdout '^OK host$'
+[linux] [!bubblewrap] [!landlock-unix-connect] stderr 'The supervisor checks it'
+[landlock-unix-connect] ! stderr 'The supervisor checks it'
+[linux] [!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py other.sock
+[linux] [!bubblewrap] stdout '^DENIED connect E(ACCES|PERM)$'
 
 # Linux from Landlock ABI 9: host.sock is in the project, which the exec
 # profile can write, so a run could replace it. The entry stays closed.
@@ -88,6 +98,20 @@ network:
 name: exec-one-socket-race
 inherits: exec
 package_managers: [exec]
+network:
+  allow_unix_connect:
+    - ${CWD}/host.sock
+  allow_unix_connect_without_kernel_check: true
+-- sup.yml --
+name: exec-one-socket-supervised
+package_managers: [exec]
+filesystem:
+  allow_read:
+    - /
+process:
+  allow_exec:
+    - /usr/**
+    - /bin/**
 network:
   allow_unix_connect:
     - ${CWD}/host.sock

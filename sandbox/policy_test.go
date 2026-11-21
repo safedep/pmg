@@ -154,6 +154,21 @@ func TestMergeWithParent(t *testing.T) {
 			},
 		},
 		{
+			name: "child that turns off the unix connect kernel check key wins",
+			parent: &SandboxPolicy{
+				Name:    "parent",
+				Network: NetworkPolicy{AllowUnixConnectWithoutKernelCheck: utils.PtrTo(true)},
+			},
+			child: &SandboxPolicy{
+				Name:    "child",
+				Network: NetworkPolicy{AllowUnixConnectWithoutKernelCheck: utils.PtrTo(false)},
+			},
+			assert: func(t *testing.T, parent, child *SandboxPolicy) {
+				require.NotNil(t, child.Network.AllowUnixConnectWithoutKernelCheck)
+				assert.False(t, *child.Network.AllowUnixConnectWithoutKernelCheck)
+			},
+		},
+		{
 			name: "merge when child has no boolean fields",
 			parent: &SandboxPolicy{
 				Name:            "parent",

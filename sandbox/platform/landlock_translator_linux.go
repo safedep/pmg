@@ -513,8 +513,9 @@ const landlockNameChangeAccess = uint64(llsyscall.AccessFSRemoveDir | llsyscall.
 	llsyscall.AccessFSMakeSym | llsyscall.AccessFSRefer)
 
 // landlockTranslateUnixConnect opens network.allow_unix_connect with
-// Landlock rules. It runs after every other rule, because the write rules
-// decide which entries stay closed.
+// Landlock rules, or for the supervisor when the profile asks for it below
+// ABI 9. It runs after every other rule, because the write rules decide
+// which entries stay closed.
 func landlockTranslateUnixConnect(policy *sandbox.SandboxPolicy, abi *landlockABI, ep *landlockExecPolicy) error {
 	routes, err := policy.UnixSocketRoutes()
 	if err != nil || len(routes) == 0 {

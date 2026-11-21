@@ -852,8 +852,8 @@ func TestReadNetPeer(t *testing.T) {
 			wantFamily: unix.AF_UNIX, abstract: true,
 		},
 		{
-			name: "unix address without a name fails", image: []byte{byte(unix.AF_UNIX), 0}, addrLen: 2,
-			wantFamily: unix.AF_UNIX, wantErr: true,
+			name: "unix address without a name parses family only", image: []byte{byte(unix.AF_UNIX), 0}, addrLen: 2,
+			wantFamily: unix.AF_UNIX,
 		},
 		{
 			name:  "other family parses family only",
