@@ -154,11 +154,8 @@ func (p *SandboxPolicy) UnixConnectPaths() ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("network.allow_unix_connect: %w", err)
 		}
-		if !filepath.IsAbs(path) {
-			return nil, fmt.Errorf("network.allow_unix_connect: %q expands to %q, which is not absolute", entry, path)
-		}
-		if err := validateSocketPathChars(path); err != nil {
-			return nil, fmt.Errorf("network.allow_unix_connect: %w", err)
+		if err := ValidateUnixSocketTarget(path); err != nil {
+			return nil, fmt.Errorf("network.allow_unix_connect: %q expands to an invalid path: %w", entry, err)
 		}
 		paths = append(paths, path)
 	}
@@ -175,6 +172,15 @@ func validateUnixSocketPath(path string) error {
 	}
 	if strings.ContainsAny(path, "*?[") {
 		return fmt.Errorf("%q: must be an exact path, not a glob", path)
+	}
+	return validateSocketPathChars(path)
+}
+
+// ValidateUnixSocketTarget checks a socket path that a driver resolved,
+// such as the target of a symlink, before the driver writes it into a rule.
+func ValidateUnixSocketTarget(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("%q: must be an absolute path", path)
 	}
 	return validateSocketPathChars(path)
 }

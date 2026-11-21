@@ -178,11 +178,13 @@ network:
 - The list allows connect only. Abstract sockets from outside the sandbox stay blocked. Deny rules
   do not close a listed socket.
 - macOS: Seatbelt allows each path. It also allows the `/private` form of a path under `/var`,
-  `/tmp` or `/etc`, and the target of a symlink.
+  `/tmp` or `/etc`, and the target of a symlink. PMG refuses a profile whose symlink target holds
+  a quote, a backslash or a control character.
 - Linux, Landlock driver: the kernel allows `socket(AF_UNIX, SOCK_STREAM)`. Datagram and seqpacket
   unix sockets stay blocked. An entry opens the socket that exists at the path when the sandbox
   starts. A socket that is missing then, or that its server makes again later, stays blocked. So
-  does another socket that a process moves or links to the path.
+  does another socket that a process moves or links to the path. An entry that names a directory
+  or another kind of file opens nothing.
   - On a kernel with Landlock ABI 9 or later, Landlock checks each connect. A socket that a
     process in the sandbox makes itself also connects.
   - On an older kernel, the PMG supervisor checks each connect. A hostile process can defeat that

@@ -1060,3 +1060,22 @@ func TestSeatbeltTranslatorDarwinFailsClosedWithoutHome(t *testing.T) {
 	_, err := newSeatbeltPolicyTranslator().translate(&sandbox.SandboxPolicy{}, nil)
 	assert.ErrorIs(t, err, assert.AnError)
 }
+
+// The target of a symlinked socket path is not from the profile. A quote in
+// it would end the Seatbelt string and add a rule.
+func TestTranslateNetworkUnixSocketLinkTargetIsChecked(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, `x.sock"))) (allow default) ;;`)
+	require.NoError(t, os.WriteFile(target, nil, 0o600))
+	link := filepath.Join(dir, "link.sock")
+	require.NoError(t, os.Symlink(target, link))
+
+	policy := &sandbox.SandboxPolicy{
+		Name:            "unix-socket-link-target",
+		PackageManagers: []string{"npm"},
+		Network:         sandbox.NetworkPolicy{AllowUnixConnect: []string{link}},
+	}
+	_, err := newSeatbeltPolicyTranslator().translate(policy, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "links to a path that Seatbelt cannot take")
+}

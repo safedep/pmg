@@ -38,14 +38,17 @@ func TestShimFilesystemRules_UnixConnect(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, listener.Close()) })
 	missing := filepath.Join(dir, "missing.sock")
+	subdir := filepath.Join(dir, "run")
+	require.NoError(t, os.Mkdir(subdir, 0o700))
 
 	policy := &landlockExecPolicy{FilesystemRules: []landlockPathRule{
 		{Path: socket, Access: uint64(llsyscall.AccessFSResolveUnix)},
 		{Path: missing, Access: uint64(llsyscall.AccessFSResolveUnix)},
+		{Path: subdir, Access: uint64(llsyscall.AccessFSResolveUnix)},
 	}}
 
 	rules := shimFilesystemRules(policy.FilesystemRules)
-	require.Len(t, rules, 1, "the missing socket gets no rule")
+	require.Len(t, rules, 1, "a missing socket and a directory get no rule, because a directory rule opens every socket below it")
 	assert.Contains(t, fmt.Sprint(rules[0]), socket)
 	assert.Equal(t, uint64(llsyscall.AccessFSResolveUnix), landlockAdjustAccessForPath(socket, uint64(llsyscall.AccessFSResolveUnix)))
 

@@ -254,7 +254,7 @@ type seccompPhase struct {
 	denyPaths   []denyPathEntry
 	denyExec    []string
 	network     landlockNetworkPolicy
-	unixConnect []socketInode
+	unixConnect pinnedSockets
 	auditWriter io.Writer
 }
 
@@ -323,6 +323,13 @@ type socketInode struct {
 	dev, ino uint64
 }
 
+func socketInodeOf(st *unix.Stat_t, path string) (socketInode, error) {
+	if st.Mode&unix.S_IFMT != unix.S_IFSOCK {
+		return socketInode{}, fmt.Errorf("%s is not a socket", path)
+	}
+	return socketInode{dev: st.Dev, ino: st.Ino}, nil
+}
+
 // statSocket returns the inode of the socket at path. It fails when path
 // does not name a socket.
 func statSocket(path string) (socketInode, error) {
@@ -330,29 +337,66 @@ func statSocket(path string) (socketInode, error) {
 	if err := unix.Stat(path, &st); err != nil {
 		return socketInode{}, err
 	}
-	if st.Mode&unix.S_IFMT != unix.S_IFSOCK {
-		return socketInode{}, fmt.Errorf("%s is not a socket", path)
+	return socketInodeOf(&st, path)
+}
+
+// pinnedSockets holds an O_PATH descriptor for each listed socket. An open
+// descriptor keeps the inode in use, so the file system cannot give its
+// number to a new socket after the server removes the listed one.
+type pinnedSockets struct {
+	inodes []socketInode
+	fds    []int
+}
+
+func (p pinnedSockets) contains(socket socketInode) bool {
+	return slices.Contains(p.inodes, socket)
+}
+
+func (p pinnedSockets) close() {
+	for _, fd := range p.fds {
+		if err := unix.Close(fd); err != nil {
+			log.Warnf("close pinned socket: %v", err)
+		}
 	}
-	return socketInode{dev: st.Dev, ino: st.Ino}, nil
+}
+
+// pinSocket opens the socket at path and returns its inode.
+func pinSocket(path string) (socketInode, int, error) {
+	fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return socketInode{}, -1, err
+	}
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		_ = unix.Close(fd)
+		return socketInode{}, -1, err
+	}
+	socket, err := socketInodeOf(&st, path)
+	if err != nil {
+		_ = unix.Close(fd)
+		return socketInode{}, -1, err
+	}
+	return socket, fd, nil
 }
 
 // resolveUnixConnect binds the allow list to the sockets that exist when
 // the child starts, the same way the Landlock rules bind inodes. A socket
 // that is missing then, or that its server makes again later, stays closed.
-func resolveUnixConnect(pid uint32, network landlockNetworkPolicy) []socketInode {
+func resolveUnixConnect(pid uint32, network landlockNetworkPolicy) pinnedSockets {
+	var pinned pinnedSockets
 	if !network.supervisesUnixConnect() {
-		return nil
+		return pinned
 	}
-	var sockets []socketInode
 	for _, path := range network.UnixConnect {
-		socket, err := statSocket(canonicalPath(pid, "/", path, true))
+		socket, fd, err := pinSocket(canonicalPath(pid, "/", path, true))
 		if err != nil {
 			log.Warnf("sandbox: network.allow_unix_connect %s stays closed: %v", path, err)
 			continue
 		}
-		sockets = append(sockets, socket)
+		pinned.inodes = append(pinned.inodes, socket)
+		pinned.fds = append(pinned.fds, fd)
 	}
-	return sockets
+	return pinned
 }
 
 // memFdFor opens a fresh /proc/<pid>/mem fd for the given PID. The caller
@@ -390,6 +434,9 @@ func (s *seccompSupervisor) Stop() error {
 	}
 	if err := unix.Close(s.stopFd); err != nil {
 		log.Warnf("close seccomp stop fd: %v", err)
+	}
+	if phase := s.phase.Load(); phase != nil {
+		phase.unixConnect.close()
 	}
 	return nil
 }
@@ -793,7 +840,7 @@ func (s *seccompSupervisor) handleUnixConnect(notif *seccompNotification, phase 
 		return
 	}
 
-	if slices.Contains(phase.unixConnect, socket) {
+	if phase.unixConnect.contains(socket) {
 		traceSeccompDecision("allow %s pid=%d path=%s", syscall, notif.PID, resolved)
 		s.continueSyscall(notif.ID)
 		return

@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
 	"github.com/safedep/dry/utils"
@@ -19,7 +21,7 @@ import (
 
 // seccompProbeScript prints one result line for the probe named in argv[1].
 const seccompProbeScript = `
-import ctypes, errno, os, socket, sys, threading
+import ctypes, errno, os, socket, sys, threading, time
 
 def result(ok, err=None):
     print("OK" if ok else "DENIED " + errno.errorcode.get(err, str(err)))
@@ -50,6 +52,11 @@ elif probe == "unix_link":
 elif probe == "unix_replace":
     os.link(sys.argv[2], sys.argv[3] + ".new")
     os.replace(sys.argv[3] + ".new", sys.argv[3])
+    attempt(lambda: socket.socket(socket.AF_UNIX).connect(sys.argv[3]))
+elif probe == "unix_after":
+    open(os.path.join(sys.argv[2], "ready"), "w").close()
+    while not os.path.exists(os.path.join(sys.argv[2], "go")):
+        time.sleep(0.02)
     attempt(lambda: socket.socket(socket.AF_UNIX).connect(sys.argv[3]))
 elif probe == "unix_dgram":
     attempt(lambda: socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM))
@@ -321,4 +328,62 @@ func acceptAndClose(t *testing.T, l net.Listener) {
 		}
 		assert.NoError(t, c.Close())
 	}
+}
+
+// A listed socket that its server removes frees its inode number, and the
+// file system can give that number to the next socket. The supervisor
+// matches on the number, so it must keep the listed inode in use.
+func TestLandlockHelper_UnixConnectRefusesReusedInode(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+
+	dir := t.TempDir()
+	python, probes := seccompProbeTargets(t, dir)
+	victim := filepath.Join(dir, "victim.sock")
+	fresh := filepath.Join(dir, "fresh.sock")
+	victimListener, err := net.Listen("unix", victim)
+	require.NoError(t, err)
+
+	policy := &landlockExecPolicy{
+		FilesystemRules:  append(baseRules(), landlockPathRule{Path: dir, Access: landlockRuleReadExec | landlockWriteAccessBase}),
+		Network:          landlockNetworkPolicy{UnixConnect: []string{victim}},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          python,
+		Args:             []string{probes[0].args[0], "unix_after", dir, fresh},
+	}
+	type result struct {
+		stdout, stderr string
+		exit           int
+	}
+	done := make(chan result, 1)
+	go func() {
+		stdout, stderr, exit := runHelper(t, writePolicyFile(t, policy))
+		done <- result{stdout, stderr, exit}
+	}()
+
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(filepath.Join(dir, "ready"))
+		return err == nil
+	}, 30*time.Second, 20*time.Millisecond, "the target did not start")
+
+	var before syscall.Stat_t
+	require.NoError(t, syscall.Stat(victim, &before))
+	require.NoError(t, victimListener.Close())
+	freshListener, err := net.Listen("unix", fresh)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, freshListener.Close()) })
+	go acceptAndClose(t, freshListener)
+	var after syscall.Stat_t
+	require.NoError(t, syscall.Stat(fresh, &after))
+	t.Logf("victim inode %d, fresh inode %d", before.Ino, after.Ino)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go"), nil, 0o600))
+
+	r := <-done
+	require.Equal(t, 0, r.exit, "stdout=%q stderr=%q", r.stdout, r.stderr)
+	assert.Equal(t, "DENIED EACCES", probeResult(r.stdout))
 }

@@ -134,7 +134,14 @@ func shimFilesystemRules(fsRules []landlockPathRule) []landlock.Rule {
 			// A zero-access rule is a no-op; go-landlock errors on it.
 			continue
 		}
-		if _, err := os.Stat(r.Path); err != nil {
+		info, err := os.Stat(r.Path)
+		if err != nil {
+			continue
+		}
+		// A resolve-unix rule on a directory would open every socket below
+		// it. An allow list entry names one socket, so any other file type
+		// gets no rule and the socket stays closed.
+		if access == uint64(llsyscall.AccessFSResolveUnix) && info.Mode().Type() != os.ModeSocket {
 			continue
 		}
 		rules = append(rules, landlock.PathAccess(
