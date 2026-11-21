@@ -117,6 +117,7 @@ func landlockAccessFlagsString(access uint64) string {
 		{uint64(llsyscall.AccessFSWriteFile), "write_file"},
 		{uint64(llsyscall.AccessFSTruncate), "truncate"},
 		{uint64(llsyscall.AccessFSIoctlDev), "ioctl_dev"},
+		{uint64(llsyscall.AccessFSResolveUnix), "resolve_unix"},
 		{uint64(llsyscall.AccessFSMakeReg), "make_reg"},
 		{uint64(llsyscall.AccessFSMakeDir), "make_dir"},
 		{uint64(llsyscall.AccessFSMakeSock), "make_sock"},
