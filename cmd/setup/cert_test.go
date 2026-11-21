@@ -265,7 +265,7 @@ func TestDoctorWarnsAboutALegacyKeypair(t *testing.T) {
 		}
 
 		result := caCheck(l)
-		assert.NotEqual(t, doctor.StatusPass, result.Status)
+		assert.Contains(t, []doctor.CheckStatus{doctor.StatusWarn, doctor.StatusFail}, result.Status)
 		assert.Contains(t, result.Message, l.legacy)
 		assert.Contains(t, result.Message, "pmg setup cert uninstall --system --purge")
 	}

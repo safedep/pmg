@@ -666,7 +666,7 @@ func caCheck(l keypairLayout) doctor.CheckResult {
 		result.Message += fmt.Sprintf(" (system keypair in %s, used by the enforcing daemon)", dir)
 	}
 	if legacy := l.legacyKeypair(); legacy != "" {
-		if result.Status == doctor.StatusPass {
+		if result.Status == doctor.StatusPass || result.Status == doctor.StatusOff {
 			result.Status = doctor.StatusWarn
 		}
 		result.Message += fmt.Sprintf(". PMG no longer reads the CA keypair in %s, and its certificate can still be trusted. "+
