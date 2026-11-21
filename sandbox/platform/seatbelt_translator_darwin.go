@@ -732,23 +732,15 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 	if utils.SafelyGetValue(policy.AllowUnixSockets) {
 		sb.WriteString("(allow network-outbound (remote unix-socket))\n\n")
 	}
-	socketPaths, err := policy.UnixConnectPaths()
+	// Seatbelt matches the resolved path. Docker Desktop, for one, links
+	// /var/run/docker.sock into the home directory, so the targets include
+	// each link and the resolved socket.
+	socketPaths, err := policy.UnixConnectTargets()
 	if err != nil {
 		return err
 	}
 	for _, path := range socketPaths {
 		writeUnixSocketAllow(sb, path)
-		// Seatbelt matches the resolved path. Docker Desktop, for one, links
-		// /var/run/docker.sock into the home directory. The link target is
-		// not from the profile, so it gets the same check as an entry.
-		resolved, err := filepath.EvalSymlinks(path)
-		if err != nil || resolved == path {
-			continue
-		}
-		if err := sandbox.ValidateUnixSocketTarget(resolved); err != nil {
-			return fmt.Errorf("network.allow_unix_connect: %s links to a path that Seatbelt cannot take: %w", path, err)
-		}
-		writeUnixSocketAllow(sb, resolved)
 	}
 	if len(socketPaths) > 0 {
 		sb.WriteString("\n")

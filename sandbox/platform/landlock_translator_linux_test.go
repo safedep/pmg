@@ -942,6 +942,9 @@ func TestLandlockTranslatePolicy_UnixConnect(t *testing.T) {
 func TestLandlockTranslatePolicy_UnixConnectProtectsListedPath(t *testing.T) {
 	dir := t.TempDir()
 	socket := filepath.Join(dir, "agent.sock")
+	target := filepath.Join(dir, "target.sock")
+	require.NoError(t, os.WriteFile(target, nil, 0o600))
+	require.NoError(t, os.Symlink(target, socket))
 	policy := newTestPolicy()
 	policy.Filesystem.AllowRead = []string{"/tmp"}
 	policy.Filesystem.AllowWrite = []string{dir + "/**"}
@@ -950,9 +953,11 @@ func TestLandlockTranslatePolicy_UnixConnectProtectsListedPath(t *testing.T) {
 	ep, err := landlockTranslatePolicy(policy, newLandlockABI(7), nil)
 	require.NoError(t, err)
 
-	deny := findDenyPath(ep.DenyPaths, socket)
-	require.NotNil(t, deny, "the listed socket must be write-denied")
-	assert.NotEqual(t, denyRead, deny.Mode)
+	for _, path := range []string{socket, target} {
+		deny := findDenyPath(ep.DenyPaths, path)
+		require.NotNil(t, deny, "%s must be write-denied", path)
+		assert.NotEqual(t, denyRead, deny.Mode)
+	}
 	for _, r := range ep.FilesystemRules {
 		assert.Zero(t, r.Access&uint64(llsyscall.AccessFSMakeSock), "rule %s grants MAKE_SOCK", r.Path)
 	}

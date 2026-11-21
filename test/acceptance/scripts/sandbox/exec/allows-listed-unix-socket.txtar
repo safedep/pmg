@@ -25,9 +25,20 @@ exec python3 $WORK/sock.py wait
 
 # A run cannot replace the listed socket, so it cannot choose the socket
 # that the next run reaches.
-[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py plant
+[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py plant host.sock
 [!bubblewrap] stdout '^DENIED plant E(ACCES|PERM)$'
 [!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[!bubblewrap] [!apparmor-userns] stdout '^OK host$'
+
+# The same holds for each link that a listed path follows, and for the
+# socket at the end.
+symlink mid.sock -> host.sock
+symlink link.sock -> mid.sock
+[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant mid.sock
+[!bubblewrap] stdout '^DENIED plant E(ACCES|PERM)$'
+[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant host.sock
+[!bubblewrap] stdout '^DENIED plant E(ACCES|PERM)$'
+[!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py link.sock
 [!bubblewrap] [!apparmor-userns] stdout '^OK host$'
 
 kill listener
@@ -40,6 +51,13 @@ package_managers: [exec]
 network:
   allow_unix_connect:
     - ${CWD}/host.sock
+-- link.yml --
+name: exec-one-socket-link
+inherits: exec
+package_managers: [exec]
+network:
+  allow_unix_connect:
+    - ${CWD}/link.sock
 -- bwrap.yml --
 name: exec-one-socket-bwrap
 inherits: exec
@@ -90,10 +108,10 @@ def connect(path):
         sys.exit(1)
     print("OK " + name)
 
-def plant():
+def plant(path):
     try:
-        os.unlink("host.sock")
-        os.symlink(os.path.abspath("other.sock"), "host.sock")
+        os.unlink(path)
+        os.symlink(os.path.abspath("other.sock"), path)
     except OSError as e:
         print("DENIED plant " + errno.errorcode.get(e.errno, str(e.errno)))
         sys.exit(1)
@@ -105,6 +123,6 @@ if mode == "listen":
 elif mode == "wait":
     wait()
 elif mode == "plant":
-    plant()
+    plant(sys.argv[2])
 else:
     connect(mode)

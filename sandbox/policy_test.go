@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/safedep/dry/utils"
@@ -473,6 +475,48 @@ func TestMergeWithParentDenyIPLiterals(t *testing.T) {
 
 			assert.NotNil(t, child.Network.DenyIPLiterals)
 			assert.Equal(t, tt.expected, *child.Network.DenyIPLiterals)
+		})
+	}
+}
+
+func TestUnixConnectTargets(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	socket := filepath.Join(dir, "real.sock")
+	require.NoError(t, os.WriteFile(socket, nil, 0o600))
+	middle := filepath.Join(dir, "middle.sock")
+	require.NoError(t, os.Symlink("real.sock", middle))
+	link := filepath.Join(dir, "link.sock")
+	require.NoError(t, os.Symlink(middle, link))
+	loop := filepath.Join(dir, "loop.sock")
+	require.NoError(t, os.Symlink(loop, loop))
+	unsafe := filepath.Join(dir, "unsafe.sock")
+	require.NoError(t, os.Symlink(filepath.Join(dir, `x"y.sock`), unsafe))
+
+	tests := []struct {
+		name    string
+		entries []string
+		want    []string
+		wantErr string
+	}{
+		{name: "a socket is its own target", entries: []string{socket}, want: []string{socket}},
+		{name: "each link in the chain is a target", entries: []string{link, socket}, want: []string{link, middle, socket}},
+		{name: "a missing path is its own target", entries: []string{filepath.Join(dir, "none.sock")}, want: []string{filepath.Join(dir, "none.sock")}},
+		{name: "a link loop fails", entries: []string{loop}, wantErr: "more than"},
+		{name: "a link to an invalid path fails", entries: []string{unsafe}, wantErr: "links to an invalid path"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := &SandboxPolicy{Network: NetworkPolicy{AllowUnixConnect: tt.entries}}
+			got, err := policy.UnixConnectTargets()
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

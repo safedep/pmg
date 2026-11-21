@@ -1079,5 +1079,5 @@ func TestTranslateNetworkUnixSocketLinkTargetIsChecked(t *testing.T) {
 	}
 	_, err := newSeatbeltPolicyTranslator().translate(policy, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "links to a path that Seatbelt cannot take")
+	assert.Contains(t, err.Error(), "links to an invalid path")
 }

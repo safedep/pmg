@@ -1,7 +1,10 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -161,6 +164,79 @@ func (p *SandboxPolicy) UnixConnectPaths() ([]string, error) {
 		paths = append(paths, path)
 	}
 	return paths, nil
+}
+
+// maxUnixConnectLinks matches the kernel limit on symlinks in one lookup.
+const maxUnixConnectLinks = 40
+
+// UnixConnectTargets returns each path of UnixConnectPaths, each link that
+// the path follows to its socket, and the resolved socket path. A driver
+// denies writes to all of them. A run that replaced any one of them would
+// choose the socket that a later run reaches.
+func (p *SandboxPolicy) UnixConnectTargets() ([]string, error) {
+	paths, err := p.UnixConnectPaths()
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool)
+	var targets []string
+	add := func(path string) {
+		if !seen[path] {
+			seen[path] = true
+			targets = append(targets, path)
+		}
+	}
+	for _, path := range paths {
+		hops, err := unixSocketLinkChain(path)
+		if err != nil {
+			return nil, fmt.Errorf("network.allow_unix_connect: %s: %w", path, err)
+		}
+		for _, hop := range hops {
+			if err := ValidateUnixSocketTarget(hop); err != nil {
+				return nil, fmt.Errorf("network.allow_unix_connect: %s links to an invalid path: %w", path, err)
+			}
+			add(hop)
+		}
+	}
+	return targets, nil
+}
+
+// unixSocketLinkChain returns path, each link target that the leaf follows,
+// and the resolved path when it exists. Links in the parent directories are
+// ancestors of these paths, so the ancestor pins of a driver cover them.
+func unixSocketLinkChain(path string) ([]string, error) {
+	chain := []string{path}
+	current := path
+	for range maxUnixConnectLinks {
+		info, err := os.Lstat(current)
+		if errors.Is(err, fs.ErrNotExist) {
+			return chain, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&fs.ModeSymlink == 0 {
+			resolved, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return nil, err
+			}
+			if resolved != current {
+				chain = append(chain, resolved)
+			}
+			return chain, nil
+		}
+		target, err := os.Readlink(current)
+		if err != nil {
+			return nil, err
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(current), target)
+		}
+		current = filepath.Clean(target)
+		chain = append(chain, current)
+	}
+	return nil, fmt.Errorf("follows more than %d links", maxUnixConnectLinks)
 }
 
 // validateUnixSocketPath accepts an exact pathname socket, absolute or
