@@ -41,6 +41,18 @@ symlink link.sock -> mid.sock
 [!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py link.sock
 [!bubblewrap] [!apparmor-userns] stdout '^OK host$'
 
+# A run cannot repoint a linked directory on the way either. Before the
+# swap, a/host.sock -> b/host.sock -> host.sock. After it, b names decoy,
+# where host.sock links to other.sock.
+mkdir decoy
+symlink decoy/host.sock -> ../other.sock
+symlink b -> .
+symlink a -> b
+[!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py swap b decoy
+[!bubblewrap] stdout '^DENIED plant E(ACCES|PERM)$'
+[!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py a/host.sock
+[!bubblewrap] [!apparmor-userns] stdout '^OK host$'
+
 kill listener
 
 -- proj/.keep --
@@ -58,6 +70,13 @@ package_managers: [exec]
 network:
   allow_unix_connect:
     - ${CWD}/link.sock
+-- dir.yml --
+name: exec-one-socket-dir
+inherits: exec
+package_managers: [exec]
+network:
+  allow_unix_connect:
+    - ${CWD}/a/host.sock
 -- bwrap.yml --
 name: exec-one-socket-bwrap
 inherits: exec
@@ -117,6 +136,15 @@ def plant(path):
         sys.exit(1)
     print("PLANTED")
 
+def swap(path, target):
+    try:
+        os.symlink(target, path + ".new")
+        os.replace(path + ".new", path)
+    except OSError as e:
+        print("DENIED plant " + errno.errorcode.get(e.errno, str(e.errno)))
+        sys.exit(1)
+    print("PLANTED")
+
 mode = sys.argv[1]
 if mode == "listen":
     listen()
@@ -124,5 +152,7 @@ elif mode == "wait":
     wait()
 elif mode == "plant":
     plant(sys.argv[2])
+elif mode == "swap":
+    swap(sys.argv[2], sys.argv[3])
 else:
     connect(mode)

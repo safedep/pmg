@@ -53,16 +53,15 @@ func mandatoryDenies(policy *sandbox.SandboxPolicy) (mandatoryDenySet, error) {
 		return mandatoryDenySet{}, fmt.Errorf("failed to compute mandatory denies: %w", err)
 	}
 
-	// A run that could remove or replace a listed socket path, or a link
-	// that it follows, would choose the socket that the next run binds. The
-	// denies cannot be suppressed. Seatbelt matches resolved paths, so each
-	// path also gets its /private form, which names nothing on Linux.
-	socketPaths, err := policy.UnixConnectTargets()
+	// A run that could create, remove or replace a name on the way to a
+	// listed socket would choose the socket that the next run binds. The
+	// denies cannot be suppressed.
+	routes, err := policy.UnixSocketRoutes()
 	if err != nil {
 		return mandatoryDenySet{}, err
 	}
-	for _, p := range socketPaths {
-		result.DenyWrite = append(result.DenyWrite, util.DarwinPathAliases(p)...)
+	for _, route := range routes {
+		result.DenyWrite = append(result.DenyWrite, route.Names...)
 	}
 
 	for _, p := range result.SuppressedRead {

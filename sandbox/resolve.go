@@ -82,9 +82,13 @@ func expandPolicyPaths(p *SandboxPolicy, opts ResolveOptions) (*SandboxPolicy, e
 	}
 	out.Process = ProcessPolicy{AllowExec: allowExec, DenyExec: denyExec}
 
-	allowUnixConnect, err := expandSlice(p.Network.AllowUnixConnect, opts)
-	if err != nil {
-		return nil, err
+	var allowUnixConnect []string
+	for _, entry := range p.Network.AllowUnixConnect {
+		path, err := expandUnixSocketPath(entry, opts)
+		if err != nil {
+			return nil, err
+		}
+		allowUnixConnect = append(allowUnixConnect, path)
 	}
 
 	// Host:port entries carry no path variables, but the slices are still

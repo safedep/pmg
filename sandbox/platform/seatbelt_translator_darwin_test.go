@@ -953,6 +953,10 @@ func TestTranslateNetworkUnixSockets(t *testing.T) {
 			assert: func(t *testing.T, out string) {
 				assert.Contains(t, out, `(path-literal "`+link+`")`)
 				assert.Contains(t, out, `(path-literal "`+resolvedTarget+`")`)
+				// A run must not replace the link or the socket that the next
+				// run reaches.
+				assert.Contains(t, out, `(deny file-write* (subpath "`+link+`")`)
+				assert.Contains(t, out, `(deny file-write* (subpath "`+resolvedTarget+`")`)
 			},
 		},
 		{
@@ -1006,9 +1010,8 @@ func TestTranslateNetworkUnixSockets(t *testing.T) {
 					allow := `(allow network-outbound (remote unix-socket (path-literal "` + path + `")))`
 					assert.Contains(t, out, allow)
 					assert.Greater(t, strings.Index(out, allow), strings.Index(out, unixDeny), "SBPL is last-match-wins")
-					// A run must not replace the socket that the next run reaches.
-					assert.Contains(t, out, `(deny file-write* (subpath "`+path+`")`)
 				}
+				assert.Contains(t, out, `(deny file-write* (subpath "/var/db/safedep/gryph/hook.sock")`)
 			},
 		},
 		{

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -153,90 +154,128 @@ func (p *SandboxPolicy) UnixConnectPaths() ([]string, error) {
 
 	var paths []string
 	for _, entry := range p.Network.AllowUnixConnect {
-		path, err := util.ExpandVariables(entry)
+		path, err := expandUnixSocketPath(entry, ResolveOptions{})
 		if err != nil {
-			return nil, fmt.Errorf("network.allow_unix_connect: %w", err)
-		}
-		if err := ValidateUnixSocketTarget(path); err != nil {
-			return nil, fmt.Errorf("network.allow_unix_connect: %q expands to an invalid path: %w", entry, err)
+			return nil, err
 		}
 		paths = append(paths, path)
 	}
 	return paths, nil
 }
 
+// expandUnixSocketPath expands the variables of one entry. The kernel looks
+// the path up, so a "." or ".." from a variable keeps its kernel meaning only
+// if pmg does not clean it away. PMG refuses such a path instead.
+func expandUnixSocketPath(entry string, opts ResolveOptions) (string, error) {
+	raw, err := util.ExpandVariablesUncleaned(entry, opts.CWD, opts.Home, opts.TmpDir)
+	if err != nil {
+		return "", fmt.Errorf("network.allow_unix_connect: %w", err)
+	}
+	if err := ValidateUnixSocketTarget(raw); err != nil {
+		return "", fmt.Errorf("network.allow_unix_connect: %q expands to an invalid path: %w", entry, err)
+	}
+	return filepath.Clean(raw), nil
+}
+
 // maxUnixConnectLinks matches the kernel limit on symlinks in one lookup.
 const maxUnixConnectLinks = 40
 
-// UnixConnectTargets returns each path of UnixConnectPaths, each link that
-// the path follows to its socket, and the resolved socket path. A driver
-// denies writes to all of them. A run that replaced any one of them would
-// choose the socket that a later run reaches.
-func (p *SandboxPolicy) UnixConnectTargets() ([]string, error) {
+// UnixSocketRoute is the way from one listed path to its socket.
+type UnixSocketRoute struct {
+	// Path is the listed path, expanded.
+	Path string
+	// Socket is the resolved socket path, or empty when a name on the way
+	// does not exist.
+	Socket string
+	// Names are the names that a run must not create, remove or replace:
+	// Path, the socket name through each symlink on the way, which makes
+	// each link an ancestor of a denied name, and Socket or the first name
+	// that does not exist.
+	Names []string
+}
+
+// UnixSocketRoutes walks each path of UnixConnectPaths to its socket. A run
+// that replaced a name on the way would choose the socket that a later run
+// reaches, so a driver denies writes to each name.
+func (p *SandboxPolicy) UnixSocketRoutes() ([]UnixSocketRoute, error) {
 	paths, err := p.UnixConnectPaths()
 	if err != nil {
 		return nil, err
 	}
 
-	seen := make(map[string]bool)
-	var targets []string
-	add := func(path string) {
-		if !seen[path] {
-			seen[path] = true
-			targets = append(targets, path)
-		}
-	}
+	routes := make([]UnixSocketRoute, 0, len(paths))
 	for _, path := range paths {
-		hops, err := unixSocketLinkChain(path)
+		route, err := walkUnixSocketPath(path)
 		if err != nil {
 			return nil, fmt.Errorf("network.allow_unix_connect: %s: %w", path, err)
 		}
-		for _, hop := range hops {
-			if err := ValidateUnixSocketTarget(hop); err != nil {
+		for _, name := range route.Names {
+			if err := ValidateUnixSocketTarget(name); err != nil {
 				return nil, fmt.Errorf("network.allow_unix_connect: %s links to an invalid path: %w", path, err)
 			}
-			add(hop)
 		}
+		routes = append(routes, route)
 	}
-	return targets, nil
+	return routes, nil
 }
 
-// unixSocketLinkChain returns each name on the way from path to its socket:
-// path, path with its parent directory resolved, and each link target in the
-// same form. Seatbelt matches resolved paths. Links in the parent directories
-// are ancestors of these paths, so the ancestor pins of a driver cover them.
-// The chain stops at a name that pmg cannot look up. The sandbox runs as the
-// same user, so it cannot reach or replace that name either.
-func unixSocketLinkChain(path string) ([]string, error) {
-	chain := []string{path}
-	current := path
-	for range maxUnixConnectLinks {
-		// The kernel resolves each component of a link target in turn, so a
-		// ".." after a linked directory leaves the link target. The parent is
-		// split off without filepath.Dir, which would clean ".." first.
-		slash := strings.LastIndex(current, "/")
-		parent, name := current[:slash+1], current[slash+1:]
-		dir, err := filepath.EvalSymlinks(parent)
-		if err != nil || name == "" || name == "." || name == ".." {
-			return chain, nil
+// walkUnixSocketPath looks path up one name at a time, as the kernel does: a
+// symlink target replaces the link, and ".." leaves the resolved directory.
+// A name that pmg cannot look up ends the walk. The sandbox runs as the same
+// user, so it cannot reach or replace that name either.
+func walkUnixSocketPath(path string) (UnixSocketRoute, error) {
+	route := UnixSocketRoute{Path: path, Names: []string{path}}
+	resolved := "/"
+	rest := strings.Split(path, "/")
+	links := 0
+	for len(rest) > 0 {
+		name := rest[0]
+		rest = rest[1:]
+		switch name {
+		case "", ".":
+			continue
+		case "..":
+			resolved = filepath.Dir(resolved)
+			continue
 		}
-		current = filepath.Join(dir, name)
-		chain = append(chain, current)
 
-		info, err := os.Lstat(current)
-		if err != nil || info.Mode()&fs.ModeSymlink == 0 {
-			return chain, nil
-		}
-		target, err := os.Readlink(current)
+		next := filepath.Join(resolved, name)
+		info, err := os.Lstat(next)
 		if err != nil {
-			return chain, nil
+			route.addName(next)
+			return route, nil
 		}
-		if !filepath.IsAbs(target) {
-			target = dir + "/" + target
+		if info.Mode()&fs.ModeSymlink == 0 {
+			resolved = next
+			continue
 		}
-		current = target
+
+		links++
+		if links > maxUnixConnectLinks {
+			return UnixSocketRoute{}, fmt.Errorf("follows more than %d links", maxUnixConnectLinks)
+		}
+		if slices.Contains(rest, "..") {
+			return UnixSocketRoute{}, fmt.Errorf("%s is a symlink followed by \"..\", which no exact path can protect", next)
+		}
+		route.addName(filepath.Join(append([]string{next}, rest...)...))
+		target, err := os.Readlink(next)
+		if err != nil {
+			return route, nil
+		}
+		if filepath.IsAbs(target) {
+			resolved = "/"
+		}
+		rest = append(strings.Split(target, "/"), rest...)
 	}
-	return nil, fmt.Errorf("follows more than %d links", maxUnixConnectLinks)
+	route.Socket = resolved
+	route.addName(resolved)
+	return route, nil
+}
+
+func (r *UnixSocketRoute) addName(name string) {
+	if !slices.Contains(r.Names, name) {
+		r.Names = append(r.Names, name)
+	}
 }
 
 // validateUnixSocketPath accepts an exact pathname socket, absolute or
@@ -248,6 +287,17 @@ func validateUnixSocketPath(path string) error {
 		return fmt.Errorf("%q: must be an absolute path or start with a variable", path)
 	}
 	return validateSocketPathChars(path)
+}
+
+// hasDotComponent reports a "." or ".." name, which filepath.Clean removes
+// with a meaning that differs from the kernel lookup after a symlink.
+func hasDotComponent(path string) bool {
+	for name := range strings.SplitSeq(path, "/") {
+		if name == "." || name == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateUnixSocketTarget checks a socket path that a driver resolved,
@@ -266,6 +316,9 @@ func ValidateUnixSocketTarget(path string) error {
 func validateSocketPathChars(path string) error {
 	if util.ContainsGlob(path) {
 		return fmt.Errorf("%q: must be an exact path, not a glob", path)
+	}
+	if hasDotComponent(path) {
+		return fmt.Errorf("%q: must not hold a . or .. component", path)
 	}
 	if strings.ContainsFunc(path, func(r rune) bool { return r == '"' || r == '\\' || unicode.IsControl(r) }) {
 		return fmt.Errorf("%q: must not contain a quote, a backslash or a control character", path)
