@@ -97,7 +97,7 @@ default.
 Cloud inputs are an exception.
 With `api-key`, the action exports `PMG_CLOUD_ENABLED=true`.
 It sets `PMG_CLOUD_AUTO_SYNC_ENABLED=true` in server mode and `false` in shim mode.
-It also exports `PMG_CLOUD_ENDPOINT_ID`, with `gha/<owner>/<repo>` as its default.
+It also exports `PMG_CLOUD_ENDPOINT_ID`, with `gh:<owner>/<repo>` as its default.
 These variables override the corresponding `config-file` values.
 Use `endpoint-id` to set another identity.
 With `sandbox: true` and an empty `sandbox-driver`, the action also exports `PMG_SANDBOX_DRIVER=landlock`.
@@ -114,7 +114,7 @@ Use exactly lowercase `true` for `cache`, `sandbox`, and `skip-event-logging`. T
 | `version` | PMG release tag (for example `v0.42.0`) or `latest` | `latest` |
 | `api-key` | SafeDep Cloud API key. Set it with `tenant-id`. Use a secret to hold the value. The action then fetches the cloud policy, and the step fails when no cloud policy applies. | unset (cloud sync disabled) |
 | `tenant-id` | SafeDep Cloud tenant ID | unset |
-| `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `gha/<owner>/<repo>` when `api-key` is set |
+| `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `gh:<owner>/<repo>` when `api-key` is set |
 | `paranoid` | `PMG_PARANOID` | `false` |
 | `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
 | `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `2` |
@@ -188,7 +188,8 @@ A PMG `version` without `pmg cloud sync --require-policy` does not fail the step
 The action then runs the full sync and prints a warning only when that sync fails.
 That sync waits up to 30 seconds for the sync lock and then runs for up to 10 seconds.
 
-With `api-key`, `endpoint-id` defaults to `gha/${{ github.repository }}`.
+With `api-key`, `endpoint-id` defaults to `gh:${{ github.repository }}`.
+PMG without the action derives the same ID on a GitHub-hosted runner.
 Each workflow on the same repository appears as one endpoint in the
 SafeDep Cloud UI. Override it for per-environment splits:
 
@@ -197,11 +198,15 @@ SafeDep Cloud UI. Override it for per-environment splits:
   with:
     api-key:     ${{ secrets.SAFEDEP_API_KEY }}
     tenant-id:   ${{ secrets.SAFEDEP_TENANT_ID }}
-    endpoint-id: gha/${{ github.repository }}/prod
+    endpoint-id: gh:${{ github.repository }}/prod
 ```
 
-When cloud is enabled another way on a hosted runner, PMG uses `gh:<owner>/<repo>` instead.
-Set an explicit endpoint ID to keep the same repository under one identity.
+Earlier versions of the action used `gha/<owner>/<repo>` as the default.
+After an upgrade, a repository that used that default reports under a new endpoint ID.
+Its history stays on the old `gha/` endpoint.
+Labels that an admin set on the old endpoint do not move to the new endpoint.
+A policy override that selects those labels stops to apply until an admin sets them again.
+To keep the old ID, set `endpoint-id: gha/${{ github.repository }}`.
 
 ### Use `config-file` for custom settings
 
