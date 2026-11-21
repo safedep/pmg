@@ -934,11 +934,27 @@ func TestTranslateNetworkUnixSockets(t *testing.T) {
 	dnsAllow := `(allow network-outbound (remote unix-socket (path-literal "/var/run/mDNSResponder")))`
 	blanketAllow := "(allow network-outbound)\n"
 
+	linkDir := t.TempDir()
+	target := filepath.Join(linkDir, "target.sock")
+	require.NoError(t, os.WriteFile(target, nil, 0o600))
+	link := filepath.Join(linkDir, "link.sock")
+	require.NoError(t, os.Symlink(target, link))
+	resolvedTarget, err := filepath.EvalSymlinks(target)
+	require.NoError(t, err)
+
 	tests := []struct {
 		name   string
 		mutate func(*sandbox.SandboxPolicy)
 		assert func(t *testing.T, out string)
 	}{
+		{
+			name:   "allow_unix_connect also opens the target of a symlink",
+			mutate: func(p *sandbox.SandboxPolicy) { p.Network.AllowUnixConnect = []string{link} },
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, `(path-literal "`+link+`")`)
+				assert.Contains(t, out, `(path-literal "`+resolvedTarget+`")`)
+			},
+		},
 		{
 			name:   "default denies unix sockets after the blanket allow and keeps DNS",
 			mutate: func(p *sandbox.SandboxPolicy) {},

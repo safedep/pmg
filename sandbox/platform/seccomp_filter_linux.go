@@ -20,7 +20,7 @@ type seccompFilterSpec struct {
 
 	// UnixStreamSockets allows socket(AF_UNIX, SOCK_STREAM) under the unix
 	// socket allow list, which checks each connect. Other unix socket types
-	// stay closed: a datagram socket sends to a path with no connect.
+	// stay closed, because a datagram socket sends to a path with no connect.
 	UnixStreamSockets bool
 }
 
@@ -65,9 +65,9 @@ func seccompDeniedSyscalls() []uint32 {
 //
 // A foreign or x32 ABI kills the process. clone3 returns ENOSYS, because BPF
 // cannot read its flags, and glibc then uses clone. A clone or unshare that
-// makes a namespace returns EPERM. Without allow_unix_sockets, socket(AF_UNIX)
-// returns EACCES, except a stream socket under the allow list, and so does a
-// socketpair that is not a stream or seqpacket pair. The kernel makes SOCK_RAW a datagram pair, and a datagram pair can
+// makes a namespace returns EPERM. Without allow_unix_sockets,
+// socket(AF_UNIX) returns EACCES, except a stream socket under the allow
+// list. So does a socketpair that is not a stream or seqpacket pair. The kernel makes SOCK_RAW a datagram pair, and a datagram pair can
 // send to any socket path. The denied group returns EPERM. The notify group
 // goes to the supervisor. All other syscalls are allowed.
 func buildSeccompFilter(spec seccompFilterSpec) []unix.SockFilter {

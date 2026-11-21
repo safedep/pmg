@@ -485,6 +485,8 @@ func TestUnixConnectPaths(t *testing.T) {
 		{name: "expands variables", home: "/home/dev", entries: []string{"/run/a.sock", "${HOME}/.b.sock"}, want: []string{"/run/a.sock", "/home/dev/.b.sock"}},
 		{name: "allow_unix_sockets opens every socket", home: "/home/dev", allowUnixSockets: utils.PtrTo(true), entries: []string{"/run/a.sock"}, want: nil},
 		{name: "a variable that expands to a relative path fails", home: "relative", entries: []string{"${HOME}/a.sock"}, wantErr: true},
+		{name: "a glob character from a variable is a literal name", home: "/home/[dev]", entries: []string{"${HOME}/a.sock"}, want: []string{"/home/[dev]/a.sock"}},
+		{name: "a quote from a variable fails", home: `/home/a")`, entries: []string{"${HOME}/a.sock"}, wantErr: true},
 	}
 
 	for _, tt := range tests {

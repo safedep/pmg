@@ -44,6 +44,13 @@ if probe == "unix":
 elif probe == "unix_in":
     os.chdir(sys.argv[2])
     attempt(lambda: socket.socket(socket.AF_UNIX).connect(sys.argv[3]))
+elif probe == "unix_link":
+    os.link(sys.argv[2], sys.argv[3])
+    attempt(lambda: socket.socket(socket.AF_UNIX).connect(sys.argv[3]))
+elif probe == "unix_replace":
+    os.link(sys.argv[2], sys.argv[3] + ".new")
+    os.replace(sys.argv[3] + ".new", sys.argv[3])
+    attempt(lambda: socket.socket(socket.AF_UNIX).connect(sys.argv[3]))
 elif probe == "unix_dgram":
     attempt(lambda: socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM))
 elif probe == "tcp":
@@ -198,8 +205,9 @@ func TestBubblewrapE2EDenyExecCoversShim(t *testing.T) {
 	assert.NotContains(t, r.stdout, "target-ran")
 }
 
-// The allow list opens one socket path and keeps every other unix socket
-// closed. On a kernel below Landlock ABI 9 the supervisor checks it.
+// The allow list opens the listed sockets and keeps every other unix socket
+// closed, also when the child puts another socket at a listed path. On a
+// kernel below Landlock ABI 9 the supervisor checks it.
 func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
@@ -209,67 +217,72 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 		t.Skipf("Landlock not available: %v", err)
 	}
 
-	dir := t.TempDir()
-	python, probes := seccompProbeTargets(t, dir)
-	script := probes[0].args[0]
-	listed := filepath.Join(dir, "host.sock")
-
-	other := filepath.Join(dir, "other.sock")
-	otherListener, err := net.Listen("unix", other)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, otherListener.Close()) })
-	tcpListener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, tcpListener.Close()) })
-	for _, l := range []net.Listener{otherListener, tcpListener} {
-		go func() {
-			for {
-				c, err := l.Accept()
-				if err != nil {
-					return
-				}
-				assert.NoError(t, c.Close())
-			}
-		}()
+	type mode struct {
+		name     string
+		kernel   bool
+		lockdown bool
+		tcpWant  string
 	}
-	require.NoError(t, os.Symlink(listed, filepath.Join(dir, "to-listed.sock")))
-	require.NoError(t, os.Symlink(other, filepath.Join(dir, "to-other.sock")))
-	tcpPort := strconv.Itoa(tcpListener.Addr().(*net.TCPAddr).Port)
-
-	modes := []struct {
-		name   string
-		kernel bool
-	}{{"supervisor", false}}
+	modes := []mode{
+		{name: "supervisor", tcpWant: "OK"},
+		{name: "supervisor under lockdown", lockdown: true, tcpWant: "DENIED ECONNREFUSED"},
+	}
 	if abi.HasResolveUnix {
-		modes = append(modes, struct {
-			name   string
-			kernel bool
-		}{"kernel", true})
+		modes = append(modes, mode{name: "kernel", kernel: true, tcpWant: "OK"})
 	}
 
-	for _, mode := range modes {
-		run := func(t *testing.T, args ...string) string {
-			rules := append(baseRules(), landlockPathRule{Path: dir, Access: landlockRuleReadExec})
-			if mode.kernel {
-				rules = append(rules, landlockPathRule{Path: listed, Access: uint64(llsyscall.AccessFSResolveUnix)})
+	for _, m := range modes {
+		t.Run(m.name, func(t *testing.T) {
+			dir := t.TempDir()
+			python, probes := seccompProbeTargets(t, dir)
+			script := probes[0].args[0]
+			listed := filepath.Join(dir, "host.sock")
+			victim := filepath.Join(dir, "victim.sock")
+			later := filepath.Join(dir, "later.sock")
+			other := filepath.Join(dir, "other.sock")
+			// Each attack moves its own socket, because a helper run binds
+			// the sockets that the listed paths name when it starts.
+			linkSource := filepath.Join(dir, "link-source.sock")
+			moveSource := filepath.Join(dir, "move-source.sock")
+			for _, path := range []string{victim, other, linkSource, moveSource} {
+				l, err := net.Listen("unix", path)
+				require.NoError(t, err)
+				t.Cleanup(func() { assert.NoError(t, l.Close()) })
+				go acceptAndClose(t, l)
 			}
-			policy := &landlockExecPolicy{
-				FilesystemRules: rules,
-				Network: landlockNetworkPolicy{
-					UnixConnect:         []string{listed},
-					UnixConnectByKernel: mode.kernel,
-				},
-				SkipPIDNamespace: true,
-				SkipIPCNamespace: true,
-				Command:          python,
-				Args:             append([]string{script}, args...),
-			}
-			stdout, stderr, exit := runHelper(t, writePolicyFile(t, policy))
-			require.Equal(t, 0, exit, "stdout=%q stderr=%q", stdout, stderr)
-			return probeResult(stdout)
-		}
+			tcpListener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, tcpListener.Close()) })
+			go acceptAndClose(t, tcpListener)
+			require.NoError(t, os.Symlink(listed, filepath.Join(dir, "to-listed.sock")))
+			require.NoError(t, os.Symlink(other, filepath.Join(dir, "to-other.sock")))
+			tcpPort := strconv.Itoa(tcpListener.Addr().(*net.TCPAddr).Port)
 
-		t.Run(mode.name, func(t *testing.T) {
+			run := func(t *testing.T, args ...string) string {
+				allowed := []string{listed, victim, later}
+				rules := append(baseRules(), landlockPathRule{Path: dir, Access: landlockRuleReadExec | landlockWriteAccessBase})
+				if m.kernel {
+					for _, path := range allowed {
+						rules = append(rules, landlockPathRule{Path: path, Access: uint64(llsyscall.AccessFSResolveUnix)})
+					}
+				}
+				policy := &landlockExecPolicy{
+					FilesystemRules: rules,
+					Network: landlockNetworkPolicy{
+						Lockdown:            m.lockdown,
+						UnixConnect:         allowed,
+						UnixConnectByKernel: m.kernel,
+					},
+					SkipPIDNamespace: true,
+					SkipIPCNamespace: true,
+					Command:          python,
+					Args:             append([]string{script}, args...),
+				}
+				stdout, stderr, exit := runHelper(t, writePolicyFile(t, policy))
+				require.Equal(t, 0, exit, "stdout=%q stderr=%q", stdout, stderr)
+				return probeResult(stdout)
+			}
+
 			tests := []struct {
 				name string
 				args []string
@@ -281,8 +294,10 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 				{"other socket is denied", []string{"unix", other}, "DENIED EACCES"},
 				{"symlink to another socket is denied", []string{"unix", filepath.Join(dir, "to-other.sock")}, "DENIED EACCES"},
 				{"relative path to another socket is denied", []string{"unix_in", dir, "../" + filepath.Base(dir) + "/other.sock"}, "DENIED EACCES"},
+				{"another socket linked at a listed path that was missing is denied", []string{"unix_link", linkSource, later}, "DENIED EACCES"},
+				{"another socket moved over a listed socket is denied", []string{"unix_replace", moveSource, victim}, "DENIED EACCES"},
 				{"datagram socket is denied", []string{"unix_dgram"}, "DENIED EACCES"},
-				{"tcp still connects", []string{"tcp", tcpPort}, "OK"},
+				{"tcp follows the network policy", []string{"tcp", tcpPort}, m.tcpWant},
 			}
 			for _, tc := range tests {
 				t.Run(tc.name, func(t *testing.T) {
@@ -295,5 +310,15 @@ func TestLandlockHelper_UnixConnectAllowList(t *testing.T) {
 				assert.Regexp(t, `^DENIED E(ACCES|PERM)$`, run(t, probes[1].args[1:]...))
 			})
 		})
+	}
+}
+
+func acceptAndClose(t *testing.T, l net.Listener) {
+	for {
+		c, err := l.Accept()
+		if err != nil {
+			return
+		}
+		assert.NoError(t, c.Close())
 	}
 }

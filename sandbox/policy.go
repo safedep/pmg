@@ -157,7 +157,7 @@ func (p *SandboxPolicy) UnixConnectPaths() ([]string, error) {
 		if !filepath.IsAbs(path) {
 			return nil, fmt.Errorf("network.allow_unix_connect: %q expands to %q, which is not absolute", entry, path)
 		}
-		if err := validateUnixSocketPath(path); err != nil {
+		if err := validateSocketPathChars(path); err != nil {
 			return nil, fmt.Errorf("network.allow_unix_connect: %w", err)
 		}
 		paths = append(paths, path)
@@ -176,6 +176,12 @@ func validateUnixSocketPath(path string) error {
 	if strings.ContainsAny(path, "*?[") {
 		return fmt.Errorf("%q: must be an exact path, not a glob", path)
 	}
+	return validateSocketPathChars(path)
+}
+
+// validateSocketPathChars also checks an expanded path, because a variable
+// can carry any character. A glob character there is a literal name.
+func validateSocketPathChars(path string) error {
 	if strings.ContainsAny(path, "\"\\\x00\n\r") {
 		return fmt.Errorf("%q: must not contain a quote, a backslash or a control character", path)
 	}

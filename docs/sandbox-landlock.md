@@ -336,10 +336,14 @@ These are the known holes in the current enforcement, in approximate priority or
   socket path. With the default, glibc NSS modules that use a socket (systemd-resolved,
   nscd) fail and glibc falls back to files and DNS.
 - **Below Landlock ABI 9, the supervisor checks `network.allow_unix_connect`.** It reads the
-  socket path from process memory, resolves it in the view of the process and continues a
-  listed connect. A second thread can rewrite the path before the kernel reads it again, so
-  a hostile process can reach any unix socket. From ABI 9, Landlock checks each connect in
-  the kernel and this gap closes. From ABI 6, the kernel also blocks abstract sockets.
+  socket path from process memory, resolves it in the view of the process, and continues a
+  connect to a listed socket inode. The kernel looks the path up again. A second thread can
+  rewrite the path, or a process can swap a symlink on the path, before that lookup. So a
+  hostile process can reach any unix socket. From ABI 9, Landlock checks each connect in the
+  kernel and this gap closes. From ABI 6, the kernel also blocks abstract sockets.
+- **The list traps every connect.** Without network lockdown, the supervisor still reads the
+  address of each connect, a TCP connect included. A connect fails with `ECONNREFUSED` when
+  the supervisor cannot read the memory of the process.
 - **`allow_network_bind` also opens loopback port 53.** The supervisor allows a connect to
   every loopback port under that flag. A loopback DNS resolver is then reachable without
   `allow_direct_dns`.

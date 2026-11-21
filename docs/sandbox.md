@@ -175,14 +175,19 @@ network:
 
 - An entry is an absolute path or starts with a variable. It cannot be a glob or an abstract
   socket name. Lists merge by union, like the other lists.
-- The list allows connect only. Abstract sockets stay blocked.
-- macOS: Seatbelt allows each path, in both its `/var` and `/private/var` forms.
+- The list allows connect only. Abstract sockets from outside the sandbox stay blocked. Deny rules
+  do not close a listed socket.
+- macOS: Seatbelt allows each path. It also allows the `/private` form of a path under `/var`,
+  `/tmp` or `/etc`, and the target of a symlink.
 - Linux, Landlock driver: the kernel allows `socket(AF_UNIX, SOCK_STREAM)`. Datagram and seqpacket
-  unix sockets stay blocked. On a kernel with Landlock ABI 9 or later, Landlock checks each connect.
-  The socket must exist when the sandbox starts, and a socket that its server makes again later
-  stays blocked. On an older kernel, the PMG supervisor checks each connect. A hostile process can
-  defeat that check, see [Network lockdown gaps](sandbox-landlock.md#network-lockdown-gaps).
-  `pmg sandbox profile show <name> --driver landlock` prints which one checks the list.
+  unix sockets stay blocked. An entry opens the socket that exists at the path when the sandbox
+  starts. A socket that is missing then, or that its server makes again later, stays blocked. So
+  does another socket that a process moves or links to the path.
+  - On a kernel with Landlock ABI 9 or later, Landlock checks each connect. A socket that a
+    process in the sandbox makes itself also connects.
+  - On an older kernel, the PMG supervisor checks each connect. A hostile process can defeat that
+    check, see [Network lockdown gaps](sandbox-landlock.md#network-lockdown-gaps).
+  - `pmg sandbox profile show <name> --driver landlock` prints which one checks the list.
 - Linux, Bubblewrap driver: PMG refuses a profile with this list.
 
 `allow_unix_sockets: true` opens every unix socket, and the list then has no effect. With

@@ -738,6 +738,11 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 	}
 	for _, path := range socketPaths {
 		writeUnixSocketAllow(sb, path)
+		// Seatbelt matches the resolved path. Docker Desktop, for one, links
+		// /var/run/docker.sock into the home directory.
+		if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != path {
+			writeUnixSocketAllow(sb, resolved)
+		}
 	}
 	if len(socketPaths) > 0 {
 		sb.WriteString("\n")

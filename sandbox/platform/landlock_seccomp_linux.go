@@ -131,9 +131,9 @@ func landlockWriteAuditEvent(w io.Writer, evt auditEvent) error {
 // landlockNotifySyscalls returns the syscalls that go to the supervisor.
 // execve and execveat always go, for deny_exec. The path syscalls go when
 // deny rules exist. connect, sendto and sendmsg go under network lockdown.
-// connect alone goes when the supervisor checks the unix socket allow list:
-// a stream socket sends nothing to a path without connect. sendmmsg does not
-// go. See docs/sandbox-landlock.md.
+// connect alone goes when the supervisor checks the unix socket allow list,
+// because a stream socket sends nothing to a path without connect. sendmmsg
+// does not go. See docs/sandbox-landlock.md.
 func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) []uint32 {
 	syscalls := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
 	if interceptPaths {
@@ -254,7 +254,7 @@ type seccompPhase struct {
 	denyPaths   []denyPathEntry
 	denyExec    []string
 	network     landlockNetworkPolicy
-	unixConnect []string
+	unixConnect []socketInode
 	auditWriter io.Writer
 }
 
@@ -317,17 +317,42 @@ func (s *seccompSupervisor) Enforce(childPID int, denyPaths []denyPathEntry, den
 	return nil
 }
 
-// resolveUnixConnect resolves the allow list in the child's view of the
-// file system, the same way the supervisor resolves a connect address.
-func resolveUnixConnect(pid uint32, network landlockNetworkPolicy) []string {
+// socketInode names one socket. A path can name another socket later, by a
+// rename or a hard link in a directory that the child can write.
+type socketInode struct {
+	dev, ino uint64
+}
+
+// statSocket returns the inode of the socket at path. It fails when path
+// does not name a socket.
+func statSocket(path string) (socketInode, error) {
+	var st unix.Stat_t
+	if err := unix.Stat(path, &st); err != nil {
+		return socketInode{}, err
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFSOCK {
+		return socketInode{}, fmt.Errorf("%s is not a socket", path)
+	}
+	return socketInode{dev: st.Dev, ino: st.Ino}, nil
+}
+
+// resolveUnixConnect binds the allow list to the sockets that exist when
+// the child starts, the same way the Landlock rules bind inodes. A socket
+// that is missing then, or that its server makes again later, stays closed.
+func resolveUnixConnect(pid uint32, network landlockNetworkPolicy) []socketInode {
 	if !network.supervisesUnixConnect() {
 		return nil
 	}
-	paths := make([]string, 0, len(network.UnixConnect))
+	var sockets []socketInode
 	for _, path := range network.UnixConnect {
-		paths = append(paths, canonicalPath(pid, "/", path, true))
+		socket, err := statSocket(canonicalPath(pid, "/", path, true))
+		if err != nil {
+			log.Warnf("sandbox: network.allow_unix_connect %s stays closed: %v", path, err)
+			continue
+		}
+		sockets = append(sockets, socket)
 	}
-	return paths
+	return sockets
 }
 
 // memFdFor opens a fresh /proc/<pid>/mem fd for the given PID. The caller
@@ -533,9 +558,10 @@ const dnsPort = 53
 // allow_direct_dns. All other destinations are denied.
 //
 // getaddrinfo needs AF_NETLINK. AF_UNIX gets here only when the kernel
-// decides: allow_unix_sockets opens every unix socket, and Landlock checks
-// the allow list. The supervisor checks the allow list before this
-// otherwise, and the kernel filter refuses socket(AF_UNIX) without either.
+// decides. That is when allow_unix_sockets opens every unix socket, or when
+// Landlock checks the allow list. The supervisor checks the allow list
+// before this otherwise, and the kernel filter refuses socket(AF_UNIX)
+// without either.
 // All other families are denied. AF_VSOCK, for example, reaches
 // host services from a VM.
 func (n landlockNetworkPolicy) allowOutbound(family uint16, addr netip.Addr, port uint16) bool {
@@ -736,9 +762,10 @@ func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *sec
 
 // handleUnixConnect checks a unix socket address against the allow list.
 // The kernel follows symlinks on connect, so the path resolves in the
-// child's view before the match. The kernel reads the address again after
-// the supervisor answers, so a thread that changes it in between defeats
-// this check. Landlock ABI 9 closes that gap. See docs/sandbox-landlock.md.
+// child's view before the match, and the match compares inodes. The kernel
+// looks the address up again after the supervisor answers. A thread that
+// changes the address or a symlink in between defeats this check. Landlock
+// ABI 9 closes that gap. See docs/sandbox-landlock.md.
 func (s *seccompSupervisor) handleUnixConnect(notif *seccompNotification, phase *seccompPhase, peer netPeer) {
 	syscall := syscallName(notif.Data.Nr)
 	if peer.abstract {
@@ -754,12 +781,19 @@ func (s *seccompSupervisor) handleUnixConnect(notif *seccompNotification, phase 
 		return
 	}
 
+	socket, err := statSocket(resolved)
+	if err != nil {
+		traceSeccompDecision("deny %s pid=%d path=%s: %v", syscall, notif.PID, resolved, err)
+		s.denyUnixConnect(notif, phase, resolved, "not a socket")
+		return
+	}
+
 	if !s.notifValid(notif.ID) {
 		s.deny(notif.ID)
 		return
 	}
 
-	if slices.Contains(phase.unixConnect, resolved) {
+	if slices.Contains(phase.unixConnect, socket) {
 		traceSeccompDecision("allow %s pid=%d path=%s", syscall, notif.PID, resolved)
 		s.continueSyscall(notif.ID)
 		return
