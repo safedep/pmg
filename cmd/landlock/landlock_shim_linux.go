@@ -17,6 +17,9 @@ func NewLandlockShimCommand() *cobra.Command {
 		Use:                "__landlock_shim",
 		Hidden:             true,
 		DisableFlagParsing: false,
+		// A failed start is a runtime error. The usage of a hidden command
+		// does not help the user.
+		SilenceUsage: true,
 		// The shim calls execve at once. It does not need config or analytics.
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
 		RunE: func(cmd *cobra.Command, args []string) error {
