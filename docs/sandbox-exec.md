@@ -65,6 +65,8 @@ On Linux, it also blocks the libsecret socket.
 PMG scrubs `GH_TOKEN` and `GITHUB_TOKEN`.
 Enabling Unix sockets alone does not fix SSH because direct TCP and SSH files remain blocked.
 It can expose services such as Docker.
+To let an agent reach one socket, such as the Gryph hook socket, list its path in
+`network.allow_unix_connect` in a child profile of `exec`.
 See
 [Unix Sockets](sandbox.md#unix-sockets).
 

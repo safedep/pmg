@@ -72,6 +72,7 @@ func TestLandlockNotifySyscalls(t *testing.T) {
 		{"path syscalls when deny paths exist", landlockNetworkPolicy{}, true, append(append([]uint32{}, execOnly...), pathSyscallNumbers()...)},
 		{"network under lockdown", landlockNetworkPolicy{Lockdown: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG))},
 		{"no network without lockdown", landlockNetworkPolicy{ProxyPort: 8080}, false, execOnly},
+		{"bind and listen under the unix allow list", landlockNetworkPolicy{UnixConnect: []string{"/run/a.sock"}}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_BIND), uint32(unix.SYS_LISTEN))},
 	}
 
 	for _, tc := range tests {
@@ -1250,4 +1251,15 @@ func TestResolveDenyEntries(t *testing.T) {
 
 	assert.Equal(t, []string{filepath.Join(root, "homelink", "curl"), filepath.Join(home, "curl")},
 		resolveDenyExec(pid, []string{filepath.Join(root, "homelink", "curl")}))
+}
+
+func TestWithoutCapabilitiesClearsTheEffectiveSet(t *testing.T) {
+	var data [2]unix.CapUserData
+	err := withoutCapabilities(func() error {
+		header := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+		return unix.Capget(&header, &data[0])
+	})
+	require.NoError(t, err)
+	assert.Zero(t, data[0].Effective)
+	assert.Zero(t, data[1].Effective)
 }

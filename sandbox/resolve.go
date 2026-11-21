@@ -82,12 +82,22 @@ func expandPolicyPaths(p *SandboxPolicy, opts ResolveOptions) (*SandboxPolicy, e
 	}
 	out.Process = ProcessPolicy{AllowExec: allowExec, DenyExec: denyExec}
 
-	// Network entries are host:port and don't carry path variables, but the
-	// slices are still deep-copied so the caller can safely mutate the result.
+	var allowUnixConnect []string
+	for _, entry := range p.Network.AllowUnixConnect {
+		path, err := expandUnixSocketPath(entry, opts)
+		if err != nil {
+			return nil, err
+		}
+		allowUnixConnect = append(allowUnixConnect, path)
+	}
+
+	// Host:port entries carry no path variables, but the slices are still
+	// deep-copied so the caller can safely mutate the result.
 	out.Network = NetworkPolicy{
-		AllowOutbound: append([]string(nil), p.Network.AllowOutbound...),
-		DenyOutbound:  append([]string(nil), p.Network.DenyOutbound...),
-		AllowBind:     append([]string(nil), p.Network.AllowBind...),
+		AllowOutbound:    append([]string(nil), p.Network.AllowOutbound...),
+		DenyOutbound:     append([]string(nil), p.Network.DenyOutbound...),
+		AllowBind:        append([]string(nil), p.Network.AllowBind...),
+		AllowUnixConnect: allowUnixConnect,
 	}
 	if p.Network.DenyIPLiterals != nil {
 		out.Network.DenyIPLiterals = utils.PtrTo(*p.Network.DenyIPLiterals)

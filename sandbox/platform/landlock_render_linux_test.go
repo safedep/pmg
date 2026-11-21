@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
@@ -21,7 +22,7 @@ import (
 var landlockABILinePattern = regexp.MustCompile(`(?m)^abi: \d+ \(\w+\)$`)
 
 // landlockFeaturesLinePattern normalizes the features line for the same reason.
-var landlockFeaturesLinePattern = regexp.MustCompile(`(?m)^features: refer=\w+ truncate=\w+ network=\w+ ioctl_dev=\w+ scoping=\w+$`)
+var landlockFeaturesLinePattern = regexp.MustCompile(`(?m)^features: refer=\w+ truncate=\w+ network=\w+ ioctl_dev=\w+ scoping=\w+ resolve_unix=\w+$`)
 
 func normalizeLandlockOutput(t *testing.T, b []byte) []byte {
 	t.Helper()
@@ -89,4 +90,10 @@ func TestRenderLandlock_Golden(t *testing.T) {
 func TestRenderLandlock_NilPolicy(t *testing.T) {
 	_, err := RenderLandlock(nil)
 	assert.Error(t, err)
+}
+
+// On ABI 9 the translator adds a rule with only resolve-unix for each listed
+// socket. The render must name that right, not print "(none)".
+func TestLandlockAccessFlagsStringNamesResolveUnix(t *testing.T) {
+	assert.Equal(t, "resolve_unix", landlockAccessFlagsString(uint64(llsyscall.AccessFSResolveUnix)))
 }

@@ -1,0 +1,171 @@
+# guarantee: a profile with network.allow_unix_connect opens the listed unix
+# socket under `pmg sandbox exec` and keeps every other unix socket closed.
+# A run cannot replace a name on the way to the socket. Bubblewrap cannot
+# check a socket path, so it refuses the profile. The Landlock driver
+# refuses it below Landlock ABI 9, and from ABI 9 it leaves closed an entry
+# that a write rule could replace.
+
+[!exec:python3] skip
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+exec python3 $WORK/sock.py listen &listener&
+exec python3 $WORK/sock.py wait
+
+[bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/bwrap.yml -- python3 $WORK/sock.py host.sock
+[bubblewrap] stderr 'network.allow_unix_connect is not supported'
+
+# Linux below Landlock ABI 9: the Landlock driver refuses the list.
+[linux] [!bubblewrap] [!landlock-unix-connect] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[linux] [!bubblewrap] [!landlock-unix-connect] stderr 'needs Landlock ABI 9'
+[linux] [!bubblewrap] [!landlock-unix-connect] ! stdout .
+
+# Linux from Landlock ABI 9: host.sock is in the project, which the exec
+# profile can write, so a run could replace it. The entry stays closed.
+[landlock-unix-connect] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[landlock-unix-connect] stderr 'leaves .*/host.sock closed'
+[landlock-unix-connect] stdout '^DENIED (socket|connect) E(ACCES|PERM)$'
+
+# macOS: Seatbelt checks each connect and each write in the kernel.
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[darwin] stdout '^OK host$'
+
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py other.sock
+[darwin] stdout '^DENIED connect E(ACCES|PERM)$'
+
+# A run cannot replace the listed socket, so it cannot choose the socket
+# that the next run reaches.
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py plant host.sock
+[darwin] stdout '^DENIED plant E(ACCES|PERM)$'
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[darwin] stdout '^OK host$'
+
+# The same holds for each link that a listed path follows, and for the
+# socket at the end.
+symlink mid.sock -> host.sock
+symlink link.sock -> mid.sock
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant mid.sock
+[darwin] stdout '^DENIED plant E(ACCES|PERM)$'
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant host.sock
+[darwin] stdout '^DENIED plant E(ACCES|PERM)$'
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py link.sock
+[darwin] stdout '^OK host$'
+
+# A run cannot repoint a linked directory on the way either. Before the
+# swap, a/host.sock -> b/host.sock -> host.sock. After it, b names decoy,
+# where host.sock links to other.sock.
+mkdir decoy
+symlink decoy/host.sock -> ../other.sock
+symlink b -> .
+symlink a -> b
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py swap b decoy
+[darwin] stdout '^DENIED plant E(ACCES|PERM)$'
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py a/host.sock
+[darwin] stdout '^OK host$'
+
+kill listener
+
+-- proj/.keep --
+-- allow.yml --
+name: exec-one-socket
+inherits: exec
+package_managers: [exec]
+network:
+  allow_unix_connect:
+    - ${CWD}/host.sock
+-- link.yml --
+name: exec-one-socket-link
+inherits: exec
+package_managers: [exec]
+network:
+  allow_unix_connect:
+    - ${CWD}/link.sock
+-- dir.yml --
+name: exec-one-socket-dir
+inherits: exec
+package_managers: [exec]
+network:
+  allow_unix_connect:
+    - ${CWD}/a/host.sock
+-- bwrap.yml --
+name: exec-one-socket-bwrap
+inherits: exec
+package_managers: [exec]
+network_via_proxy_only: false
+network:
+  allow_unix_connect:
+    - ${CWD}/host.sock
+-- sock.py --
+import errno, os, signal, socket, sys, threading, time
+
+# Relative paths stay below the macOS sun_path limit.
+SOCKETS = ["host.sock", "other.sock"]
+
+def listen():
+    signal.signal(signal.SIGINT, lambda *_: os._exit(0))
+    signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
+    threading.Timer(120, lambda: os._exit(0)).start()
+    for path in SOCKETS:
+        s = socket.socket(socket.AF_UNIX)
+        s.bind(path)
+        s.listen(8)
+        threading.Thread(target=serve, args=(s, path.split(".")[0]), daemon=True).start()
+    threading.Event().wait()
+
+def serve(s, name):
+    while True:
+        c = s.accept()[0]
+        c.sendall(name.encode())
+        c.close()
+
+def wait():
+    for _ in range(100):
+        if all(os.path.exists(p) for p in SOCKETS):
+            return
+        time.sleep(0.1)
+    sys.exit("listener did not start")
+
+def connect(path):
+    stage = "socket"
+    try:
+        s = socket.socket(socket.AF_UNIX)
+        stage = "connect"
+        s.connect(path)
+        name = s.recv(16).decode()
+    except OSError as e:
+        print("DENIED " + stage + " " + errno.errorcode.get(e.errno, str(e.errno)))
+        sys.exit(1)
+    print("OK " + name)
+
+def plant(path):
+    try:
+        os.unlink(path)
+        os.symlink(os.path.abspath("other.sock"), path)
+    except OSError as e:
+        print("DENIED plant " + errno.errorcode.get(e.errno, str(e.errno)))
+        sys.exit(1)
+    print("PLANTED")
+
+def swap(path, target):
+    try:
+        os.symlink(target, path + ".new")
+        os.replace(path + ".new", path)
+    except OSError as e:
+        print("DENIED plant " + errno.errorcode.get(e.errno, str(e.errno)))
+        sys.exit(1)
+    print("PLANTED")
+
+mode = sys.argv[1]
+if mode == "listen":
+    listen()
+elif mode == "wait":
+    wait()
+elif mode == "plant":
+    plant(sys.argv[2])
+elif mode == "swap":
+    swap(sys.argv[2], sys.argv[3])
+else:
+    connect(mode)

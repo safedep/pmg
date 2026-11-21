@@ -13,25 +13,27 @@ import (
 // Each boolean flag indicates whether the corresponding Landlock feature is available
 // at the detected ABI version.
 type landlockABI struct {
-	Version     int  // 1-6, 0 if unsupported
-	HasRefer    bool // V2+: rename across directories (atomic writes)
-	HasTruncate bool // V3+: file truncation
-	HasNetwork  bool // V4+: TCP port filtering
-	HasIoctlDev bool // V5+: device ioctl (PTY terminal ops)
-	HasScoping  bool // V6+: signal isolation
+	Version        int  // 0 if unsupported
+	HasRefer       bool // V2+: rename across directories (atomic writes)
+	HasTruncate    bool // V3+: file truncation
+	HasNetwork     bool // V4+: TCP port filtering
+	HasIoctlDev    bool // V5+: device ioctl (PTY terminal ops)
+	HasScoping     bool // V6+: signal and abstract unix socket isolation
+	HasResolveUnix bool // V9+: connect to pathname unix sockets
 }
 
 // newLandlockABI constructs a landlockABI with feature flags derived from the version number.
-// Version <= 0 means all flags are false (unsupported). Versions > 6 have all flags set
-// to true since we assume forward compatibility for known features.
+// Version <= 0 means all flags are false (unsupported). A later version keeps
+// every known feature.
 func newLandlockABI(version int) *landlockABI {
 	return &landlockABI{
-		Version:     version,
-		HasRefer:    version >= 2,
-		HasTruncate: version >= 3,
-		HasNetwork:  version >= 4,
-		HasIoctlDev: version >= 5,
-		HasScoping:  version >= 6,
+		Version:        version,
+		HasRefer:       version >= 2,
+		HasTruncate:    version >= 3,
+		HasNetwork:     version >= 4,
+		HasIoctlDev:    version >= 5,
+		HasScoping:     version >= 6,
+		HasResolveUnix: version >= 9,
 	}
 }
 

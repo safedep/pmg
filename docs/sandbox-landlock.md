@@ -333,8 +333,19 @@ These are the known holes in the current enforcement, in approximate priority or
   This bypasses `network_via_proxy_only`.
   glibc also uses it for DNS, normally on an already connected socket.
 - **`allow_unix_sockets` opens every unix socket.** The kernel filter cannot read a
-  socket path, so the choice is all or nothing. With the default, glibc NSS modules that
-  use a socket (systemd-resolved, nscd) fail and glibc falls back to files and DNS.
+  socket path. With the default, glibc NSS modules that use a socket (systemd-resolved,
+  nscd) fail and glibc falls back to files and DNS.
+- **`network.allow_unix_connect` needs Landlock ABI 9.** Landlock checks each connect in the
+  kernel there. Below ABI 9 PMG refuses a profile with the list. PMG leaves an entry closed when a
+  write rule covers a name on the way to the socket, because the supervisor deny on that name can
+  be raced.
+- **The supervisor runs each bind and listen under `network.allow_unix_connect`.** No Landlock
+  right covers a bind to an abstract name. The supervisor makes its own copy of the socket and of
+  the bind address, refuses a unix socket, and runs the call on the copy for any other family. A
+  second thread cannot change the socket or the address that the call uses. The supervisor runs
+  the call on a thread with no effective capability, because the process holds none in the
+  network namespace. A bind below `ip_unprivileged_port_start` fails for both, also when root runs
+  pmg.
 - **`allow_network_bind` also opens loopback port 53.** The supervisor allows a connect to
   every loopback port under that flag. A loopback DNS resolver is then reachable without
   `allow_direct_dns`.

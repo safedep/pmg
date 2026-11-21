@@ -387,8 +387,20 @@ func openLandlockChildMemFd(pid int) (*os.File, error) {
 }
 
 // landlockSelectConfig picks the lowest Landlock ABI that covers every
-// access flag in the policy.
+// access flag in the policy. A resolve-unix rule adds only that right, so
+// the rights of the ABIs between stay unhandled as before.
 func landlockSelectConfig(policy *landlockExecPolicy) landlock.Config {
+	cfg := landlockSelectBaseConfig(policy)
+	for _, r := range policy.FilesystemRules {
+		if r.Access&uint64(llsyscall.AccessFSResolveUnix) != 0 {
+			cfg.HandledAccessFS |= landlock.AccessFSSet(llsyscall.AccessFSResolveUnix)
+			break
+		}
+	}
+	return cfg
+}
+
+func landlockSelectBaseConfig(policy *landlockExecPolicy) landlock.Config {
 	var hasRefer, hasTruncate, hasIoctlDev bool
 	for _, r := range policy.FilesystemRules {
 		if r.Access&uint64(llsyscall.AccessFSRefer) != 0 {

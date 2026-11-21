@@ -99,6 +99,12 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate policy: %w", err)
 	}
+	for _, closed := range execPolicy.Network.UnixConnectClosed {
+		if _, err := fmt.Fprintf(os.Stderr, "pmg: warning: network.allow_unix_connect leaves %s closed, because the write rule for %s could replace it\n",
+			closed.Path, closed.WriteRule); err != nil {
+			return nil, err
+		}
+	}
 
 	execPolicy.Command = cmd.Path
 	if len(cmd.Args) > 1 {
