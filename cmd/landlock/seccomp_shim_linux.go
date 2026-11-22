@@ -15,6 +15,9 @@ func NewSeccompShimCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    platform.SeccompShimCommand,
 		Hidden: true,
+		// A failed start is a runtime error. The usage of a hidden command
+		// does not help the user.
+		SilenceUsage: true,
 		// The shim execs at once. It needs no config and no analytics.
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
 		RunE: func(cmd *cobra.Command, execArgs []string) error {

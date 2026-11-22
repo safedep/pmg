@@ -1251,3 +1251,21 @@ func TestResolveDenyEntries(t *testing.T) {
 	assert.Equal(t, []string{filepath.Join(root, "homelink", "curl"), filepath.Join(home, "curl")},
 		resolveDenyExec(pid, []string{filepath.Join(root, "homelink", "curl")}))
 }
+
+// When every task of the filter has exited, the notify fd reports POLLHUP
+// and no notification can come. Before Linux 6.11 a RECV then blocks
+// forever, so the loop must stop instead of reading. A pipe whose writer
+// closed reports the same POLLHUP without POLLIN.
+func TestWaitForNotifStopsOnHangup(t *testing.T) {
+	var p [2]int
+	require.NoError(t, unix.Pipe2(p[:], unix.O_CLOEXEC))
+	t.Cleanup(func() { _ = unix.Close(p[0]) })
+	require.NoError(t, unix.Close(p[1]))
+	stopFd, err := unix.Eventfd(0, unix.EFD_CLOEXEC)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = unix.Close(stopFd) })
+
+	ready, err := waitForNotif(p[0], stopFd)
+	require.NoError(t, err)
+	assert.False(t, ready)
+}
