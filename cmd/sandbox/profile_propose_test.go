@@ -113,19 +113,19 @@ func TestProfilePropose_DaemonRunParent(t *testing.T) {
 	}{
 		{
 			name: "a daemon run inherits exec and denies the rest",
-			want: []string{"inherits: exec", "add github.com:443", "add registry.npmjs.org:443", `- "*:*"`},
+			want: []string{"inherits: exec", "add github.com:443", "add api.safedep.io:443", "add registry.npmjs.org:443", `- "*:*"`},
 		},
 		{
-			name:          "a daemon run on a GitHub Actions runner inherits the runner hosts",
+			name:          "a daemon run on a GitHub Actions runner inherits the runner hosts and the SafeDep hosts",
 			githubActions: true,
-			want:          []string{"inherits: github-actions", "parent allows github.com:443", "add registry.npmjs.org:443", "deny_outbound: []"},
+			want:          []string{"inherits: github-actions", "parent allows github.com:443", "parent allows api.safedep.io:443", "add registry.npmjs.org:443", "deny_outbound: []"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newProposeFixture(t)
 			f.logObservation(t, proposeNow.Add(-2*time.Hour), netpolicy.Observation{RunID: "run1", RepoRoot: f.repo, Mode: "audit",
-				Destinations: []netpolicy.Destination{dest("registry.npmjs.org", 443, 4), dest("github.com", 443, 1)}})
+				Destinations: []netpolicy.Destination{dest("registry.npmjs.org", 443, 4), dest("github.com", 443, 1), dest("api.safedep.io", 443, 2)}})
 			deps := f.deps()
 			deps.githubActions = func() bool { return tt.githubActions }
 			cmd := newProfileProposeCommand(newTestRegistryFactory(t, f.userDir), deps)
