@@ -42,10 +42,12 @@ elif ! PMG_BIN=$(command -v pmg); then
   exit 1
 fi
 
-# sudo drops the environment. Pass on the PMG_ variables, and the Kubernetes
-# variables that PMG reads to identify the Pod in SafeDep Cloud.
+# sudo drops the environment. Pass on the PMG_ variables, the Kubernetes
+# variables that PMG reads to identify the Pod in SafeDep Cloud, and GODEBUG.
+# GODEBUG=tlsmlkem=0 removes the post-quantum key share from the upstream TLS
+# handshake of PMG. Some network paths drop that larger handshake (#624).
 pmg_env=()
-for v in $(compgen -e PMG_) $(compgen -e KUBE_) $(compgen -e KUBERNETES_SERVICE_); do pmg_env+=("$v=${!v}"); done
+for v in $(compgen -e PMG_) $(compgen -e KUBE_) $(compgen -e KUBERNETES_SERVICE_) $(compgen -e GODEBUG); do pmg_env+=("$v=${!v}"); done
 pmg_cgroup=""
 pmg_pid=""
 
