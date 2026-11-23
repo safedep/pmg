@@ -45,7 +45,7 @@ function hasIDToken() {
 }
 
 function supportsWorkload(bin) {
-  const res = spawnSync(bin, ['cloud', 'workload', 'exchange', '--help'], { encoding: 'utf8', env: lib.childEnv() });
+  const res = spawnSync(bin, ['cloud', 'workload', 'exchange', '--help'], { encoding: 'utf8', env: lib.helperEnv() });
   return res.status === 0 && res.stdout.includes('--tenant-id');
 }
 

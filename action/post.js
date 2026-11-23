@@ -134,7 +134,7 @@ function stateArgs(enforce) {
 // supportsReport is false for a PMG release older than the job summary.
 // The action installs the release that the version input names.
 function supportsReport(bin) {
-  const res = spawnSync(bin, ['proxy', 'stop', '--help'], { encoding: 'utf8', env: lib.childEnv() });
+  const res = spawnSync(bin, ['proxy', 'stop', '--help'], { encoding: 'utf8', env: lib.helperEnv() });
   return res.status === 0 && res.stdout.includes('--if-running');
 }
 

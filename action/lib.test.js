@@ -2,6 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const lib = require('./lib');
 
 test('parseKeyValues reads both forms of the runner files', () => {
@@ -55,4 +58,25 @@ test('errorCodes reads the code of each pmg error line', () => {
   assert.deepStrictEqual(lib.errorCodes(stderr), ['EnforceRequirements']);
   assert.deepStrictEqual(lib.errorCodes(' InvalidArgument   the enforce policy is not valid\n'), ['InvalidArgument']);
   assert.deepStrictEqual(lib.errorCodes('Network: 2 destination(s) observed\n'), []);
+});
+
+test('runPMG runs a helper call with SafeDep Cloud off', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmg-helper-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bin = path.join(dir, 'pmg');
+  fs.writeFileSync(bin, '#!/bin/sh\nenv\n', { mode: 0o755 });
+
+  const saved = process.env.PMG_CLOUD_ENABLED;
+  process.env.PMG_CLOUD_ENABLED = 'true';
+  try {
+    const res = lib.runPMG(bin, ['version'], { capture: true });
+    assert.match(res.stdout, /^PMG_CLOUD_ENABLED=false$/m);
+    assert.match(lib.helperEnv().PMG_CLOUD_ENABLED, /^false$/);
+  } finally {
+    if (saved === undefined) {
+      delete process.env.PMG_CLOUD_ENABLED;
+    } else {
+      process.env.PMG_CLOUD_ENABLED = saved;
+    }
+  }
 });

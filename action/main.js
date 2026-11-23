@@ -80,7 +80,7 @@ function main() {
     lib.group('Install the PMG shims', () => lib.run('sh', 'shim.sh'));
   }
 
-  const verify = spawnSync('sh', ['-c', 'pmg version && printf "%s\\n" "npm resolves to: $(command -v npm || printf "%s" "<not installed>")"'], { stdio: 'inherit', env: lib.childEnv() });
+  const verify = spawnSync('sh', ['-c', 'pmg version && printf "%s\\n" "npm resolves to: $(command -v npm || printf "%s" "<not installed>")"'], { stdio: 'inherit', env: lib.helperEnv() });
   return verify.status === 0 ? 0 : 1;
 }
 
