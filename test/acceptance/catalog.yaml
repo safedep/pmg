@@ -414,7 +414,7 @@
   title: "the workload identity exchange without an ID token names id-token: write"
   category: cloud
   tier: P1
-  guarantee: "pmg cloud workload exchange with no ID token in the environment fails, names 'permissions: id-token: write' and writes no credential file."
+  guarantee: "On Linux and macOS, pmg cloud workload exchange with no ID token in the environment fails, names 'permissions: id-token: write' and writes no credential file."
   labels: [cloud, workload-identity, offline]
 - id: cloud/policy/block-entry-blocks
   title: "a block entry of the cloud policy blocks an install"

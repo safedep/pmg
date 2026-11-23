@@ -2,6 +2,7 @@
 # job with no ID token fails. The message names the permission that the job
 # needs. pmg writes no credential file.
 
+[windows] skip 'pmg refuses the credential file on Windows before it reads the ID token'
 env HOME=$WORK/home
 mkdir $WORK/home
 env ACTIONS_ID_TOKEN_REQUEST_URL=
