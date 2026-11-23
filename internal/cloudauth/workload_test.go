@@ -181,6 +181,17 @@ func TestResolveCredentialsFromCredentialFile(t *testing.T) {
 		assert.Equal(t, testTenant, tenant)
 	})
 
+	t.Run("an empty value is unset", func(t *testing.T) {
+		t.Setenv(CredentialFileEnv, "")
+
+		creds, closeFn, err := ResolveCredentials()
+		require.NoError(t, err)
+		require.NoError(t, closeFn())
+		tenant, err := creds.GetTenantDomain()
+		require.NoError(t, err)
+		assert.NotEqual(t, testTenant, tenant)
+	})
+
 	t.Run("a missing file fails and does not fall back", func(t *testing.T) {
 		t.Setenv(CredentialFileEnv, filepath.Join(t.TempDir(), "missing.json"))
 

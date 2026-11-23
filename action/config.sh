@@ -37,6 +37,13 @@ export_var() {
   fi
 }
 
+# set_var writes the value also when it is empty. A value that an earlier
+# step of the job exported then does not stay.
+set_var() {
+  no_line_break "$1" "$2"
+  printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"
+}
+
 # Guard mode is removed: fail loudly when a workflow still opts out of
 # proxy interception instead of silently switching it to proxy mode.
 case "$(printf '%s' "$IN_PROXY_MODE" | tr '[:upper:]' '[:lower:]')" in
@@ -64,9 +71,6 @@ if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
   if [ "${IN_EXPORT_CREDENTIAL:-true}" = "true" ]; then
     export_var SAFEDEP_API_KEY "$IN_API_KEY"
     export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
-    # pmg reads the workload credential from this file before a keychain
-    # credential that a self-hosted runner keeps.
-    export_var PMG_CLOUD_CREDENTIAL_FILE "${IN_CREDENTIAL_FILE:-}"
   fi
   export_var PMG_CLOUD_ENABLED "true"
 
@@ -92,6 +96,13 @@ if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
     export_var PMG_CLOUD_ENDPOINT_ID "gh:${GH_REPOSITORY}"
   fi
 fi
+
+# pmg reads the workload credential from this file before every other
+# credential, also before a keychain credential that a self-hosted runner
+# keeps. Only an OIDC step in shim mode sets it. Every other step clears it,
+# so a later action step of the job never uses the credential of an earlier
+# one. The action owns this variable, and pmg treats an empty value as unset.
+set_var PMG_CLOUD_CREDENTIAL_FILE "${IN_CREDENTIAL_FILE:-}"
 
 # Only emit PMG_* vars when the user explicitly set the input. This
 # preserves the "config-file overrides PMG defaults" guarantee — env

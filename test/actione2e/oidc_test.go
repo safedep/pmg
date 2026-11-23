@@ -468,3 +468,24 @@ func TestOIDCTwoJobsOnOneRunner(t *testing.T) {
 	assert.Len(t, stub.Revokes(), 2)
 	assert.True(t, processGone(secondPID))
 }
+
+// Two action steps in one job share GITHUB_ENV. An API key step after an
+// OIDC step in shim mode must not leave the credential file of the first
+// step, because pmg reads that file before the API key.
+func TestOIDCThenAPIKeyStepInOneJob(t *testing.T) {
+	stub := &cloudauthtest.Exchange{}
+	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_SERVER-MODE": "false"})
+
+	_, code := j.run("main.js")
+	require.Equal(t, 0, code)
+	require.NotEmpty(t, j.kv("GITHUB_ENV")["PMG_CLOUD_CREDENTIAL_FILE"])
+
+	j.env["INPUT_API-KEY"] = "sfd_api_key"
+	j.env["INPUT_TENANT-ID"] = "other.safedep.io"
+	_, code = j.run("main.js")
+	require.Equal(t, 0, code)
+	assert.Empty(t, j.kv("GITHUB_ENV")["PMG_CLOUD_CREDENTIAL_FILE"])
+	assert.Equal(t, "sfd_api_key", j.kv("GITHUB_ENV")["SAFEDEP_API_KEY"])
+	assert.Equal(t, "other.safedep.io", j.kv("GITHUB_ENV")["SAFEDEP_TENANT_ID"])
+	assert.Len(t, stub.Exchanges(), 1)
+}
