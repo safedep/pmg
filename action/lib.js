@@ -166,11 +166,15 @@ function run(shell, script, env, { captureStderr = false } = {}) {
 // daemon and its event log belong to root. Only root gets the root
 // daemon's config directory. The runner user cannot write it, and every pmg
 // command opens the event log there. capture pipes stdout, and 'all'
-// pipes stderr too.
-function runPMG(bin, args, { sudo = false, configDir = '', capture = false } = {}) {
+// pipes stderr too. idToken keeps the ID token request token, for the
+// exchange of the workload identity only. No other pmg process gets it.
+function runPMG(bin, args, { sudo = false, configDir = '', capture = false, idToken = false } = {}) {
   let file = bin;
   let argv = args;
   const env = childEnv();
+  if (idToken && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+    env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  }
   if (sudo) {
     if (configDir !== '') {
       env.PMG_CONFIG_DIR = configDir;

@@ -95,7 +95,7 @@ YAML file loaded through `config-file`. Set an input to override the
 default.
 
 Cloud inputs are an exception.
-With `api-key`, the action exports `PMG_CLOUD_ENABLED=true`.
+With `api-key`, or with `tenant-id` in [OIDC mode](#use-github-oidc-instead-of-an-api-key), the action exports `PMG_CLOUD_ENABLED=true`.
 It sets `PMG_CLOUD_AUTO_SYNC_ENABLED=true` in server mode and `false` in shim mode.
 It also exports `PMG_CLOUD_ENDPOINT_ID`, with `gh:<owner>/<repo>` as its default.
 These variables override the corresponding `config-file` values.
@@ -113,8 +113,8 @@ Use exactly lowercase `true` for `cache`, `sandbox`, and `skip-event-logging`. T
 |---|---|---|
 | `version` | PMG release tag (for example `v0.42.0`) or `latest` | `latest` |
 | `api-key` | SafeDep Cloud API key. Set it with `tenant-id`. Use a secret to hold the value. The action then fetches the cloud policy, and the step fails when no cloud policy applies. | unset (cloud sync disabled) |
-| `tenant-id` | SafeDep Cloud tenant ID | unset |
-| `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `gh:<owner>/<repo>` when `api-key` is set |
+| `tenant-id` | SafeDep Cloud tenant ID. Without `api-key` it selects [OIDC mode](#use-github-oidc-instead-of-an-api-key). | unset |
+| `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name. OIDC mode ignores it. | `gh:<owner>/<repo>` when `api-key` is set |
 | `paranoid` | `PMG_PARANOID` | `false` |
 | `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
 | `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `2` |
@@ -208,6 +208,54 @@ Labels that an admin set on the old endpoint do not move to the new endpoint.
 A policy override that selects those labels stops to apply until an admin sets them again.
 To keep the old ID, set `endpoint-id: gha/${{ github.repository }}`.
 
+### Use GitHub OIDC instead of an API key
+
+Set `tenant-id` and no `api-key`, and give the job `id-token: write`.
+The action then gets a short-lived SafeDep Cloud credential for the job, and the job needs no API key secret.
+A tenant admin first links the SafeDep GitHub App and adds a workload identity rule for the repository.
+
+```yaml
+permissions:
+  contents: read
+  id-token: write
+steps:
+  - uses: safedep/pmg@v2
+    with:
+      tenant-id: ${{ vars.SAFEDEP_TENANT_ID }}
+  - run: npm ci
+```
+
+When the job sets `api-key` too, the action uses the API key.
+So both inputs work while you move a workflow from the API key to OIDC.
+
+In OIDC mode the action step:
+
+1. Asks GitHub for an ID token for SafeDep Cloud and exchanges it for a credential.
+   It asks for the longest life that the rule allows, because the proxy cannot refresh the credential.
+2. Gives the credential to the proxy before the proxy starts.
+   A proxy that runs as the job user gets it in its environment.
+   A root daemon under [kernel enforcement](#kernel-enforcement) reads a copy that only root can read.
+   The proxy never gets the GitHub token that requests an ID token.
+3. In [shim mode](#shim-mode), exports the credential to the later steps as `SAFEDEP_API_KEY` and masks it in the log.
+   In server mode the later steps do not get the credential.
+
+SafeDep Cloud sets the endpoint ID `gh:<owner>/<repo>` from the claims of the ID token.
+The action ignores `endpoint-id` in OIDC mode and prints a warning when you set it.
+
+The post step stops the proxy and then revokes the credential on every job outcome: success, failure and cancel.
+When the proxy still runs at the end of the job, the post step fails.
+On a persistent self-hosted runner, a proxy that stays alive would serve later jobs under the credential of this job.
+When the revoke fails, the post step prints a warning, and the credential stays valid until it expires.
+
+These cases change the result of the action step:
+
+| Case | Result |
+|---|---|
+| The job has no `id-token: write` | The step fails, and the message names `permissions: id-token: write`. |
+| A `pull_request` run from a fork | GitHub gives the run no ID token. The step prints a warning, and PMG runs without SafeDep Cloud. |
+| SafeDep Cloud refuses the exchange, for example no rule matches or the tenant is over its limit | The job summary shows the reason, and PMG runs with its local config. A tenant admin can list denied exchanges with `safedep workload exchange list --denied`. |
+| The `version` input names a PMG release without `pmg cloud workload exchange` | The step fails. |
+
 ### Use `config-file` for custom settings
 
 ```yaml
@@ -246,7 +294,7 @@ job needs no other PMG step. See the [Quick start](#quick-start).
 At the end of the job, the post step of the action:
 
 1. Stops the daemon. The daemon flushes its events to SafeDep Cloud when
-   the job sets `api-key`.
+   the job sets `api-key` or uses OIDC mode.
 2. Proposes a network profile from the destinations the job reached. See
    [Build the profile from a run](#build-the-profile-from-a-run).
 3. Writes the job summary. The summary shows the verdict, each denied

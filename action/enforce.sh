@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts the PMG proxy daemon as root with kernel enforcement. It runs on
 # the runner host only, where bash and sudo exist. Reads PMG_BIN_DIR,
-# PMG_ROOT_STATE and the enforce and network inputs.
+# PMG_ROOT_STATE, the enforce and network inputs, and in OIDC mode
+# PMG_WORKLOAD_CREDENTIAL and PMG_ROOT_CREDENTIAL_DIR.
 set -euo pipefail
 if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true 2>/dev/null; then
   echo "::error::enforce needs passwordless sudo on the runner. Attaching the kernel programs needs root." >&2
@@ -27,7 +28,16 @@ if [ -n "$INPUT_CONFIG_FILE" ]; then
   echo "PMG_PROXY_CONFIG_DIR=${PMG_CONFIG_DIR}" >> "$GITHUB_ENV"
 fi
 
-preserve_env=PMG_CONFIG_DIR,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_ACTOR,GITHUB_REF,GITHUB_REF_NAME,GITHUB_HEAD_REF,GITHUB_WORKFLOW,GITHUB_JOB,GITHUB_SERVER_URL
+# In OIDC mode the daemon reads the workload credential from a file that
+# only root can read. No variable carries the access token into the daemon,
+# and the daemon never gets the ID token request token.
+if [ -n "${PMG_WORKLOAD_CREDENTIAL:-}" ]; then
+  sudo install -d -m 0700 -o root -g 0 "$PMG_ROOT_CREDENTIAL_DIR"
+  sudo install -m 0600 -o root -g 0 "$PMG_WORKLOAD_CREDENTIAL" "${PMG_ROOT_CREDENTIAL_DIR}/credential.json"
+  export PMG_CLOUD_CREDENTIAL_FILE="${PMG_ROOT_CREDENTIAL_DIR}/credential.json"
+fi
+
+preserve_env=PMG_CONFIG_DIR,PMG_CLOUD_CREDENTIAL_FILE,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_ACTOR,GITHUB_REF,GITHUB_REF_NAME,GITHUB_HEAD_REF,GITHUB_WORKFLOW,GITHUB_JOB,GITHUB_SERVER_URL
 
 # The fetch runs as root with the env of the daemon, so it fills the policy
 # cache that the daemon reads at start. It runs before the CA install, so a

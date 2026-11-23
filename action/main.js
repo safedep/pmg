@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const lib = require('./lib');
+const workload = require('./workload');
 
 // runnerErrorCodes are the start failures that come from the runner, not
 // from the policy. enforce auto runs the proxy without enforcement only for
@@ -40,10 +41,11 @@ function main() {
   const { outputs } = lib.group('Install PMG', () =>
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
   const binDir = outputs['bin-dir'];
+  const bin = path.join(binDir, 'pmg');
   // Before any script changes the job, so a refused second step leaves the
   // configuration of the first step in place.
   if (serverMode) {
-    refuseSecondProxy(path.join(binDir, 'pmg'));
+    refuseSecondProxy(bin);
   }
 
   if (lib.boolInput('sandbox') && !serverMode) {
@@ -51,11 +53,13 @@ function main() {
       lib.run('sh', 'sandbox.sh', { INPUT_DRIVER: lib.input('sandbox-driver'), PMG_JOB_CONTAINER: String(jobContainer) }));
   }
 
+  const cloud = cloudInputs(bin, serverMode);
   lib.group('Export PMG configuration', () => lib.run('sh', 'config.sh', {
     INPUT_CONFIG_FILE: lib.input('config-file'),
-    IN_API_KEY: lib.input('api-key'),
-    IN_TENANT_ID: lib.input('tenant-id'),
-    IN_ENDPOINT_ID: lib.input('endpoint-id'),
+    IN_API_KEY: cloud.apiKey,
+    IN_TENANT_ID: cloud.tenantId,
+    IN_ENDPOINT_ID: cloud.endpointId,
+    IN_EXPORT_CREDENTIAL: String(cloud.exportCredential),
     IN_PARANOID: lib.input('paranoid'),
     IN_COOLDOWN_ENABLED: lib.input('cooldown-enabled'),
     IN_COOLDOWN_DAYS: lib.input('cooldown-days'),
@@ -70,13 +74,34 @@ function main() {
   }));
 
   if (serverMode) {
-    startProxy(binDir, profile, enforce, jobContainer);
+    startProxy(binDir, profile, enforce, jobContainer, cloud.workload);
   } else {
     lib.group('Install the PMG shims', () => lib.run('sh', 'shim.sh'));
   }
 
   const verify = spawnSync('sh', ['-c', 'pmg version && printf "%s\\n" "npm resolves to: $(command -v npm || printf "%s" "<not installed>")"'], { stdio: 'inherit', env: lib.childEnv() });
   return verify.status === 0 ? 0 : 1;
+}
+
+// cloudInputs gives the cloud inputs of config.sh. In OIDC mode the access
+// token of the workload credential takes the place of the API key. In server
+// mode only the proxy gets the credential. The steps of the job do not.
+function cloudInputs(bin, serverMode) {
+  const none = { apiKey: '', tenantId: '', endpointId: '', exportCredential: true, workload: null };
+  if (workload.cloudMode() !== 'oidc') {
+    return { ...none, apiKey: lib.input('api-key'), tenantId: lib.input('tenant-id'), endpointId: lib.input('endpoint-id') };
+  }
+  const cred = workload.exchange(bin);
+  if (cred === null) {
+    return none;
+  }
+  return {
+    apiKey: cred.AccessToken,
+    tenantId: cred.TenantDomain,
+    endpointId: cred.EndpointID || '',
+    exportCredential: !serverMode,
+    workload: cred,
+  };
 }
 
 // resolveServerMode is true unless the job asks for shims. The sandbox wraps
@@ -174,20 +199,27 @@ function enforceInputsSet() {
   return enforceInputs.some((name) => lib.input(name) !== '');
 }
 
-function startProxy(binDir, profile, enforceInput, jobContainer) {
+function startProxy(binDir, profile, enforceInput, jobContainer, cred) {
   const network = networkInputs(profile);
   const env = {
     INPUT_NETWORK_PROFILE: network.profile,
     INPUT_NETWORK_MODE: network.mode,
   };
+  // The proxy that runs as the job user gets the credential in its
+  // environment. The root daemon reads a copy that only root can read.
+  const userEnv = cred ? { SAFEDEP_API_KEY: cred.AccessToken, SAFEDEP_TENANT_ID: cred.TenantDomain } : {};
+  const rootEnv = cred ? { PMG_WORKLOAD_CREDENTIAL: cred.file, PMG_ROOT_CREDENTIAL_DIR: workload.rootCredentialDir() } : {};
 
   const mode = enforceMode(enforceInput, jobContainer);
   if (mode === 'required' && jobContainer) {
     throw new Error('enforce attaches kernel programs on the runner host, and this job runs in a job container (jobs.<job_id>.container). Run the job on the runner, or set enforce to auto or false.');
   }
   if (mode !== 'off') {
+    if (cred) {
+      lib.saveState('root_credential', workload.rootCredentialDir());
+    }
     try {
-      startOnce(binDir, true, jobContainer, env);
+      startOnce(binDir, true, jobContainer, { ...env, ...rootEnv });
       trustBundleForOldNode();
       return;
     } catch (err) {
@@ -210,7 +242,7 @@ function startProxy(binDir, profile, enforceInput, jobContainer) {
       }
     }
   }
-  startOnce(binDir, false, jobContainer, env);
+  startOnce(binDir, false, jobContainer, { ...env, ...userEnv });
 }
 
 function startOnce(binDir, enforce, jobContainer, env) {

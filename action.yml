@@ -16,11 +16,11 @@ inputs:
     required: false
     default: ""
   tenant-id:
-    description: SafeDep Cloud tenant ID. Required when api-key is set.
+    description: SafeDep Cloud tenant ID. Required when api-key is set. Without api-key, the action uses GitHub OIDC. The job then needs "permissions: id-token: write". The action exchanges the ID token for a short-lived credential, gives it to PMG, and the post step revokes it. See docs/github-action.md.
     required: false
     default: ""
   endpoint-id:
-    description: Identifier reported to SafeDep Cloud for this runner. When empty and api-key is set, defaults to "gh:<owner>/<repo>" so events aggregate per repository instead of per ephemeral runner hostname.
+    description: Identifier reported to SafeDep Cloud for this runner. When empty and api-key is set, defaults to "gh:<owner>/<repo>" so events aggregate per repository instead of per ephemeral runner hostname. With OIDC, SafeDep Cloud sets the endpoint id from the ID token, and the action ignores this input.
     required: false
     default: ""
 

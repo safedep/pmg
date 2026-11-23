@@ -2,15 +2,27 @@
 
 // The post step of the action. At the end of the job it stops the proxy
 // daemon that main.js started, proposes a network profile from the run, and
-// writes the job summary. Its exit status is the stop verdict.
+// writes the job summary. In OIDC mode it then revokes the SafeDep Cloud
+// credential. Its exit status is the stop verdict.
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const lib = require('./lib');
+const workload = require('./workload');
 
 function main() {
+  let status;
+  try {
+    status = stopProxy();
+  } finally {
+    status = Math.max(status ?? 1, workload.end(pmgRuns));
+  }
+  return status;
+}
+
+function stopProxy() {
   const bin = lib.state('bin');
   if (bin === '') {
     return 0;

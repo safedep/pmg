@@ -51,16 +51,20 @@ case "$(printf '%s' "$IN_PROXY_MODE" | tr '[:upper:]' '[:lower:]')" in
 esac
 
 # Cloud credentials. PMG sync reads these directly when no keychain
-# credential is found, so we skip "pmg cloud login" entirely.
+# credential is found, so we skip "pmg cloud login" entirely. In OIDC mode
+# IN_API_KEY is the access token of the workload credential. In OIDC server
+# mode IN_EXPORT_CREDENTIAL is false, and only the proxy gets the credential.
 if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
   if [ -z "$IN_API_KEY" ] || [ -z "$IN_TENANT_ID" ]; then
-    printf '%s\n' "::error::api-key and tenant-id must be set together." >&2
+    printf '%s\n' "::error::api-key needs tenant-id." >&2
     exit 1
   fi
   no_line_break api-key "$IN_API_KEY"
   printf '%s\n' "::add-mask::$IN_API_KEY"
-  export_var SAFEDEP_API_KEY "$IN_API_KEY"
-  export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
+  if [ "${IN_EXPORT_CREDENTIAL:-true}" = "true" ]; then
+    export_var SAFEDEP_API_KEY "$IN_API_KEY"
+    export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
+  fi
   export_var PMG_CLOUD_ENABLED "true"
 
   if [ "$IN_SERVER_MODE" = "true" ]; then
