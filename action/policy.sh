@@ -15,7 +15,10 @@ if [ "${PMG_CLOUD_ENABLED:-}" != "true" ]; then
   exit 0
 fi
 
-help="$("$@" cloud sync --help)"
+# pmg starts a background cloud sync when a command exits with cloud on,
+# also after --help. That sync would hold the lock that the fetch below
+# waits for, so the probe runs with cloud off. sudo keeps the variable.
+help="$(PMG_CLOUD_ENABLED=false "$@" cloud sync --help)"
 case "$help" in
   *--require-policy*)
     "$@" cloud sync --require-policy --timeout 20s
