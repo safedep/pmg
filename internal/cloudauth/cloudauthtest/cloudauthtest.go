@@ -6,6 +6,7 @@ package cloudauthtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -40,12 +41,14 @@ const (
 
 // Exchange is a stub WorkloadIdentityService. The ExchangeToken calls take
 // the errors of FirstErrs in order. Then Err, when set, is the answer to
-// every call. With Hang, every call waits until the client gives up.
+// every call. RevokeErr, when set, is the answer to every RevokeToken call.
+// With Hang, every call waits until the client gives up.
 type Exchange struct {
 	controltowerv1grpc.UnimplementedWorkloadIdentityServiceServer
 
 	FirstErrs []error
 	Err       error
+	RevokeErr error
 	Hang      bool
 
 	mu        sync.Mutex
@@ -133,6 +136,9 @@ func (s *Exchange) RevokeToken(ctx context.Context, req *controltowerv1.RevokeTo
 	defer s.mu.Unlock()
 	s.revokes = append(s.revokes, req)
 	s.recordAuth(ctx)
+	if s.RevokeErr != nil {
+		return nil, s.RevokeErr
+	}
 	return &controltowerv1.RevokeTokenResponse{}, nil
 }
 
@@ -154,8 +160,17 @@ func StartOn(t *testing.T, stub *Exchange, host string) map[string]string {
 	require.NoError(t, err)
 	srv := grpc.NewServer(grpc.UnknownServiceHandler(stub.unknownService))
 	controltowerv1grpc.RegisterWorkloadIdentityServiceServer(srv, stub)
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(lis) }()
+	t.Cleanup(func() {
+		srv.Stop()
+		// Serve returns nil after Stop, or ErrServerStopped when Stop came
+		// first. Any other error means that the stub died during the test,
+		// and the client saw a timeout instead.
+		if err := <-served; !errors.Is(err, grpc.ErrServerStopped) {
+			assert.NoError(t, err, "the stub WorkloadIdentityService stopped")
+		}
+	})
 
 	idToken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "Bearer "+requestToken, r.Header.Get("Authorization"))

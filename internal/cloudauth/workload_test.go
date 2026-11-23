@@ -125,14 +125,29 @@ func TestCredentialFile(t *testing.T) {
 }
 
 func TestExchangeToFileRevokesWhenTheWriteFails(t *testing.T) {
-	stub := &cloudauthtest.Exchange{}
-	startStubExchange(t, stub)
+	for _, tc := range []struct {
+		name        string
+		revokeErr   error
+		wantRevoked bool
+	}{
+		{name: "the revoke succeeds", wantRevoked: true},
+		{name: "the revoke fails", revokeErr: status.Error(codes.Unavailable, "down")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &cloudauthtest.Exchange{RevokeErr: tc.revokeErr}
+			startStubExchange(t, stub)
 
-	_, err := ExchangeToFile(context.Background(), testTenant, filepath.Join(t.TempDir(), "missing", "cred.json"))
+			_, err := ExchangeToFile(context.Background(), testTenant, filepath.Join(t.TempDir(), "missing", "cred.json"))
 
-	require.ErrorIs(t, err, ErrCredentialFileWrite)
-	require.Len(t, stub.Revokes(), 1, "no caller holds the credential, so pmg revokes it")
-	assert.Equal(t, cloudauthtest.AccessToken, stub.Revokes()[0].GetAccessToken())
+			require.ErrorIs(t, err, ErrCredentialFileWrite)
+			var writeErr *CredentialWriteError
+			require.ErrorAs(t, err, &writeErr)
+			assert.Equal(t, tc.wantRevoked, writeErr.RevokeErr == nil)
+			assert.False(t, writeErr.ExpiresAt.IsZero())
+			require.Len(t, stub.Revokes(), 1, "no caller holds the credential, so pmg revokes it")
+			assert.Equal(t, cloudauthtest.AccessToken, stub.Revokes()[0].GetAccessToken())
+		})
+	}
 }
 
 func TestCallsEndAtTheTimeout(t *testing.T) {

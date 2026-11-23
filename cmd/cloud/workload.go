@@ -71,7 +71,7 @@ func exchangeError(err error) error {
 			Wrap(err).
 			WithCode(errcodes.Lifecycle).
 			WithHumanError("Cannot write the workload credential file").
-			WithHelp("pmg revoked the credential. Check the --output path")
+			WithHelp(credentialWriteHelp(err))
 	case errors.Is(err, cloud.ErrNoWorkloadIdentity):
 		return usefulerror.NewUsefulError().
 			Wrap(err).
@@ -90,6 +90,20 @@ func exchangeError(err error) error {
 			WithCode(errcodes.Network).
 			WithHumanError("Cannot exchange the workload identity token with SafeDep Cloud")
 	}
+}
+
+// credentialWriteHelp says whether pmg revoked a credential that it could
+// not write. A credential that pmg could not revoke stays valid.
+func credentialWriteHelp(err error) string {
+	var writeErr *cloudauth.CredentialWriteError
+	if errors.As(err, &writeErr) && writeErr.RevokeErr == nil {
+		return "pmg revoked the credential. Check the --output path"
+	}
+	if writeErr != nil && !writeErr.ExpiresAt.IsZero() {
+		return fmt.Sprintf("pmg could not revoke the credential. It stays valid until %s. Check the --output path",
+			writeErr.ExpiresAt.Format(time.RFC3339))
+	}
+	return "pmg could not revoke the credential. It stays valid until it expires. Check the --output path"
 }
 
 // statusMessage returns the message of the gRPC status that err wraps. The

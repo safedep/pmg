@@ -100,23 +100,42 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 // ExchangeToFile runs ExchangeWorkloadIdentity and writes the credential to
 // a new file at path with WriteCredentialFile. When the write fails, it
 // revokes the credential, because no caller can revoke a credential that it
-// does not hold. The write error stays the error that it returns.
+// does not hold. It then returns a *CredentialWriteError.
 func ExchangeToFile(ctx context.Context, tenantDomain, path string) (cloud.WorkloadCredential, error) {
 	cred, err := ExchangeWorkloadIdentity(ctx, tenantDomain)
 	if err != nil {
 		return cloud.WorkloadCredential{}, err
 	}
 	if err := WriteCredentialFile(path, cred); err != nil {
-		if revokeErr := RevokeWorkloadCredential(ctx, cred); revokeErr != nil {
-			log.Warnf("revoke the workload credential that pmg could not write: %v", revokeErr)
+		writeErr := &CredentialWriteError{Err: err, ExpiresAt: cred.ExpiresAt}
+		writeErr.RevokeErr = RevokeWorkloadCredential(ctx, cred)
+		if writeErr.RevokeErr != nil {
+			log.Warnf("revoke the workload credential that pmg could not write: %v", writeErr.RevokeErr)
 		}
-		return cloud.WorkloadCredential{}, fmt.Errorf("%w: %w", ErrCredentialFileWrite, err)
+		return cloud.WorkloadCredential{}, writeErr
 	}
 	return cred, nil
 }
 
 // ErrCredentialFileWrite marks a credential that pmg got and could not write.
 var ErrCredentialFileWrite = errors.New("cannot write the workload credential file")
+
+// CredentialWriteError is a credential that pmg got and could not write.
+// RevokeErr is nil when pmg revoked the credential. Otherwise the credential
+// stays valid until ExpiresAt.
+type CredentialWriteError struct {
+	Err       error
+	RevokeErr error
+	ExpiresAt time.Time
+}
+
+func (e *CredentialWriteError) Error() string {
+	return fmt.Sprintf("%v: %v", ErrCredentialFileWrite, e.Err)
+}
+
+func (e *CredentialWriteError) Unwrap() []error {
+	return []error{ErrCredentialFileWrite, e.Err}
+}
 
 // RevokeWorkloadCredential revokes cred at once.
 func RevokeWorkloadCredential(ctx context.Context, cred cloud.WorkloadCredential) error {
