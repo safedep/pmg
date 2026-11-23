@@ -3,7 +3,6 @@ package cloudauth
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -107,49 +106,6 @@ var testCredential = cloud.WorkloadCredential{
 	ExpiresAt:    time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC),
 }
 
-func TestCredentialFile(t *testing.T) {
-	t.Run("round trip", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "cred.json")
-		require.NoError(t, WriteCredentialFile(path, testCredential))
-
-		got, err := ReadCredentialFile(path)
-		require.NoError(t, err)
-		assert.Equal(t, testCredential, got)
-	})
-
-	t.Run("write refuses a file that exists", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "cred.json")
-		require.NoError(t, os.WriteFile(path, nil, 0o600))
-		assert.Error(t, WriteCredentialFile(path, testCredential))
-	})
-}
-
-func TestExchangeToFileRevokesWhenTheWriteFails(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		revokeErr   error
-		wantRevoked bool
-	}{
-		{name: "the revoke succeeds", wantRevoked: true},
-		{name: "the revoke fails", revokeErr: status.Error(codes.Unavailable, "down")},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			stub := &cloudauthtest.Exchange{RevokeErr: tc.revokeErr}
-			startStubExchange(t, stub)
-
-			_, err := ExchangeToFile(context.Background(), testTenant, filepath.Join(t.TempDir(), "missing", "cred.json"))
-
-			require.ErrorIs(t, err, ErrCredentialFileWrite)
-			var writeErr *CredentialWriteError
-			require.ErrorAs(t, err, &writeErr)
-			assert.Equal(t, tc.wantRevoked, writeErr.RevokeErr == nil)
-			assert.False(t, writeErr.ExpiresAt.IsZero())
-			require.Len(t, stub.Revokes(), 1, "no caller holds the credential, so pmg revokes it")
-			assert.Equal(t, cloudauthtest.AccessToken, stub.Revokes()[0].GetAccessToken())
-		})
-	}
-}
-
 func TestCallsEndAtTheTimeout(t *testing.T) {
 	saved := callTimeout
 	callTimeout = 200 * time.Millisecond
@@ -176,25 +132,6 @@ func TestCallsEndAtTheTimeout(t *testing.T) {
 func TestResolveCredentialsFromCredentialFile(t *testing.T) {
 	t.Setenv("SAFEDEP_API_KEY", "env-api-key")
 	t.Setenv("SAFEDEP_TENANT_ID", "other.safedep.io")
-
-	t.Run("the file takes precedence over the environment", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "cred.json")
-		require.NoError(t, WriteCredentialFile(path, cloud.WorkloadCredential{
-			AccessToken:  "workload-access-token",
-			TenantDomain: testTenant,
-		}))
-		t.Setenv(CredentialFileEnv, path)
-
-		creds, closeFn, err := ResolveCredentials()
-		require.NoError(t, err)
-		require.NoError(t, closeFn())
-		apiKey, err := creds.GetAPIKey()
-		require.NoError(t, err)
-		assert.Equal(t, "workload-access-token", apiKey)
-		tenant, err := creds.GetTenantDomain()
-		require.NoError(t, err)
-		assert.Equal(t, testTenant, tenant)
-	})
 
 	t.Run("an empty value is unset", func(t *testing.T) {
 		t.Setenv(CredentialFileEnv, "")

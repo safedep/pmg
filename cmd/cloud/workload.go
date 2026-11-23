@@ -66,6 +66,8 @@ func newWorkloadExchangeCommand() *cobra.Command {
 
 func exchangeError(err error) error {
 	switch {
+	case errors.Is(err, cloudauth.ErrCredentialFileUnsupported):
+		return credentialFileUnsupportedError(err)
 	case errors.Is(err, cloudauth.ErrCredentialFileWrite):
 		return usefulerror.NewUsefulError().
 			Wrap(err).
@@ -90,6 +92,14 @@ func exchangeError(err error) error {
 			WithCode(errcodes.Network).
 			WithHumanError("Cannot exchange the workload identity token with SafeDep Cloud")
 	}
+}
+
+func credentialFileUnsupportedError(err error) error {
+	return usefulerror.NewUsefulError().
+		Wrap(err).
+		WithCode(errcodes.UnsupportedPlatform).
+		WithHumanError(cloudauth.CredentialFileEnv + " is not supported on Windows").
+		WithHelp("Use an API key with SAFEDEP_API_KEY on Windows")
 }
 
 // credentialWriteHelp says whether pmg revoked a credential that it could
@@ -132,6 +142,9 @@ func newWorkloadRevokeCommand() *cobra.Command {
 			}
 
 			cred, err := cloudauth.ReadCredentialFile(credential)
+			if errors.Is(err, cloudauth.ErrCredentialFileUnsupported) {
+				ui.ErrorExit(credentialFileUnsupportedError(err))
+			}
 			if err != nil {
 				ui.ErrorExit(usefulerror.NewUsefulError().
 					Wrap(err).

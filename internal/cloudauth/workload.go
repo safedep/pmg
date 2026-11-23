@@ -43,6 +43,19 @@ const (
 // shorter.
 var callTimeout = 30 * time.Second
 
+// ErrCredentialFileUnsupported is returned on Windows for every use of a
+// credential file. pmg checks the owner and the mode of the file, and
+// Windows has neither. Only the GitHub Action uses the file, and it runs on
+// Linux only.
+var ErrCredentialFileUnsupported = errors.New(CredentialFileEnv + " is not supported on Windows")
+
+func credentialFileSupported() error {
+	if !platform.Supports(platform.OwnerOnlyFiles) {
+		return ErrCredentialFileUnsupported
+	}
+	return nil
+}
+
 // ErrExchangeRefused marks an exchange that SafeDep Cloud refused. For
 // example, no trust rule matches the token, the tenant has no usable provider
 // or feature, or the tenant is over its cap. pmg then runs with its local
@@ -102,6 +115,9 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 // revokes the credential, because no caller can revoke a credential that it
 // does not hold. It then returns a *CredentialWriteError.
 func ExchangeToFile(ctx context.Context, tenantDomain, path string) (cloud.WorkloadCredential, error) {
+	if err := credentialFileSupported(); err != nil {
+		return cloud.WorkloadCredential{}, err
+	}
 	cred, err := ExchangeWorkloadIdentity(ctx, tenantDomain)
 	if err != nil {
 		return cloud.WorkloadCredential{}, err
@@ -191,6 +207,9 @@ func dataPlaneAddr() (host, port string) {
 // can read. It fails when the file exists, so it never follows a link that
 // another user placed.
 func WriteCredentialFile(path string, cred cloud.WorkloadCredential) error {
+	if err := credentialFileSupported(); err != nil {
+		return err
+	}
 	data, err := json.Marshal(cred)
 	if err != nil {
 		return fmt.Errorf("encode the workload credential: %w", err)
@@ -211,6 +230,9 @@ func WriteCredentialFile(path string, cred cloud.WorkloadCredential) error {
 // must belong to the current user and give no access to other users. A root
 // daemon then never takes a credential from a file that a job step wrote.
 func ReadCredentialFile(path string) (cloud.WorkloadCredential, error) {
+	if err := credentialFileSupported(); err != nil {
+		return cloud.WorkloadCredential{}, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return cloud.WorkloadCredential{}, fmt.Errorf("open the credential file: %w", err)
@@ -228,15 +250,15 @@ func ReadCredentialFile(path string) (cloud.WorkloadCredential, error) {
 	if !info.Mode().IsRegular() {
 		return cloud.WorkloadCredential{}, fmt.Errorf("the credential file %s is not a regular file", path)
 	}
-	// Windows has no uid and no Unix mode bits, so the checks apply on Unix
-	// only. The GitHub Action that writes the file runs on Linux.
-	if uid, ok := platform.FileOwnerUID(info); ok {
-		if int64(uid) != int64(os.Geteuid()) {
-			return cloud.WorkloadCredential{}, fmt.Errorf("the credential file %s belongs to uid %d, not to uid %d", path, uid, os.Geteuid())
-		}
-		if info.Mode().Perm()&0o077 != 0 {
-			return cloud.WorkloadCredential{}, fmt.Errorf("the credential file %s has mode %v, other users must have no access", path, info.Mode().Perm())
-		}
+	uid, ok := platform.FileOwnerUID(info)
+	if !ok {
+		return cloud.WorkloadCredential{}, fmt.Errorf("cannot read the owner of the credential file %s", path)
+	}
+	if int64(uid) != int64(os.Geteuid()) {
+		return cloud.WorkloadCredential{}, fmt.Errorf("the credential file %s belongs to uid %d, not to uid %d", path, uid, os.Geteuid())
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return cloud.WorkloadCredential{}, fmt.Errorf("the credential file %s has mode %v, other users must have no access", path, info.Mode().Perm())
 	}
 
 	var cred cloud.WorkloadCredential
