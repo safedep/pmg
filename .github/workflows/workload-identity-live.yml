@@ -1,0 +1,64 @@
+name: Workload identity live test
+
+# Runs the action from this branch in OIDC mode against SafeDep Cloud
+# production. The job has no API key: the action exchanges the GitHub ID
+# token for a workload credential, PMG uses it, and the post step revokes it.
+on:
+  push:
+    branches: [claude/pensive-sagan-3x8any-wi-e2e]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  exchange:
+    name: Exchange, install through PMG, revoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: stage
+        uses: ./.github/actions/stage-pmg-build
+      - id: pmg
+        uses: ./
+        with:
+          tenant-id: default-team.safedep-io.safedep.io
+          version: ${{ steps.stage.outputs.version }}
+          cache: true
+      - name: Show the credential and cloud settings that PMG uses
+        env:
+          BIN_DIR: ${{ steps.pmg.outputs.bin-dir }}
+        run: |
+          set -euo pipefail
+          echo "PMG_CLOUD_ENABLED=${PMG_CLOUD_ENABLED:-}"
+          echo "PMG_CLOUD_ENDPOINT_ID=${PMG_CLOUD_ENDPOINT_ID:-}"
+          echo "PMG_CLOUD_CREDENTIAL_FILE=${PMG_CLOUD_CREDENTIAL_FILE:-}"
+          if [ -n "${PMG_CLOUD_CREDENTIAL_FILE:-}" ]; then
+            stat -c '%a %U %n' "${PMG_CLOUD_CREDENTIAL_FILE}"
+          fi
+          if [ -n "${SAFEDEP_API_KEY:-}" ]; then
+            echo "::error::SAFEDEP_API_KEY is set. The job must run with a workload credential only." >&2
+            exit 1
+          fi
+      - name: A clean install passes through PMG
+        run: |
+          set -euo pipefail
+          mkdir clean && cd clean
+          npm init -y >/dev/null
+          npm --no-cache --prefer-online install express@4.21.2
+      - name: A malicious install is blocked
+        run: |
+          set -euo pipefail
+          mkdir mal && cd mal
+          npm init -y >/dev/null
+          if npm --no-cache --prefer-online install safedep-test-pkg@0.1.3; then
+            echo "::error::The malicious install succeeded." >&2
+            exit 1
+          fi
