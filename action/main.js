@@ -61,6 +61,7 @@ function main() {
     IN_ENDPOINT_ID: cloud.endpointId,
     IN_EXPORT_CREDENTIAL: String(cloud.exportCredential),
     IN_CREDENTIAL_FILE: cloud.credentialFile,
+    IN_CLOUD_OFF: String(cloud.cloudOff),
     IN_PARANOID: lib.input('paranoid'),
     IN_COOLDOWN_ENABLED: lib.input('cooldown-enabled'),
     IN_COOLDOWN_DAYS: lib.input('cooldown-days'),
@@ -88,13 +89,16 @@ function main() {
 // token of the workload credential takes the place of the API key. In server
 // mode only the proxy gets the credential. The steps of the job do not.
 function cloudInputs(bin, serverMode) {
-  const none = { apiKey: '', tenantId: '', endpointId: '', exportCredential: true, credentialFile: '', workload: null };
+  const none = { apiKey: '', tenantId: '', endpointId: '', exportCredential: true, credentialFile: '', cloudOff: false, workload: null };
   if (workload.cloudMode() !== 'oidc') {
     return { ...none, apiKey: lib.input('api-key'), tenantId: lib.input('tenant-id'), endpointId: lib.input('endpoint-id') };
   }
   const cred = workload.exchange(bin);
   if (cred === null) {
-    return none;
+    // The action warned that PMG runs without SafeDep Cloud. A runner
+    // config or an earlier step can have turned cloud on, and pmg would
+    // then use a saved login of another tenant.
+    return { ...none, cloudOff: true };
   }
   return {
     apiKey: cred.AccessToken,

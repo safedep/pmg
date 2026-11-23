@@ -104,6 +104,13 @@ fi
 # one. The action owns this variable, and pmg treats an empty value as unset.
 set_var PMG_CLOUD_CREDENTIAL_FILE "${IN_CREDENTIAL_FILE:-}"
 
+# An OIDC step that got no credential runs without SafeDep Cloud, also when
+# the runner config or an earlier step turned cloud on.
+if [ "${IN_CLOUD_OFF:-false}" = "true" ]; then
+  set_var PMG_CLOUD_ENABLED false
+  set_var PMG_CLOUD_AUTO_SYNC_ENABLED false
+fi
+
 # Only emit PMG_* vars when the user explicitly set the input. This
 # preserves the "config-file overrides PMG defaults" guarantee — env
 # vars take precedence over config.yml in Viper, so empty pass-through

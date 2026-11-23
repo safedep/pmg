@@ -297,7 +297,8 @@ func TestOIDCForkPullRequestRunsWithoutCloud(t *testing.T) {
 	env := startStub(t, stub)
 	delete(env, "ACTIONS_ID_TOKEN_REQUEST_URL")
 	delete(env, "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
-	j := newJob(t, env, map[string]string{"GITHUB_EVENT_NAME": "pull_request"})
+	// The runner config or an earlier step of the job turned cloud on.
+	j := newJob(t, env, map[string]string{"GITHUB_EVENT_NAME": "pull_request", "PMG_CLOUD_ENABLED": "true"})
 	event := filepath.Join(j.dir, "event.json")
 	data, err := json.Marshal(map[string]any{"pull_request": map[string]any{
 		"head": map[string]any{"repo": map[string]string{"full_name": "mallory/app"}},
@@ -311,7 +312,10 @@ func TestOIDCForkPullRequestRunsWithoutCloud(t *testing.T) {
 	require.Equal(t, 0, code)
 	assert.Contains(t, out, "::warning::This pull_request run comes from a fork")
 	assert.Empty(t, stub.Exchanges())
-	assert.NotContains(t, j.kv("GITHUB_ENV"), "PMG_CLOUD_ENABLED")
+	assert.Equal(t, "false", j.kv("GITHUB_ENV")["PMG_CLOUD_ENABLED"], "later steps run without SafeDep Cloud")
+	pid := j.kv("GITHUB_STATE")["pid"]
+	require.NotEmpty(t, pid)
+	assert.Equal(t, "false", procEnviron(t, pid, false)["PMG_CLOUD_ENABLED"], "the proxy runs without SafeDep Cloud")
 
 	_, code = j.run("post.js")
 	assert.Equal(t, 0, code)
@@ -333,13 +337,14 @@ func TestOIDCWithoutIDTokenFails(t *testing.T) {
 
 func TestOIDCRefusedExchangeRunsWithLocalConfig(t *testing.T) {
 	stub := &cloudauthtest.Exchange{Err: status.Error(codes.PermissionDenied, "no workload rule matches")}
-	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_SERVER-MODE": "false"})
+	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_SERVER-MODE": "false", "PMG_CLOUD_ENABLED": "true"})
 
 	_, code := j.run("main.js")
 	require.Equal(t, 0, code)
 	assert.Contains(t, j.read("GITHUB_STEP_SUMMARY"), "SafeDep Cloud refused the workload identity exchange")
 	assert.Contains(t, j.read("GITHUB_STEP_SUMMARY"), "no workload rule matches")
-	assert.NotContains(t, j.kv("GITHUB_ENV"), "PMG_CLOUD_ENABLED")
+	assert.Equal(t, "false", j.kv("GITHUB_ENV")["PMG_CLOUD_ENABLED"], "the shims run without SafeDep Cloud")
+	assert.Empty(t, j.kv("GITHUB_ENV")["PMG_CLOUD_CREDENTIAL_FILE"])
 }
 
 // keepStubEnvThroughSudo makes sudo keep the variables that point pmg at the
