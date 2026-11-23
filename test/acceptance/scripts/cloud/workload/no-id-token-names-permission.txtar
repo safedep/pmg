@@ -1,0 +1,14 @@
+# guarantee: With a tenant and no API key, the workload identity exchange in a
+# job with no ID token fails. The message names the permission that the job
+# needs. pmg writes no credential file.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env ACTIONS_ID_TOKEN_REQUEST_URL=
+env ACTIONS_ID_TOKEN_REQUEST_TOKEN=
+env SAFEDEP_API_KEY=
+
+! exec pmg cloud workload exchange --tenant-id acme.safedep.io --output $WORK/credential.json
+stderr 'WorkloadIdentityNotFound'
+stderr 'permissions: id-token: write'
+! exists $WORK/credential.json
