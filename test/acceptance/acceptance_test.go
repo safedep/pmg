@@ -96,9 +96,6 @@ func TestAcceptance(t *testing.T) {
 					if category == "cloud" {
 						forwardCloudCredentials(env)
 					}
-					if relDir == cloudWorkloadDir {
-						forwardEnv(env, githubIDTokenRequestURL, githubIDTokenRequestToken)
-					}
 					if category == proxyCategory {
 						if err := writeGitHubAuthHeader(env); err != nil {
 							return err
@@ -119,7 +116,8 @@ func TestAcceptance(t *testing.T) {
 					return nil
 				},
 				Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
-					"policy-cache": cmdPolicyCache,
+					"policy-cache":      cmdPolicyCache,
+					"workload-exchange": cmdWorkloadExchange(pmgBin),
 				},
 				Condition: func(cond string) (bool, error) {
 					switch cond {
@@ -163,11 +161,6 @@ const (
 
 	trustStoreCleanupTimeout = 2 * time.Minute
 )
-
-// cloudWorkloadDir holds the workload identity scripts. Only they get the
-// ID token request variables of a GitHub Actions job, so no other script
-// can exchange a token.
-const cloudWorkloadDir = "cloud/workload"
 
 const (
 	githubIDTokenRequestURL   = "ACTIONS_ID_TOKEN_REQUEST_URL"
@@ -587,4 +580,49 @@ func hasCloudCredentials() bool {
 		}
 	}
 	return creds != nil
+}
+
+// cmdWorkloadExchange runs "pmg cloud workload exchange" with the ID token
+// request variables of the job. The variables go only to that process, never
+// to the script environment, because testscript logs the script environment
+// when a script fails and the logs of a public repository are public. The
+// command also revokes the credential when the script ends, so a failed
+// assertion does not leave a valid credential behind.
+func cmdWorkloadExchange(pmgBin string) func(ts *testscript.TestScript, neg bool, args []string) {
+	return func(ts *testscript.TestScript, neg bool, args []string) {
+		if neg {
+			ts.Fatalf("unsupported: ! workload-exchange")
+		}
+		if len(args) != 2 {
+			ts.Fatalf("usage: workload-exchange <tenant> <credential file>")
+		}
+		credential := ts.MkAbs(args[1])
+
+		exchange := workloadCommand(ts, pmgBin, "exchange", "--tenant-id", args[0], "--output", credential)
+		exchange.Stdout = ts.Stdout()
+		exchange.Stderr = ts.Stderr()
+		exchange.Env = append(exchange.Env,
+			githubIDTokenRequestURL+"="+os.Getenv(githubIDTokenRequestURL),
+			githubIDTokenRequestToken+"="+os.Getenv(githubIDTokenRequestToken))
+		ts.Check(exchange.Run())
+
+		ts.Defer(func() {
+			// A script that revoked the credential itself makes this second
+			// revoke fail, which is expected.
+			out, err := workloadCommand(ts, pmgBin, "revoke", "--credential", credential).CombinedOutput()
+			if err != nil {
+				ts.Logf("workload-exchange: the revoke at the end of the script failed: %v: %s", err, out)
+			}
+		})
+	}
+}
+
+func workloadCommand(ts *testscript.TestScript, pmgBin string, args ...string) *exec.Cmd {
+	cmd := exec.Command(pmgBin, append([]string{"cloud", "workload"}, args...)...)
+	cmd.Env = []string{
+		"PATH=" + ts.Getenv("PATH"),
+		"HOME=" + ts.Getenv("HOME"),
+		"TMPDIR=" + ts.Getenv("TMPDIR"),
+	}
+	return cmd
 }

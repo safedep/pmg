@@ -12,7 +12,7 @@ env SAFEDEP_API_KEY=
 env PMG_CLOUD_ENABLED=true
 mkdir $WORK/home
 
-exec pmg cloud workload exchange --tenant-id $SAFEDEP_TENANT_ID --output $WORK/credential.json
+workload-exchange $SAFEDEP_TENANT_ID $WORK/credential.json
 stdout 'SafeDep Cloud issued the workload credential'
 exists $WORK/credential.json
 
