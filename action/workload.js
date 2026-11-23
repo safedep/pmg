@@ -40,6 +40,10 @@ function isForkPullRequest() {
   return !head || !base || head.full_name !== base.full_name;
 }
 
+function hasIDToken() {
+  return Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN);
+}
+
 function supportsWorkload(bin) {
   const res = spawnSync(bin, ['cloud', 'workload', 'exchange', '--help'], { encoding: 'utf8', env: lib.childEnv() });
   return res.status === 0 && res.stdout.includes('--tenant-id');
@@ -53,6 +57,10 @@ function exchange(bin) {
   const tenant = lib.input('tenant-id');
   if (lib.input('endpoint-id') !== '') {
     lib.warning('In OIDC mode SafeDep Cloud sets the endpoint id from the claims of the ID token. The endpoint-id input is ignored.');
+  }
+  if (!hasIDToken() && isForkPullRequest()) {
+    lib.warning('This pull_request run comes from a fork, and GitHub gives it no ID token. PMG runs without SafeDep Cloud.');
+    return null;
   }
   if (!supportsWorkload(bin)) {
     throw new Error('OIDC mode needs a PMG release with "pmg cloud workload exchange". Set the version input to such a release, or set the api-key input.');
@@ -75,10 +83,6 @@ function exchange(bin) {
   fs.rmSync(dir, { recursive: true, force: true });
 
   const codes = lib.errorCodes(res.stderr || '');
-  if (codes.includes(noTokenCode) && isForkPullRequest()) {
-    lib.warning('This pull_request run comes from a fork, and GitHub gives it no ID token. PMG runs without SafeDep Cloud.');
-    return null;
-  }
   if (codes.includes(noTokenCode)) {
     throw new Error('PMG cannot get a SafeDep Cloud credential, because the job has no ID token. Give the job "permissions: id-token: write", or set the api-key input.');
   }
@@ -107,20 +111,30 @@ function end(pmgRuns) {
     status = 1;
   }
 
-  const res = lib.group('Revoke the SafeDep Cloud credential', () =>
-    lib.runPMG(lib.state('credential_bin'), ['cloud', 'workload', 'revoke', '--credential', file]));
-  if (res.status !== 0) {
-    lib.warning('PMG could not revoke the SafeDep Cloud credential. It stays valid until it expires. See the log of the post step.');
-  }
-
-  fs.rmSync(path.dirname(file), { recursive: true, force: true });
-  if (lib.state('root_credential') !== '') {
-    const rm = spawnSync('sudo', ['-n', 'rm', '-rf', lib.state('root_credential')], { stdio: 'inherit' });
-    if (rm.status !== 0) {
-      lib.warning(`PMG could not remove ${lib.state('root_credential')}.`);
+  try {
+    // The post step keeps the proxy variables of the main step, and the
+    // proxy is stopped. The revoke must connect directly.
+    const res = lib.group('Revoke the SafeDep Cloud credential', () =>
+      lib.runPMG(lib.state('credential_bin'), ['cloud', 'workload', 'revoke', '--credential', file], { noProxy: true }));
+    if (res.status !== 0) {
+      lib.warning('PMG could not revoke the SafeDep Cloud credential. It stays valid until it expires. See the log of the post step.');
     }
+  } finally {
+    removeCopies(file);
   }
   return status;
+}
+
+function removeCopies(file) {
+  fs.rmSync(path.dirname(file), { recursive: true, force: true });
+  const root = lib.state('root_credential');
+  if (root === '') {
+    return;
+  }
+  const rm = spawnSync('sudo', ['-n', 'rm', '-rf', root], { stdio: 'inherit' });
+  if (rm.status !== 0) {
+    lib.warning(`PMG could not remove ${root}.`);
+  }
 }
 
 module.exports = { cloudMode, end, exchange, isForkPullRequest, rootCredentialDir };

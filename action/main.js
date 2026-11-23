@@ -215,9 +215,6 @@ function startProxy(binDir, profile, enforceInput, jobContainer, cred) {
     throw new Error('enforce attaches kernel programs on the runner host, and this job runs in a job container (jobs.<job_id>.container). Run the job on the runner, or set enforce to auto or false.');
   }
   if (mode !== 'off') {
-    if (cred) {
-      lib.saveState('root_credential', workload.rootCredentialDir());
-    }
     try {
       startOnce(binDir, true, jobContainer, { ...env, ...rootEnv });
       trustBundleForOldNode();
@@ -251,6 +248,12 @@ function startOnce(binDir, enforce, jobContainer, env) {
   } catch (err) {
     stopAfterFailedStart(binDir, enforce);
     throw err;
+  } finally {
+    // enforce.sh makes the root copy of the credential. The post step
+    // removes it, also after a failed start.
+    if (env.PMG_ROOT_CREDENTIAL_DIR && fs.existsSync(env.PMG_ROOT_CREDENTIAL_DIR)) {
+      lib.saveState('root_credential', env.PMG_ROOT_CREDENTIAL_DIR);
+    }
   }
 }
 
@@ -307,7 +310,7 @@ function saveProxyState(binDir, enforce, result) {
   // traffic to a stopped proxy.
   const proxyVars = result.exported
     .map(([name]) => name)
-    .filter((name) => /proxy/i.test(name) && !name.startsWith('PMG_PROXY_'));
+    .filter(lib.isProxyVar);
   lib.saveState('bin', path.join(binDir, 'pmg'));
   lib.saveState('enforce', String(enforce));
   lib.saveState('state', process.env.PMG_PROXY_STATE || '');

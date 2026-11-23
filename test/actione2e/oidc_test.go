@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,25 +108,40 @@ func newJob(t *testing.T, stub map[string]string, inputs map[string]string) *job
 	return j
 }
 
-// run runs a step script of the action and returns its stdout and exit
-// status. The post step gets the state that the main step saved.
-func (j *job) run(script string) (string, int) {
-	env := os.Environ()[:0:0]
+// command returns a step script of the action as the runner starts it.
+// Like the runner, it applies GITHUB_ENV of the earlier steps, so the post
+// step gets the proxy variables of the main step. The post step gets the
+// state that the main step saved.
+func (j *job) command(script string, out *bytes.Buffer) *exec.Cmd {
+	vars := map[string]string{}
 	for k, v := range j.env {
-		env = append(env, k+"="+v)
+		vars[k] = v
+	}
+	for k, v := range j.kv("GITHUB_ENV") {
+		vars[k] = v
 	}
 	if script == "post.js" {
 		for k, v := range j.kv("GITHUB_STATE") {
-			env = append(env, "STATE_"+k+"="+v)
+			vars["STATE_"+k] = v
 		}
+	}
+	env := make([]string, 0, len(vars))
+	for k, v := range vars {
+		env = append(env, k+"="+v)
 	}
 	cmd := exec.Command("node", filepath.Join(j.dir, "action", script))
 	cmd.Dir = j.env["GITHUB_WORKSPACE"]
 	cmd.Env = env
+	cmd.Stdout = out
+	cmd.Stderr = out
+	return cmd
+}
+
+// run runs a step script of the action and returns its output and exit
+// status.
+func (j *job) run(script string) (string, int) {
 	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
+	err := j.command(script, &out).Run()
 	j.t.Logf("%s:\n%s", script, out.String())
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		return out.String(), exitErr.ExitCode()
@@ -174,6 +190,21 @@ func procEnviron(t *testing.T, pid string, sudo bool) map[string]string {
 	return out
 }
 
+// startStub serves the stub exchange on an address that is not loopback.
+// A Go client sends a call to such an address through HTTPS_PROXY, so a
+// revoke that keeps the proxy variables of the stopped proxy fails.
+func startStub(t *testing.T, stub *cloudauthtest.Exchange) map[string]string {
+	addrs, err := net.InterfaceAddrs()
+	require.NoError(t, err)
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return cloudauthtest.StartOn(t, stub, ipnet.IP.String())
+		}
+	}
+	t.Skip("the host has no IPv4 address that is not loopback")
+	return nil
+}
+
 func processGone(pid string) bool {
 	stat, err := os.ReadFile("/proc/" + pid + "/stat")
 	if err != nil {
@@ -197,7 +228,7 @@ func assertExchanged(t *testing.T, stub *cloudauthtest.Exchange) {
 
 func TestOIDCUserProxy(t *testing.T) {
 	stub := &cloudauthtest.Exchange{}
-	j := newJob(t, cloudauthtest.Start(t, stub), map[string]string{"INPUT_ENDPOINT-ID": "my-runner"})
+	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_ENDPOINT-ID": "my-runner"})
 
 	out, code := j.run("main.js")
 	require.Equal(t, 0, code)
@@ -212,6 +243,7 @@ func TestOIDCUserProxy(t *testing.T) {
 	assert.NotContains(t, daemon, "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "the proxy never asks GitHub for a token")
 	assert.NotContains(t, j.read("GITHUB_ENV"), cloudauthtest.AccessToken, "in server mode the steps of the job do not get the credential")
 	assert.Equal(t, cloudauthtest.EndpointID, j.kv("GITHUB_ENV")["PMG_CLOUD_ENDPOINT_ID"])
+	require.NotEmpty(t, j.kv("GITHUB_ENV")["HTTPS_PROXY"], "the post step starts with the proxy variables of the main step")
 
 	_, code = j.run("post.js")
 	assert.Equal(t, 0, code)
@@ -223,7 +255,7 @@ func TestOIDCUserProxy(t *testing.T) {
 
 func TestOIDCShimMode(t *testing.T) {
 	stub := &cloudauthtest.Exchange{}
-	j := newJob(t, cloudauthtest.Start(t, stub), map[string]string{"INPUT_SERVER-MODE": "false"})
+	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_SERVER-MODE": "false"})
 
 	out, code := j.run("main.js")
 	require.Equal(t, 0, code)
@@ -240,7 +272,7 @@ func TestOIDCShimMode(t *testing.T) {
 // serve later jobs under the credential of this job.
 func TestOIDCPostStepFailsWhenTheProxyOutlivesTheJob(t *testing.T) {
 	stub := &cloudauthtest.Exchange{}
-	j := newJob(t, cloudauthtest.Start(t, stub), nil)
+	j := newJob(t, startStub(t, stub), nil)
 
 	_, code := j.run("main.js")
 	require.Equal(t, 0, code)
@@ -260,7 +292,7 @@ func TestOIDCPostStepFailsWhenTheProxyOutlivesTheJob(t *testing.T) {
 
 func TestOIDCForkPullRequestRunsWithoutCloud(t *testing.T) {
 	stub := &cloudauthtest.Exchange{}
-	env := cloudauthtest.Start(t, stub)
+	env := startStub(t, stub)
 	delete(env, "ACTIONS_ID_TOKEN_REQUEST_URL")
 	delete(env, "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 	j := newJob(t, env, map[string]string{"GITHUB_EVENT_NAME": "pull_request"})
@@ -286,7 +318,7 @@ func TestOIDCForkPullRequestRunsWithoutCloud(t *testing.T) {
 
 func TestOIDCWithoutIDTokenFails(t *testing.T) {
 	stub := &cloudauthtest.Exchange{}
-	env := cloudauthtest.Start(t, stub)
+	env := startStub(t, stub)
 	delete(env, "ACTIONS_ID_TOKEN_REQUEST_URL")
 	delete(env, "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 	j := newJob(t, env, nil)
@@ -299,7 +331,7 @@ func TestOIDCWithoutIDTokenFails(t *testing.T) {
 
 func TestOIDCRefusedExchangeRunsWithLocalConfig(t *testing.T) {
 	stub := &cloudauthtest.Exchange{Err: status.Error(codes.PermissionDenied, "no workload rule matches")}
-	j := newJob(t, cloudauthtest.Start(t, stub), map[string]string{"INPUT_SERVER-MODE": "false"})
+	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_SERVER-MODE": "false"})
 
 	_, code := j.run("main.js")
 	require.Equal(t, 0, code)
@@ -308,12 +340,37 @@ func TestOIDCRefusedExchangeRunsWithLocalConfig(t *testing.T) {
 	assert.NotContains(t, j.kv("GITHUB_ENV"), "PMG_CLOUD_ENABLED")
 }
 
+// keepStubEnvThroughSudo makes sudo keep the variables that point pmg at the
+// stub. enforce.sh preserves only the variables that production needs, so
+// without this the root daemon calls SafeDep Cloud with the stub credential.
+func keepStubEnvThroughSudo(t *testing.T) {
+	const file = "/etc/sudoers.d/pmg-actione2e"
+	rule := "Defaults env_keep += \"SAFEDEP_CLOUD_DATA_ADDR INSECURE_GRPC_CLIENT_USE_INSECURE_TRANSPORT\"\n"
+	tee := exec.Command("sudo", "-n", "tee", file)
+	tee.Stdin = strings.NewReader(rule)
+	require.NoError(t, tee.Run())
+	t.Cleanup(func() { assert.NoError(t, exec.Command("sudo", "-n", "rm", "-f", file).Run()) })
+	require.NoError(t, exec.Command("sudo", "-n", "chmod", "0440", file).Run())
+	require.NoError(t, exec.Command("sudo", "-n", "visudo", "-cf", file).Run())
+}
+
 func TestOIDCRootProxy(t *testing.T) {
 	if os.Getenv("PMG_ACTIONE2E_ENFORCE") != "true" {
 		t.Skip("set PMG_ACTIONE2E_ENFORCE to true on a runner that can enforce")
 	}
+	keepStubEnvThroughSudo(t)
 	stub := &cloudauthtest.Exchange{}
-	j := newJob(t, cloudauthtest.Start(t, stub), map[string]string{"INPUT_ENFORCE": "true"})
+	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_ENFORCE": "true"})
+	temp := j.env["RUNNER_TEMP"]
+	// The root daemon writes root-owned files under RUNNER_TEMP. A failed
+	// test can leave the daemon. Cleanups run last in, first out, so this
+	// one runs before the removal of the temporary directory.
+	t.Cleanup(func() {
+		stop := exec.Command("sudo", "-n", "env", "PMG_CONFIG_DIR="+filepath.Join(temp, "pmg-daemon-config"),
+			pmgBin, "proxy", "stop", "--if-running", "--state", filepath.Join(temp, "pmg-proxy-state.json"))
+		assert.NoError(t, stop.Run())
+		assert.NoError(t, exec.Command("sudo", "-n", "rm", "-rf", j.dir).Run())
+	})
 
 	_, code := j.run("main.js")
 	require.Equal(t, 0, code)
@@ -338,4 +395,74 @@ func TestOIDCRootProxy(t *testing.T) {
 	assertRevoked(t, stub)
 	require.Eventually(t, func() bool { return processGone(pid) }, 5*time.Second, 100*time.Millisecond)
 	assert.Error(t, exec.Command("sudo", "-n", "test", "-e", file).Run(), "the post step removes the root copy")
+}
+
+// The runner runs the post step after a failed main step. The credential of
+// the failed step must not stay valid.
+func TestOIDCPostStepRevokesAfterAFailedMainStep(t *testing.T) {
+	stub := &cloudauthtest.Exchange{}
+	j := newJob(t, startStub(t, stub), map[string]string{
+		"INPUT_NETWORK-PROFILE": ".pmg/missing.yml",
+		"INPUT_NETWORK-MODE":    "enforce",
+	})
+
+	out, code := j.run("main.js")
+	require.Equal(t, 1, code)
+	require.Contains(t, out, "network-profile .pmg/missing.yml does not exist")
+	assertExchanged(t, stub)
+
+	_, code = j.run("post.js")
+	assert.Equal(t, 0, code)
+	assertRevoked(t, stub)
+}
+
+// A cancel stops the main step, and the runner then runs the post step.
+func TestOIDCPostStepStopsAndRevokesAfterACancelledMainStep(t *testing.T) {
+	stub := &cloudauthtest.Exchange{}
+	j := newJob(t, startStub(t, stub), nil)
+
+	var out bytes.Buffer
+	main := j.command("main.js", &out)
+	require.NoError(t, main.Start())
+	require.Eventually(t, func() bool { return j.kv("GITHUB_STATE")["pid"] != "" }, time.Minute, 50*time.Millisecond)
+	require.NoError(t, main.Process.Kill())
+	// The main step can end before the kill. Both outcomes leave the proxy
+	// and the credential to the post step.
+	t.Logf("main step: %v\n%s", main.Wait(), out.String())
+	pid := j.kv("GITHUB_STATE")["pid"]
+
+	_, code := j.run("post.js")
+	assert.Equal(t, 0, code)
+	assertRevoked(t, stub)
+	assert.True(t, processGone(pid))
+}
+
+// A persistent runner runs one job after another with the same home and
+// temporary directory. The second job must find no proxy and no credential
+// of the first.
+func TestOIDCTwoJobsOnOneRunner(t *testing.T) {
+	stub := &cloudauthtest.Exchange{}
+	env := startStub(t, stub)
+	first := newJob(t, env, nil)
+	second := newJob(t, env, nil)
+	second.env["HOME"] = first.env["HOME"]
+	second.env["RUNNER_TEMP"] = first.env["RUNNER_TEMP"]
+
+	_, code := first.run("main.js")
+	require.Equal(t, 0, code)
+	firstPID := first.kv("GITHUB_STATE")["pid"]
+	_, code = first.run("post.js")
+	require.Equal(t, 0, code)
+	require.True(t, processGone(firstPID))
+	require.Len(t, stub.Revokes(), 1)
+
+	_, code = second.run("main.js")
+	require.Equal(t, 0, code, "the second job finds no proxy of the first job")
+	secondPID := second.kv("GITHUB_STATE")["pid"]
+	assert.NotEqual(t, firstPID, secondPID)
+	_, code = second.run("post.js")
+	assert.Equal(t, 0, code)
+	assert.Len(t, stub.Exchanges(), 2)
+	assert.Len(t, stub.Revokes(), 2)
+	assert.True(t, processGone(secondPID))
 }

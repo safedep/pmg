@@ -237,7 +237,13 @@ In OIDC mode the action step:
    A root daemon under [kernel enforcement](#kernel-enforcement) reads a copy that only root can read.
    The proxy never gets the GitHub token that requests an ID token.
 3. In [shim mode](#shim-mode), exports the credential to the later steps as `SAFEDEP_API_KEY` and masks it in the log.
-   In server mode the later steps do not get the credential.
+   In server mode the action does not write the credential to `$GITHUB_ENV`.
+
+Server mode does not isolate the credential from the later steps.
+The later steps run as the job user.
+A step can read the credential file of the action in `$RUNNER_TEMP`, and the environment of a proxy that runs as the job user.
+A step with `sudo` can read the root copy too.
+The post step removes both files and revokes the credential.
 
 SafeDep Cloud sets the endpoint ID `gh:<owner>/<repo>` from the claims of the ID token.
 The action ignores `endpoint-id` in OIDC mode and prints a warning when you set it.
@@ -254,7 +260,8 @@ These cases change the result of the action step:
 | The job has no `id-token: write` | The step fails, and the message names `permissions: id-token: write`. |
 | A `pull_request` run from a fork | GitHub gives the run no ID token. The step prints a warning, and PMG runs without SafeDep Cloud. |
 | SafeDep Cloud refuses the exchange, for example no rule matches or the tenant is over its limit | The job summary shows the reason, and PMG runs with its local config. A tenant admin can list denied exchanges with `safedep workload exchange list --denied`. |
-| The `version` input names a PMG release without `pmg cloud workload exchange` | The step fails. |
+| SafeDep Cloud is unavailable | pmg tries the exchange one more time with a new ID token. A second failure fails the step. |
+| The `version` input names a PMG release without `pmg cloud workload exchange` | The step fails. A `pull_request` run from a fork warns first, as above. |
 
 ### Use `config-file` for custom settings
 

@@ -8,6 +8,7 @@ import (
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
@@ -38,6 +39,8 @@ func newWorkloadExchangeCommand() *cobra.Command {
 			"Revoke the credential with 'pmg cloud workload revoke' at the end of the job.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A detached sync child would inherit the ID token request token.
+			audit.SuppressBackgroundSync()
 			if tenantID == "" || output == "" {
 				ui.ErrorExit(usefulerror.NewUsefulError().
 					WithCode(errcodes.InvalidArgument).
@@ -108,6 +111,7 @@ func newWorkloadRevokeCommand() *cobra.Command {
 		Short: "Revoke a SafeDep Cloud credential that 'pmg cloud workload exchange' wrote",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			audit.SuppressBackgroundSync()
 			if credential == "" {
 				ui.ErrorExit(usefulerror.NewUsefulError().
 					WithCode(errcodes.InvalidArgument).

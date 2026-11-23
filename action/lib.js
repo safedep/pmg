@@ -168,12 +168,21 @@ function run(shell, script, env, { captureStderr = false } = {}) {
 // command opens the event log there. capture pipes stdout, and 'all'
 // pipes stderr too. idToken keeps the ID token request token, for the
 // exchange of the workload identity only. No other pmg process gets it.
-function runPMG(bin, args, { sudo = false, configDir = '', capture = false, idToken = false } = {}) {
+// noProxy removes the proxy variables in every letter case, for a call
+// after the proxy stopped.
+function runPMG(bin, args, { sudo = false, configDir = '', capture = false, idToken = false, noProxy = false } = {}) {
   let file = bin;
   let argv = args;
   const env = childEnv();
   if (idToken && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
     env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  }
+  if (noProxy) {
+    for (const name of Object.keys(env)) {
+      if (isProxyVar(name)) {
+        delete env[name];
+      }
+    }
   }
   if (sudo) {
     if (configDir !== '') {
@@ -191,6 +200,13 @@ function runPMG(bin, args, { sudo = false, configDir = '', capture = false, idTo
     throw res.error;
   }
   return res;
+}
+
+// isProxyVar matches the proxy variables that `pmg proxy env` exports, such
+// as HTTPS_PROXY and https_proxy, and not the PMG_PROXY_* variables of the
+// action.
+function isProxyVar(name) {
+  return /proxy/i.test(name) && !name.startsWith('PMG_PROXY_');
 }
 
 // A ScriptError holds the error codes that pmg printed, so a caller can tell
@@ -252,6 +268,7 @@ module.exports = {
   inJobContainer,
   input,
   isProfilePath,
+  isProxyVar,
   lastLines,
   notice,
   parseKeyValues,

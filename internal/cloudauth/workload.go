@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	drygrpc "github.com/safedep/dry/adapters/grpc"
 	"github.com/safedep/dry/cloud"
@@ -26,6 +27,9 @@ const CredentialFileEnv = "PMG_CLOUD_CREDENTIAL_FILE"
 
 const (
 	toolName = "pmg"
+
+	exchangeAttempts   = 2
+	exchangeRetryDelay = time.Second
 
 	// The WorkloadIdentityService runs on the data plane. dry reads the same
 	// variable and default for its own exchange connection.
@@ -52,15 +56,28 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 	}
 
 	var cred cloud.WorkloadCredential
-	err = withExchangeClient(func(client *cloud.WorkloadExchangeClient) error {
-		var err error
-		cred, err = client.Exchange(ctx, source, cloud.WorkloadExchangeRequest{
-			TenantDomain: tenantDomain,
-			ToolName:     toolName,
-			ToolVersion:  version.Version,
+	for attempt := 1; ; attempt++ {
+		err = withExchangeClient(func(client *cloud.WorkloadExchangeClient) error {
+			var err error
+			cred, err = client.Exchange(ctx, source, cloud.WorkloadExchangeRequest{
+				TenantDomain: tenantDomain,
+				ToolName:     toolName,
+				ToolVersion:  version.Version,
+			})
+			return err
 		})
-		return err
-	})
+		// The exchange gets a new ID token for each attempt, because the
+		// server can spend a token before it fails.
+		if attempt == exchangeAttempts || status.Code(err) != codes.Unavailable {
+			break
+		}
+		log.Warnf("SafeDep Cloud is unavailable for the workload identity exchange, pmg tries again: %v", err)
+		select {
+		case <-ctx.Done():
+			return cloud.WorkloadCredential{}, ctx.Err()
+		case <-time.After(exchangeRetryDelay):
+		}
+	}
 	if refused(err) {
 		return cloud.WorkloadCredential{}, fmt.Errorf("%w: %w", ErrExchangeRefused, err)
 	}

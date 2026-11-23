@@ -26,27 +26,31 @@ func startStubExchange(t *testing.T, stub *cloudauthtest.Exchange) {
 }
 
 func TestExchangeWorkloadIdentity(t *testing.T) {
+	unavailable := status.Error(codes.Unavailable, "down")
 	cases := []struct {
-		name        string
-		err         error
-		wantRefused bool
-		wantErr     bool
+		name          string
+		firstErrs     []error
+		err           error
+		wantExchanges int
+		wantRefused   bool
+		wantErr       bool
 	}{
-		{name: "issued"},
-		{name: "no matching rule", err: status.Error(codes.PermissionDenied, "no rule"), wantRefused: true, wantErr: true},
-		{name: "tenant cap", err: status.Error(codes.ResourceExhausted, "cap"), wantRefused: true, wantErr: true},
-		{name: "no usable provider", err: status.Error(codes.FailedPrecondition, "no provider"), wantRefused: true, wantErr: true},
-		{name: "server unavailable", err: status.Error(codes.Unavailable, "down"), wantErr: true},
+		{name: "issued", wantExchanges: 1},
+		{name: "no matching rule", err: status.Error(codes.PermissionDenied, "no rule"), wantExchanges: 1, wantRefused: true, wantErr: true},
+		{name: "tenant cap", err: status.Error(codes.ResourceExhausted, "cap"), wantExchanges: 1, wantRefused: true, wantErr: true},
+		{name: "no usable provider", err: status.Error(codes.FailedPrecondition, "no provider"), wantExchanges: 1, wantRefused: true, wantErr: true},
+		{name: "unavailable once, then issued", firstErrs: []error{unavailable}, wantExchanges: 2},
+		{name: "unavailable twice", err: unavailable, wantExchanges: 2, wantErr: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stub := &cloudauthtest.Exchange{Err: tc.err}
+			stub := &cloudauthtest.Exchange{FirstErrs: tc.firstErrs, Err: tc.err}
 			startStubExchange(t, stub)
 
 			cred, err := ExchangeWorkloadIdentity(context.Background(), testTenant)
 
-			require.Len(t, stub.Exchanges(), 1)
+			require.Len(t, stub.Exchanges(), tc.wantExchanges)
 			req := stub.Exchanges()[0]
 			assert.False(t, req.HasRequestedLifetime(), "the proxy cannot refresh, so pmg asks for the rule maximum")
 			assert.Equal(t, messagesv1.CredentialGrant_CREDENTIAL_GRANT_TOOL, req.GetRequestedGrant())

@@ -38,12 +38,14 @@ const (
 	requestToken = "request-token"
 )
 
-// Exchange is a stub WorkloadIdentityService. Err, when set, is the answer
-// to every ExchangeToken call.
+// Exchange is a stub WorkloadIdentityService. The ExchangeToken calls take
+// the errors of FirstErrs in order. Then Err, when set, is the answer to
+// every call.
 type Exchange struct {
 	controltowerv1grpc.UnimplementedWorkloadIdentityServiceServer
 
-	Err error
+	FirstErrs []error
+	Err       error
 
 	mu        sync.Mutex
 	exchanges []*controltowerv1.ExchangeTokenRequest
@@ -101,6 +103,9 @@ func (s *Exchange) ExchangeToken(ctx context.Context, req *controltowerv1.Exchan
 	defer s.mu.Unlock()
 	s.exchanges = append(s.exchanges, req)
 	s.recordAuth(ctx)
+	if n := len(s.exchanges); n <= len(s.FirstErrs) && s.FirstErrs[n-1] != nil {
+		return nil, s.FirstErrs[n-1]
+	}
 	if s.Err != nil {
 		return nil, s.Err
 	}
@@ -122,13 +127,21 @@ func (s *Exchange) RevokeToken(ctx context.Context, req *controltowerv1.RevokeTo
 	return &controltowerv1.RevokeTokenResponse{}, nil
 }
 
-// Start serves stub until the test ends. It returns the environment that
-// points the exchange client at the stub and gives a GitHub Actions
-// workload identity.
+// Start serves stub on the loopback address until the test ends. It returns
+// the environment that points the exchange client at the stub and gives a
+// GitHub Actions workload identity.
 func Start(t *testing.T, stub *Exchange) map[string]string {
 	t.Helper()
+	return StartOn(t, stub, "127.0.0.1")
+}
 
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+// StartOn serves stub on host. Go clients never send a call to a loopback
+// address through HTTPS_PROXY, so a test of the proxy variables needs
+// another address.
+func StartOn(t *testing.T, stub *Exchange, host string) map[string]string {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
 	require.NoError(t, err)
 	srv := grpc.NewServer(grpc.UnknownServiceHandler(stub.unknownService))
 	controltowerv1grpc.RegisterWorkloadIdentityServiceServer(srv, stub)

@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { cloudMode, isForkPullRequest } = require('./workload');
+const { cloudMode, exchange, isForkPullRequest } = require('./workload');
 
 function withEnv(vars, fn) {
   const saved = {};
@@ -55,4 +55,20 @@ test('isForkPullRequest', async (t) => {
     await t.test(name, () =>
       assert.strictEqual(withEnv({ GITHUB_EVENT_NAME: eventName, GITHUB_EVENT_PATH: event(head) }, isForkPullRequest), want));
   }
+});
+
+test('exchange warns on a fork pull request before it checks the PMG release', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmg-event-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'event.json');
+  fs.writeFileSync(file, JSON.stringify({ pull_request: { head: { repo: { full_name: 'mallory/app' } }, base: { repo: { full_name: 'acme/app' } } } }));
+
+  const env = {
+    GITHUB_EVENT_NAME: 'pull_request',
+    GITHUB_EVENT_PATH: file,
+    ACTIONS_ID_TOKEN_REQUEST_URL: '',
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: '',
+    'INPUT_TENANT-ID': 'acme.safedep.io',
+  };
+  assert.strictEqual(withEnv(env, () => exchange(path.join(dir, 'old-pmg-release'))), null);
 });
