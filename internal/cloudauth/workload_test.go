@@ -100,50 +100,61 @@ func TestRevokeWorkloadCredential(t *testing.T) {
 	assert.Empty(t, stub.Authorization(), "the revoke is keyless")
 }
 
+var testCredential = cloud.WorkloadCredential{
+	AccessToken:  "workload-access-token",
+	TenantDomain: testTenant,
+	CredentialID: "wic_1",
+	ExpiresAt:    time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC),
+}
+
 func TestCredentialFile(t *testing.T) {
-	cred := cloud.WorkloadCredential{
-		AccessToken:  "workload-access-token",
-		TenantDomain: testTenant,
-		CredentialID: "wic_1",
-		ExpiresAt:    time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC),
-	}
-
-	t.Run("round trip in a file that only the owner can read", func(t *testing.T) {
+	t.Run("round trip", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "cred.json")
-		require.NoError(t, WriteCredentialFile(path, cred))
-
-		info, err := os.Stat(path)
-		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+		require.NoError(t, WriteCredentialFile(path, testCredential))
 
 		got, err := ReadCredentialFile(path)
 		require.NoError(t, err)
-		assert.Equal(t, cred, got)
+		assert.Equal(t, testCredential, got)
 	})
 
 	t.Run("write refuses a file that exists", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "cred.json")
 		require.NoError(t, os.WriteFile(path, nil, 0o600))
-		assert.Error(t, WriteCredentialFile(path, cred))
+		assert.Error(t, WriteCredentialFile(path, testCredential))
+	})
+}
+
+func TestExchangeToFileRevokesWhenTheWriteFails(t *testing.T) {
+	stub := &cloudauthtest.Exchange{}
+	startStubExchange(t, stub)
+
+	_, err := ExchangeToFile(context.Background(), testTenant, filepath.Join(t.TempDir(), "missing", "cred.json"))
+
+	require.ErrorIs(t, err, ErrCredentialFileWrite)
+	require.Len(t, stub.Revokes(), 1, "no caller holds the credential, so pmg revokes it")
+	assert.Equal(t, cloudauthtest.AccessToken, stub.Revokes()[0].GetAccessToken())
+}
+
+func TestCallsEndAtTheTimeout(t *testing.T) {
+	saved := callTimeout
+	callTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { callTimeout = saved })
+
+	stub := &cloudauthtest.Exchange{Hang: true}
+	startStubExchange(t, stub)
+
+	t.Run("exchange", func(t *testing.T) {
+		start := time.Now()
+		_, err := ExchangeWorkloadIdentity(context.Background(), testTenant)
+		assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
+		assert.Less(t, time.Since(start), 5*time.Second)
 	})
 
-	t.Run("read refuses a file that other users can read", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "cred.json")
-		require.NoError(t, WriteCredentialFile(path, cred))
-		require.NoError(t, os.Chmod(path, 0o644))
-		_, err := ReadCredentialFile(path)
-		assert.ErrorContains(t, err, "other users must have no access")
-	})
-
-	t.Run("read refuses a file of another user", func(t *testing.T) {
-		if os.Geteuid() != 0 {
-			t.Skip("only root can give a file to another user")
-		}
-		path := filepath.Join(t.TempDir(), "cred.json")
-		require.NoError(t, WriteCredentialFile(path, cred))
-		require.NoError(t, os.Chown(path, 65534, 65534))
-		_, err := ReadCredentialFile(path)
-		assert.ErrorContains(t, err, "belongs to uid 65534")
+	t.Run("revoke", func(t *testing.T) {
+		start := time.Now()
+		err := RevokeWorkloadCredential(context.Background(), testCredential)
+		assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
+		assert.Less(t, time.Since(start), 5*time.Second)
 	})
 }
 

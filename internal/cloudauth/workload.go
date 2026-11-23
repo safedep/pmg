@@ -37,6 +37,12 @@ const (
 	defaultDataPlaneAddr = "api.safedep.io:443"
 )
 
+// callTimeout bounds one exchange, with its retry, and one revoke. A server
+// that takes a call and never answers would otherwise hold the action step,
+// and the post step would not remove the credential copies. Tests set it
+// shorter.
+var callTimeout = 30 * time.Second
+
 // ErrExchangeRefused marks an exchange that SafeDep Cloud refused. For
 // example, no trust rule matches the token, the tenant has no usable provider
 // or feature, or the tenant is over its cap. pmg then runs with its local
@@ -55,11 +61,18 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 		return cloud.WorkloadCredential{}, err
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+
 	var cred cloud.WorkloadCredential
 	for attempt := 1; ; attempt++ {
 		err = withExchangeClient(func(client *cloud.WorkloadExchangeClient) error {
+			// Each attempt gets its part of the timeout, so a hung first
+			// attempt leaves time for the retry.
+			attemptCtx, cancelAttempt := context.WithTimeout(ctx, callTimeout/exchangeAttempts)
+			defer cancelAttempt()
 			var err error
-			cred, err = client.Exchange(ctx, source, cloud.WorkloadExchangeRequest{
+			cred, err = client.Exchange(attemptCtx, source, cloud.WorkloadExchangeRequest{
 				TenantDomain: tenantDomain,
 				ToolName:     toolName,
 				ToolVersion:  version.Version,
@@ -84,8 +97,31 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 	return cred, err
 }
 
+// ExchangeToFile runs ExchangeWorkloadIdentity and writes the credential to
+// a new file at path with WriteCredentialFile. When the write fails, it
+// revokes the credential, because no caller can revoke a credential that it
+// does not hold. The write error stays the error that it returns.
+func ExchangeToFile(ctx context.Context, tenantDomain, path string) (cloud.WorkloadCredential, error) {
+	cred, err := ExchangeWorkloadIdentity(ctx, tenantDomain)
+	if err != nil {
+		return cloud.WorkloadCredential{}, err
+	}
+	if err := WriteCredentialFile(path, cred); err != nil {
+		if revokeErr := RevokeWorkloadCredential(ctx, cred); revokeErr != nil {
+			log.Warnf("revoke the workload credential that pmg could not write: %v", revokeErr)
+		}
+		return cloud.WorkloadCredential{}, fmt.Errorf("%w: %w", ErrCredentialFileWrite, err)
+	}
+	return cred, nil
+}
+
+// ErrCredentialFileWrite marks a credential that pmg got and could not write.
+var ErrCredentialFileWrite = errors.New("cannot write the workload credential file")
+
 // RevokeWorkloadCredential revokes cred at once.
 func RevokeWorkloadCredential(ctx context.Context, cred cloud.WorkloadCredential) error {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
 	return withExchangeClient(func(client *cloud.WorkloadExchangeClient) error {
 		return client.Revoke(ctx, cred)
 	})
@@ -173,6 +209,8 @@ func ReadCredentialFile(path string) (cloud.WorkloadCredential, error) {
 	if !info.Mode().IsRegular() {
 		return cloud.WorkloadCredential{}, fmt.Errorf("the credential file %s is not a regular file", path)
 	}
+	// Windows has no uid and no Unix mode bits, so the checks apply on Unix
+	// only. The GitHub Action that writes the file runs on Linux.
 	if uid, ok := platform.FileOwnerUID(info); ok {
 		if int64(uid) != int64(os.Geteuid()) {
 			return cloud.WorkloadCredential{}, fmt.Errorf("the credential file %s belongs to uid %d, not to uid %d", path, uid, os.Geteuid())

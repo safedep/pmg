@@ -47,16 +47,9 @@ func newWorkloadExchangeCommand() *cobra.Command {
 					WithHumanError("Set --tenant-id and --output"))
 			}
 
-			cred, err := cloudauth.ExchangeWorkloadIdentity(cmd.Context(), tenantID)
+			cred, err := cloudauth.ExchangeToFile(cmd.Context(), tenantID, output)
 			if err != nil {
 				ui.ErrorExit(exchangeError(err))
-			}
-
-			if err := cloudauth.WriteCredentialFile(output, cred); err != nil {
-				ui.ErrorExit(usefulerror.NewUsefulError().
-					Wrap(err).
-					WithCode(errcodes.Lifecycle).
-					WithHumanError("Cannot write the workload credential file"))
 			}
 
 			ui.Successf("SafeDep Cloud issued the workload credential %s. It expires at %s",
@@ -73,6 +66,12 @@ func newWorkloadExchangeCommand() *cobra.Command {
 
 func exchangeError(err error) error {
 	switch {
+	case errors.Is(err, cloudauth.ErrCredentialFileWrite):
+		return usefulerror.NewUsefulError().
+			Wrap(err).
+			WithCode(errcodes.Lifecycle).
+			WithHumanError("Cannot write the workload credential file").
+			WithHelp("pmg revoked the credential. Check the --output path")
 	case errors.Is(err, cloud.ErrNoWorkloadIdentity):
 		return usefulerror.NewUsefulError().
 			Wrap(err).
