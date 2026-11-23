@@ -236,7 +236,8 @@ In OIDC mode the action step:
    A proxy that runs as the job user gets it in its environment.
    A root daemon under [kernel enforcement](#kernel-enforcement) reads a copy that only root can read.
    The proxy never gets the GitHub token that requests an ID token.
-3. In [shim mode](#shim-mode), exports the credential to the later steps as `SAFEDEP_API_KEY` and masks it in the log.
+   `PMG_CLOUD_CREDENTIAL_FILE` names the credential file, so pmg uses the credential before a credential that `pmg cloud login` saved on the runner.
+3. In [shim mode](#shim-mode), exports the credential to the later steps as `SAFEDEP_API_KEY` and `PMG_CLOUD_CREDENTIAL_FILE`, and masks it in the log.
    In server mode the action does not write the credential to `$GITHUB_ENV`.
 
 Server mode does not isolate the credential from the later steps.

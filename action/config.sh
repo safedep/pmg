@@ -64,6 +64,9 @@ if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
   if [ "${IN_EXPORT_CREDENTIAL:-true}" = "true" ]; then
     export_var SAFEDEP_API_KEY "$IN_API_KEY"
     export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
+    # pmg reads the workload credential from this file before a keychain
+    # credential that a self-hosted runner keeps.
+    export_var PMG_CLOUD_CREDENTIAL_FILE "${IN_CREDENTIAL_FILE:-}"
   fi
   export_var PMG_CLOUD_ENABLED "true"
 

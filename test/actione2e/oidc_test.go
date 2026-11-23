@@ -240,6 +240,7 @@ func TestOIDCUserProxy(t *testing.T) {
 	daemon := procEnviron(t, pid, false)
 	assert.Equal(t, cloudauthtest.AccessToken, daemon["SAFEDEP_API_KEY"], "the proxy gets the credential in its environment")
 	assert.Equal(t, tenant, daemon["SAFEDEP_TENANT_ID"])
+	assert.Equal(t, j.kv("GITHUB_STATE")["credential"], daemon["PMG_CLOUD_CREDENTIAL_FILE"], "the workload credential wins over a keychain credential")
 	assert.NotContains(t, daemon, "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "the proxy never asks GitHub for a token")
 	assert.NotContains(t, j.read("GITHUB_ENV"), cloudauthtest.AccessToken, "in server mode the steps of the job do not get the credential")
 	assert.Equal(t, cloudauthtest.EndpointID, j.kv("GITHUB_ENV")["PMG_CLOUD_ENDPOINT_ID"])
@@ -261,6 +262,7 @@ func TestOIDCShimMode(t *testing.T) {
 	require.Equal(t, 0, code)
 	assertExchanged(t, stub)
 	assert.Equal(t, cloudauthtest.AccessToken, j.kv("GITHUB_ENV")["SAFEDEP_API_KEY"])
+	assert.Equal(t, j.kv("GITHUB_STATE")["credential"], j.kv("GITHUB_ENV")["PMG_CLOUD_CREDENTIAL_FILE"], "the workload credential wins over a keychain credential")
 	assert.Contains(t, out, "::add-mask::"+cloudauthtest.AccessToken, "the credential is masked in the log")
 
 	_, code = j.run("post.js")

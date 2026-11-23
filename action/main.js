@@ -60,6 +60,7 @@ function main() {
     IN_TENANT_ID: cloud.tenantId,
     IN_ENDPOINT_ID: cloud.endpointId,
     IN_EXPORT_CREDENTIAL: String(cloud.exportCredential),
+    IN_CREDENTIAL_FILE: cloud.credentialFile,
     IN_PARANOID: lib.input('paranoid'),
     IN_COOLDOWN_ENABLED: lib.input('cooldown-enabled'),
     IN_COOLDOWN_DAYS: lib.input('cooldown-days'),
@@ -87,7 +88,7 @@ function main() {
 // token of the workload credential takes the place of the API key. In server
 // mode only the proxy gets the credential. The steps of the job do not.
 function cloudInputs(bin, serverMode) {
-  const none = { apiKey: '', tenantId: '', endpointId: '', exportCredential: true, workload: null };
+  const none = { apiKey: '', tenantId: '', endpointId: '', exportCredential: true, credentialFile: '', workload: null };
   if (workload.cloudMode() !== 'oidc') {
     return { ...none, apiKey: lib.input('api-key'), tenantId: lib.input('tenant-id'), endpointId: lib.input('endpoint-id') };
   }
@@ -100,6 +101,7 @@ function cloudInputs(bin, serverMode) {
     tenantId: cred.TenantDomain,
     endpointId: cred.EndpointID || '',
     exportCredential: !serverMode,
+    credentialFile: serverMode ? '' : cred.file,
     workload: cred,
   };
 }
@@ -206,8 +208,12 @@ function startProxy(binDir, profile, enforceInput, jobContainer, cred) {
     INPUT_NETWORK_MODE: network.mode,
   };
   // The proxy that runs as the job user gets the credential in its
-  // environment. The root daemon reads a copy that only root can read.
-  const userEnv = cred ? { SAFEDEP_API_KEY: cred.AccessToken, SAFEDEP_TENANT_ID: cred.TenantDomain } : {};
+  // environment. PMG_CLOUD_CREDENTIAL_FILE makes pmg use it before a
+  // keychain credential that a self-hosted runner keeps. The root daemon
+  // reads a copy that only root can read.
+  const userEnv = cred
+    ? { SAFEDEP_API_KEY: cred.AccessToken, SAFEDEP_TENANT_ID: cred.TenantDomain, PMG_CLOUD_CREDENTIAL_FILE: cred.file }
+    : {};
   const rootEnv = cred ? { PMG_WORKLOAD_CREDENTIAL: cred.file, PMG_ROOT_CREDENTIAL_DIR: workload.rootCredentialDir() } : {};
 
   const mode = enforceMode(enforceInput, jobContainer);
