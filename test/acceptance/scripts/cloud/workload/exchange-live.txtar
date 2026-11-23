@@ -1,0 +1,29 @@
+# guarantee: In a GitHub Actions job with "permissions: id-token: write", pmg
+# exchanges the job's ID token for a workload credential of the tenant. With
+# that credential and no API key, pmg fetches the cloud policy and blocks known
+# malware. pmg revokes the credential at the end. The script skips when the job
+# has no ID token, as on a developer machine or in a fork pull request.
+
+[windows] skip 'pmg refuses the credential file on Windows'
+[!workload-identity] skip 'no GitHub Actions ID token and tenant in the environment'
+
+env HOME=$WORK/home
+env SAFEDEP_API_KEY=
+env PMG_CLOUD_ENABLED=true
+mkdir $WORK/home
+
+exec pmg cloud workload exchange --tenant-id $SAFEDEP_TENANT_ID --output $WORK/credential.json
+stdout 'SafeDep Cloud issued the workload credential'
+exists $WORK/credential.json
+
+env PMG_CLOUD_CREDENTIAL_FILE=$WORK/credential.json
+exec pmg cloud sync --require-policy
+stdout 'Cloud policy revision [0-9]+ applies'
+
+exec pmg npm init -y
+! exec pmg npm --no-cache --prefer-online install safedep-test-pkg@0.1.3
+stdout 'Malicious package blocked'
+! exists node_modules/safedep-test-pkg
+
+exec pmg cloud workload revoke --credential $WORK/credential.json
+stdout 'Revoked the workload credential'

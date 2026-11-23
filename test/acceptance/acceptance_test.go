@@ -96,6 +96,9 @@ func TestAcceptance(t *testing.T) {
 					if category == "cloud" {
 						forwardCloudCredentials(env)
 					}
+					if relDir == cloudWorkloadDir {
+						forwardEnv(env, githubIDTokenRequestURL, githubIDTokenRequestToken)
+					}
 					if category == proxyCategory {
 						if err := writeGitHubAuthHeader(env); err != nil {
 							return err
@@ -122,6 +125,8 @@ func TestAcceptance(t *testing.T) {
 					switch cond {
 					case "cloud":
 						return hasCloudCredentials(), nil
+					case "workload-identity":
+						return hasWorkloadIdentity(), nil
 					case "apparmor-userns":
 						return appArmorRestrictsUserns(), nil
 					case "userns":
@@ -158,6 +163,25 @@ const (
 
 	trustStoreCleanupTimeout = 2 * time.Minute
 )
+
+// cloudWorkloadDir holds the workload identity scripts. Only they get the
+// ID token request variables of a GitHub Actions job, so no other script
+// can exchange a token.
+const cloudWorkloadDir = "cloud/workload"
+
+const (
+	githubIDTokenRequestURL   = "ACTIONS_ID_TOKEN_REQUEST_URL"
+	githubIDTokenRequestToken = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+)
+
+// hasWorkloadIdentity reports whether the run can exchange a GitHub Actions
+// ID token for the tenant. It is false on a developer machine, in a fork pull
+// request and in a job without "permissions: id-token: write".
+func hasWorkloadIdentity() bool {
+	return os.Getenv(githubIDTokenRequestURL) != "" &&
+		os.Getenv(githubIDTokenRequestToken) != "" &&
+		os.Getenv("SAFEDEP_TENANT_ID") != ""
+}
 
 // cloudPolicyDir holds the scripts of the cloud policy. They run with no
 // cloud fetch: policy-cache writes the policy cache that pmg applies.

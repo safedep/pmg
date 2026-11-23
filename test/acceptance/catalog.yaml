@@ -416,6 +416,12 @@
   tier: P1
   guarantee: "On Linux and macOS, pmg cloud workload exchange with no ID token in the environment fails, names 'permissions: id-token: write' and writes no credential file."
   labels: [cloud, workload-identity, offline]
+- id: cloud/workload/exchange-live
+  title: "a GitHub Actions job exchanges its ID token and uses the workload credential"
+  category: cloud
+  tier: P1
+  guarantee: "In a GitHub Actions job with an ID token, on Linux and macOS, pmg cloud workload exchange gets a credential of the tenant. With it and no API key, pmg fetches the cloud policy and blocks known malware, and pmg cloud workload revoke revokes it."
+  labels: [cloud, workload-identity, authenticated]
 - id: cloud/policy/block-entry-blocks
   title: "a block entry of the cloud policy blocks an install"
   category: cloud
