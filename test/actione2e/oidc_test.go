@@ -15,15 +15,21 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/cloudauth/cloudauthtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -493,4 +499,80 @@ func TestOIDCThenAPIKeyStepInOneJob(t *testing.T) {
 	assert.Equal(t, "sfd_api_key", j.kv("GITHUB_ENV")["SAFEDEP_API_KEY"])
 	assert.Equal(t, "other.safedep.io", j.kv("GITHUB_ENV")["SAFEDEP_TENANT_ID"])
 	assert.Len(t, stub.Exchanges(), 1)
+}
+
+// connectProxy is the upstream proxy of a self-hosted runner. It counts the
+// tunnels that it opens.
+type connectProxy struct {
+	mu      sync.Mutex
+	tunnels int
+}
+
+func (p *connectProxy) Tunnels() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.tunnels
+}
+
+func (p *connectProxy) closeTunnel(conns ...net.Conn) {
+	for _, c := range conns {
+		if err := c.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Warnf("close a tunnel of the upstream proxy stub: %v", err)
+		}
+	}
+}
+
+func (p *connectProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodConnect {
+		http.Error(w, "CONNECT only", http.StatusMethodNotAllowed)
+		return
+	}
+	upstream, err := net.Dial("tcp", r.Host)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	p.mu.Lock()
+	p.tunnels++
+	p.mu.Unlock()
+	client, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := client.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
+		return
+	}
+	go func() {
+		go func() {
+			if _, err := io.Copy(upstream, client); err != nil {
+				log.Warnf("copy a tunnel of the upstream proxy stub: %v", err)
+			}
+		}()
+		if _, err := io.Copy(client, upstream); err != nil {
+			log.Warnf("copy a tunnel of the upstream proxy stub: %v", err)
+		}
+		p.closeTunnel(client, upstream)
+	}()
+}
+
+// A self-hosted runner can need its own upstream proxy. The action starts
+// no proxy in shim mode, so the revoke must keep the proxy of the runner.
+func TestOIDCRevokeUsesTheRunnerProxy(t *testing.T) {
+	upstream := &connectProxy{}
+	srv := httptest.NewServer(upstream)
+	t.Cleanup(srv.Close)
+
+	stub := &cloudauthtest.Exchange{}
+	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_SERVER-MODE": "false", "HTTPS_PROXY": srv.URL})
+
+	_, code := j.run("main.js")
+	require.Equal(t, 0, code)
+	afterMain := upstream.Tunnels()
+	require.Positive(t, afterMain, "the exchange goes through the runner proxy")
+
+	_, code = j.run("post.js")
+	assert.Equal(t, 0, code)
+	assertRevoked(t, stub)
+	assert.Greater(t, upstream.Tunnels(), afterMain, "the revoke goes through the runner proxy")
 }

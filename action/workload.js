@@ -62,6 +62,10 @@ function exchange(bin) {
     lib.warning('This pull_request run comes from a fork, and GitHub gives it no ID token. PMG runs without SafeDep Cloud.');
     return null;
   }
+  // The proxy start replaces the proxy variables of the job. The revoke in
+  // the post step needs the proxy of the runner, such as the upstream proxy
+  // of a self-hosted runner, and not the stopped proxy of the action.
+  lib.saveState('runner_proxy', JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([name]) => lib.isProxyVar(name)))));
   if (!supportsWorkload(bin)) {
     throw new Error('OIDC mode needs a PMG release with "pmg cloud workload exchange". Set the version input to such a release, or set the api-key input.');
   }
@@ -113,9 +117,10 @@ function end(pmgRuns) {
 
   try {
     // The post step keeps the proxy variables of the main step, and the
-    // proxy is stopped. The revoke must connect directly.
+    // proxy is stopped. The revoke uses the proxy variables that the runner
+    // had before the action changed them.
     const res = lib.group('Revoke the SafeDep Cloud credential', () =>
-      lib.runPMG(lib.state('credential_bin'), ['cloud', 'workload', 'revoke', '--credential', file], { noProxy: true }));
+      lib.runPMG(lib.state('credential_bin'), ['cloud', 'workload', 'revoke', '--credential', file], { proxyEnv: runnerProxy() }));
     if (res.status !== 0) {
       lib.warning('PMG could not revoke the SafeDep Cloud credential. It stays valid until it expires. See the log of the post step.');
     }
@@ -123,6 +128,11 @@ function end(pmgRuns) {
     removeCopies(file);
   }
   return status;
+}
+
+function runnerProxy() {
+  const saved = lib.state('runner_proxy');
+  return saved === '' ? {} : JSON.parse(saved);
 }
 
 function removeCopies(file) {

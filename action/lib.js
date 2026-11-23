@@ -177,21 +177,22 @@ function run(shell, script, env, { captureStderr = false } = {}) {
 // command opens the event log there. capture pipes stdout, and 'all'
 // pipes stderr too. idToken keeps the ID token request token, for the
 // exchange of the workload identity only. No other pmg process gets it.
-// noProxy removes the proxy variables in every letter case, for a call
-// after the proxy stopped. Every call runs with helperEnv.
-function runPMG(bin, args, { sudo = false, configDir = '', capture = false, idToken = false, noProxy = false } = {}) {
+// proxyEnv, when set, replaces the proxy variables in every letter case,
+// for a call after the proxy stopped. Every call runs with helperEnv.
+function runPMG(bin, args, { sudo = false, configDir = '', capture = false, idToken = false, proxyEnv = null } = {}) {
   let file = bin;
   let argv = args;
   const env = helperEnv();
   if (idToken && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
     env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
   }
-  if (noProxy) {
+  if (proxyEnv) {
     for (const name of Object.keys(env)) {
       if (isProxyVar(name)) {
         delete env[name];
       }
     }
+    Object.assign(env, proxyEnv);
   }
   if (sudo) {
     if (configDir !== '') {
