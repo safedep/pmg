@@ -60,9 +60,10 @@ pmg_pid=""
 # forward proxy from this environment as its upstream. That proxy's
 # connections come back to PMG, and the request loops.
 pmg_root() {
+  # Bash before 4.4 stops on an empty array under "set -u".
   # shellcheck disable=SC2016 # the root shell expands these, not this one
   $SUDO env -u HTTPS_PROXY -u HTTP_PROXY -u ALL_PROXY -u https_proxy -u http_proxy -u all_proxy \
-    "${pmg_env[@]}" "PMG_SECRET_DIR=$PMG_SECRET_DIR" \
+    ${pmg_env[@]+"${pmg_env[@]}"} "PMG_SECRET_DIR=$PMG_SECRET_DIR" \
     bash -c '
       for v in SAFEDEP_API_KEY SAFEDEP_TENANT_ID; do
         if [ -r "$PMG_SECRET_DIR/$v" ]; then export "$v=$(<"$PMG_SECRET_DIR/$v")"; fi
@@ -198,7 +199,7 @@ check_container_trust() {
   local dir dirs
   IFS=: read -ra dirs <<<"$PATH"
   for dir in "${dirs[@]}"; do
-    [ "$dir" = /usr/local/sbin ] && break
+    [ "${dir%/}" = /usr/local/sbin ] && break
     if [ -x "$dir/runc" ]; then
       log "PMG_CONTAINER_TRUST=1 needs /usr/local/sbin before $dir on PATH, because dockerd starts the first runc on PATH."
       exit 1
