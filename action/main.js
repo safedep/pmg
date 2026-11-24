@@ -118,9 +118,10 @@ function cloudInputs(bin, serverMode) {
   }
   const cred = workload.exchange(bin);
   if (cred === null) {
-    // The action warned that PMG runs without SafeDep Cloud. A runner
-    // config or an earlier step can have turned cloud on, and pmg would
-    // then use a saved login of another tenant.
+    // A fork pull request has no ID token, and the action warned that PMG
+    // runs without SafeDep Cloud. A runner config or an earlier step can
+    // have turned cloud on, and pmg would then use a saved login of another
+    // tenant.
     return { ...none, cloudOff: true };
   }
   return {

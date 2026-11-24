@@ -40,6 +40,7 @@ func TestExchangeWorkloadIdentity(t *testing.T) {
 		{name: "no usable provider", err: status.Error(codes.FailedPrecondition, "no provider"), wantExchanges: 1, wantRefused: true, wantErr: true},
 		{name: "unavailable once, then issued", firstErrs: []error{unavailable}, wantExchanges: 2},
 		{name: "unavailable twice", err: unavailable, wantExchanges: 2, wantErr: true},
+		{name: "internal is not tried again", err: status.Error(codes.Internal, "boom"), wantExchanges: 1, wantErr: true},
 	}
 
 	for _, tc := range cases {
@@ -83,20 +84,45 @@ func TestExchangeWorkloadIdentityWithoutIDToken(t *testing.T) {
 	assert.Empty(t, stub.Exchanges())
 }
 
+// A credential that pmg fails to revoke stays valid for hours, so the
+// revoke tries again on a temporary error.
 func TestRevokeWorkloadCredential(t *testing.T) {
-	stub := &cloudauthtest.Exchange{}
-	startStubExchange(t, stub)
+	savedTimeout, savedDelay := callTimeout, retryDelay
+	callTimeout, retryDelay = 2*time.Second, 10*time.Millisecond
+	t.Cleanup(func() { callTimeout, retryDelay = savedTimeout, savedDelay })
 
-	err := RevokeWorkloadCredential(context.Background(), cloud.WorkloadCredential{
-		AccessToken:  "workload-access-token",
-		TenantDomain: testTenant,
-	})
+	unavailable := status.Error(codes.Unavailable, "down")
+	cases := []struct {
+		name        string
+		stub        *cloudauthtest.Exchange
+		wantRevokes int
+		wantCode    codes.Code
+	}{
+		{name: "revoked", stub: &cloudauthtest.Exchange{}, wantRevokes: 1},
+		{name: "unavailable once, then revoked", stub: &cloudauthtest.Exchange{RevokeFirstErrs: []error{unavailable}}, wantRevokes: 2},
+		{name: "internal once, then revoked", stub: &cloudauthtest.Exchange{RevokeFirstErrs: []error{status.Error(codes.Internal, "the revocation failed, retry")}}, wantRevokes: 2},
+		{name: "the first attempt hangs", stub: &cloudauthtest.Exchange{HangFirstRevoke: 1}, wantRevokes: 2},
+		{name: "unavailable twice", stub: &cloudauthtest.Exchange{RevokeErr: unavailable}, wantRevokes: 2, wantCode: codes.Unavailable},
+		{name: "every attempt hangs", stub: &cloudauthtest.Exchange{Hang: true}, wantRevokes: 2, wantCode: codes.DeadlineExceeded},
+		{name: "permission denied is not tried again", stub: &cloudauthtest.Exchange{RevokeErr: status.Error(codes.PermissionDenied, "denied")}, wantRevokes: 1, wantCode: codes.PermissionDenied},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			startStubExchange(t, tc.stub)
 
-	require.NoError(t, err)
-	require.Len(t, stub.Revokes(), 1)
-	assert.Equal(t, "workload-access-token", stub.Revokes()[0].GetAccessToken())
-	assert.Equal(t, testTenant, stub.Revokes()[0].GetTenantDomain())
-	assert.Empty(t, stub.Authorization(), "the revoke is keyless")
+			start := time.Now()
+			err := RevokeWorkloadCredential(context.Background(), testCredential)
+
+			assert.Less(t, time.Since(start), callTimeout+time.Second, "the retry stays within callTimeout")
+			assert.Equal(t, tc.wantCode, status.Code(err))
+			require.Len(t, tc.stub.Revokes(), tc.wantRevokes)
+			for _, req := range tc.stub.Revokes() {
+				assert.Equal(t, testCredential.AccessToken, req.GetAccessToken())
+				assert.Equal(t, testTenant, req.GetTenantDomain())
+			}
+			assert.Empty(t, tc.stub.Authorization(), "the revoke is keyless")
+		})
+	}
 }
 
 var testCredential = cloud.WorkloadCredential{
@@ -106,7 +132,7 @@ var testCredential = cloud.WorkloadCredential{
 	ExpiresAt:    time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC),
 }
 
-func TestCallsEndAtTheTimeout(t *testing.T) {
+func TestExchangeEndsAtTheTimeout(t *testing.T) {
 	saved := callTimeout
 	callTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { callTimeout = saved })
@@ -114,19 +140,10 @@ func TestCallsEndAtTheTimeout(t *testing.T) {
 	stub := &cloudauthtest.Exchange{Hang: true}
 	startStubExchange(t, stub)
 
-	t.Run("exchange", func(t *testing.T) {
-		start := time.Now()
-		_, err := ExchangeWorkloadIdentity(context.Background(), testTenant)
-		assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
-		assert.Less(t, time.Since(start), 5*time.Second)
-	})
-
-	t.Run("revoke", func(t *testing.T) {
-		start := time.Now()
-		err := RevokeWorkloadCredential(context.Background(), testCredential)
-		assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
-		assert.Less(t, time.Since(start), 5*time.Second)
-	})
+	start := time.Now()
+	_, err := ExchangeWorkloadIdentity(context.Background(), testTenant)
+	assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	assert.Less(t, time.Since(start), 5*time.Second)
 }
 
 // A first attempt that runs out of its part of callTimeout leaves the other
@@ -134,9 +151,9 @@ func TestCallsEndAtTheTimeout(t *testing.T) {
 // deadline too, and can answer DeadlineExceeded before the deadline of the
 // client passes.
 func TestExchangeRetriesAfterAnAttemptTimesOut(t *testing.T) {
-	savedTimeout, savedDelay := callTimeout, exchangeRetryDelay
-	callTimeout, exchangeRetryDelay = 2*time.Second, 10*time.Millisecond
-	t.Cleanup(func() { callTimeout, exchangeRetryDelay = savedTimeout, savedDelay })
+	savedTimeout, savedDelay := callTimeout, retryDelay
+	callTimeout, retryDelay = 2*time.Second, 10*time.Millisecond
+	t.Cleanup(func() { callTimeout, retryDelay = savedTimeout, savedDelay })
 
 	tests := []struct {
 		name      string
