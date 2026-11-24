@@ -360,8 +360,9 @@ cloud:
   endpoint_id: ""
 
   # Auto sync drains the local cloud-sync WAL to SafeDep Cloud opportunistically
-  # at the end of each PMG invocation, gated by a per-host cooldown so it does
-  # not fire on every command. The drain runs as a short-lived detached child
+  # at the end of each PMG invocation that records events, such as a package
+  # manager run. A per-host cooldown gates it so it does not fire on every
+  # command. The drain runs as a short-lived detached child
   # so the user-facing CLI returns immediately.
   #
   # Disable this in ephemeral environments (CI runners, throwaway VMs) where

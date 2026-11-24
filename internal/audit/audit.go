@@ -49,6 +49,11 @@ func Close() error {
 	return global.close()
 }
 
+// eventsDispatched reports whether this process sent an audit event.
+func eventsDispatched() bool {
+	return global != nil && global.dispatched.Load()
+}
+
 func logEvent(event AuditEvent) {
 	if global == nil {
 		return

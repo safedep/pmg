@@ -13,3 +13,14 @@ func UseSinksForTest(sinks ...Sink) (restore func()) {
 	setGlobal(newAuditor(sinks...))
 	return func() { setGlobal(previous) }
 }
+
+// UseSpawnerForTest sends the background sync spawns of this process to spawn
+// until the returned function restores the previous spawner.
+func UseSpawnerForTest(spawn func(name string, args ...string) error) (restore func()) {
+	if !testing.Testing() {
+		panic("audit: UseSpawnerForTest called outside a test")
+	}
+	previous := spawnDetached
+	spawnDetached = spawn
+	return func() { spawnDetached = previous }
+}

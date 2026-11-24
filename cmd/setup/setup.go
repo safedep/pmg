@@ -8,7 +8,6 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/alias"
-	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
@@ -43,12 +42,6 @@ func NewInstallCommand() *cobra.Command {
 		Short:        "Setup PMG config, aliases, and shims for package managers (npm, pnpm, pip, and more)",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// The Windows installer runs the system install as SYSTEM inside
-			// its transaction. A detached sync child would hold the binary the
-			// installer may still roll back.
-			if system {
-				audit.SuppressBackgroundSync()
-			}
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 			return install(system)
 		},
@@ -145,7 +138,6 @@ func NewRemoveCommand() *cobra.Command {
 		Short:        "Removes pmg aliases and shims from the user's shell config.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			audit.SuppressBackgroundSync()
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 			return remove(system, removeConfig)
 		},

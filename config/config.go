@@ -176,8 +176,8 @@ type CloudConfig struct {
 
 // CloudAutoSyncConfig controls opportunistic background sync of the cloud
 // audit WAL. When Enabled, PMG spawns a detached `pmg cloud sync-background`
-// child at the end of each invocation, gated by a per-host cooldown so the
-// sync does not fire on every command.
+// child at the end of each invocation that records audit events, gated by a
+// per-host cooldown so the sync does not fire on every command.
 type CloudAutoSyncConfig struct {
 	Enabled     bool          `mapstructure:"enabled"`
 	MinInterval time.Duration `mapstructure:"min_interval"`

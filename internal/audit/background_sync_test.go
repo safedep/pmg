@@ -44,9 +44,7 @@ func (r *spawnRecorder) callCount() int {
 func withMockSpawner(t *testing.T) *spawnRecorder {
 	t.Helper()
 	rec := &spawnRecorder{}
-	prev := spawnDetached
-	spawnDetached = rec.spawn
-	t.Cleanup(func() { spawnDetached = prev })
+	t.Cleanup(UseSpawnerForTest(rec.spawn))
 	return rec
 }
 
@@ -74,6 +72,10 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 	cfg.Config.Cloud.AutoSync.MinInterval = 15 * time.Minute
 	cfg.Config.Cloud.AutoSync.Timeout = time.Minute
 	cfg.Config.DisableTelemetry = false
+
+	// The child starts only after the process sent an audit event.
+	t.Cleanup(UseSinksForTest())
+	LogInstallStarted("npm", []string{"install"})
 	return cfg
 }
 
@@ -127,6 +129,15 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 		cfg := &config.RuntimeConfig{}
 		cfg.Config.Cloud.Enabled = true
 		cfg.Config.Cloud.AutoSync.Enabled = true
+
+		MaybeSpawnBackgroundSync(cfg)
+		assert.Equal(t, 0, rec.callCount())
+	})
+
+	t.Run("no audit event", func(t *testing.T) {
+		rec := withMockSpawner(t)
+		cfg := newAutoSyncConfig(t)
+		t.Cleanup(UseSinksForTest())
 
 		MaybeSpawnBackgroundSync(cfg)
 		assert.Equal(t, 0, rec.callCount())

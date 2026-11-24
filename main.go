@@ -48,6 +48,26 @@ func setLogEnv(key, value string) {
 }
 
 func main() {
+	cmd := newRootCommand()
+	cleanup := installExitHook()
+	defer cleanup()
+
+	// Analytics are best-effort. Do not flush on exit because the PostHog
+	// client can block the CLI while draining its queue.
+	analytics.TrackCommandRun()
+	analytics.TrackCI()
+
+	if err := cmd.Execute(); err != nil {
+		cleanup()
+		type exitCoder interface{ ExitCode() int }
+		if ec, ok := err.(exitCoder); ok {
+			os.Exit(ec.ExitCode())
+		}
+		os.Exit(1)
+	}
+}
+
+func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:              "pmg",
 		TraverseChildren: true,
@@ -127,12 +147,10 @@ func main() {
 				ui.ErrorExit(err)
 			}
 
-			// The proxy daemon delivers events itself (periodic sync + shutdown
-			// flush), so suppress the detached background auto-sync for proxy
-			// commands. It would otherwise spawn a redundant child that contends
-			// for the sync lock and, from `pmg proxy stop`, routes through the
-			// now-stopped proxy. We suppress the spawn directly rather than
-			// flipping AutoSync.Enabled, because the daemon's periodic sync
+			// The proxy daemon sends audit events and delivers them itself
+			// with a periodic sync and a shutdown flush. A detached child would
+			// contend for the sync lock. We suppress the spawn directly rather
+			// than flipping AutoSync.Enabled, because the daemon's periodic sync
 			// honors that flag.
 			if isProxyCommand(cmd) {
 				audit.SuppressBackgroundSync()
@@ -220,10 +238,14 @@ func main() {
 		fmt.Println(command.UsageString())
 	})
 
-	// The exit path of a blocked install goes through ui, which calls
-	// os.Exit and skips the defers. The exit hook runs the same cleanup, so
-	// the background sync child starts on every exit path. The next policy
-	// fetch matters most after a block.
+	return cmd
+}
+
+// installExitHook returns the cleanup that runs once when pmg exits. The exit
+// path of a blocked install goes through ui, which calls os.Exit and skips the
+// defers. The ui exit hook runs the same cleanup, so the background sync child
+// starts also after a block. The next policy fetch matters most then.
+func installExitHook() func() {
 	cleanup := sync.OnceFunc(func() {
 		if err := audit.Close(); err != nil {
 			log.Warnf("failed to close audit system: %v", err)
@@ -236,21 +258,7 @@ func main() {
 		}
 	})
 	ui.SetExitHook(cleanup)
-	defer cleanup()
-
-	// Analytics are best-effort. Do not flush on exit because the PostHog
-	// client can block the CLI while draining its queue.
-	analytics.TrackCommandRun()
-	analytics.TrackCI()
-
-	if err := cmd.Execute(); err != nil {
-		cleanup()
-		type exitCoder interface{ ExitCode() int }
-		if ec, ok := err.(exitCoder); ok {
-			os.Exit(ec.ExitCode())
-		}
-		os.Exit(1)
-	}
+	return cleanup
 }
 
 // eventlogInitError classifies event-log init failures. Event logging is
