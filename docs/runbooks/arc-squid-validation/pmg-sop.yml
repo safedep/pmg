@@ -1,0 +1,67 @@
+# Copy to .github/workflows/pmg-sop.yml in a test repository.
+# Copy case.sh to .github/pmg-sop/case.sh in the same repository.
+# Replace <runner-label> and <org>/pmg-gitdep-test.
+name: pmg-sop
+on: workflow_dispatch
+env:
+  PKG: safedep-test-pkg
+  GITDEP: github:<org>/pmg-gitdep-test
+  TARBALL: https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz
+  CASE: ${{ github.workspace }}/.github/pmg-sop/case.sh
+jobs:
+  host:
+    runs-on: [self-hosted, <runner-label>]
+    steps:
+      - uses: actions/checkout@v4
+      - name: T0 what the job sees
+        run: |
+          chmod +x "$CASE"; pmg version
+          env | grep -iE '^(https?_proxy|no_proxy|node_extra_ca_certs)=' || true
+          npm config ls -l | grep -Ei '^(registry|proxy|https-proxy|noproxy|strict-ssl) ' || true
+          grep ^0:: /proc/self/cgroup
+      - name: T1a npm in a job step, through Squid
+        run: cd "$(mktemp -d)" && "$CASE" T1a npm install "$PKG" --no-audit --no-fund --cache "$PWD/.c"
+      - name: T1b npm in a job step, direct
+        run: cd "$(mktemp -d)" && "$CASE" T1b env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy npm install "$PKG" --no-audit --no-fund --cache "$PWD/.c"
+      - name: T1c tarball through Squid
+        run: |
+          "$CASE" T1c curl -s -o /dev/null -w '%{http_code}' -x "$HTTPS_PROXY" "$TARBALL"
+      - name: T2a docker run, through Squid
+        run: |
+          "$CASE" T2a docker run --rm -e HTTPS_PROXY="$HTTPS_PROXY" -e https_proxy="$HTTPS_PROXY" node:22-slim sh -c "cd /tmp && npm install $PKG --no-audit --no-fund"
+      - name: T2b docker run, no proxy
+        run: |
+          "$CASE" T2b docker run --rm node:22-slim sh -c "cd /tmp && npm install $PKG --no-audit --no-fund"
+      - name: T3a docker build, no proxy build-arg
+        run: |
+          d=$(mktemp -d); printf 'FROM node:22-slim\nRUN cd /tmp && npm install %s --no-audit --no-fund\n' "$PKG" > "$d/Dockerfile"
+          "$CASE" T3a docker build --no-cache "$d"
+      - name: T3b docker build, through Squid, with the PMG CA
+        run: |
+          d=$(mktemp -d); cp /etc/safedep/pmg/ca-cert.pem "$d/pmg-ca.pem"
+          printf 'FROM node:22-slim\nCOPY pmg-ca.pem /pmg-ca.pem\nENV NODE_EXTRA_CA_CERTS=/pmg-ca.pem\nRUN cd /tmp && npm install %s --no-audit --no-fund\n' "$PKG" > "$d/Dockerfile"
+          "$CASE" T3b docker build --no-cache --build-arg HTTPS_PROXY="$HTTPS_PROXY" --build-arg https_proxy="$HTTPS_PROXY" "$d"
+      - name: T4a git dependency
+        run: cd "$(mktemp -d)" && "$CASE" T4a npm install "$GITDEP" --no-audit --no-fund --cache "$PWD/.c"
+      - name: Squid log for this job
+        run: tail -n 40 /var/log/squid/access.log
+  container-job:
+    needs: host
+    runs-on: [self-hosted, <runner-label>]
+    container: node:22-slim
+    steps:
+      - name: T5 npm in a job container
+        continue-on-error: true
+        run: |
+          env | grep -iE '^(https?_proxy|no_proxy|node_extra_ca_certs|ssl_cert_file)=' || echo "T5 no proxy or CA variables"
+          cd /tmp && npm install safedep-test-pkg --no-audit --no-fund
+  container-action:
+    needs: container-job
+    runs-on: [self-hosted, <runner-label>]
+    steps:
+      - name: T6 npm in a container action
+        continue-on-error: true
+        uses: docker://node:22-slim
+        with:
+          entrypoint: sh
+          args: -c "env | grep -iE '^(https?_proxy|node_extra_ca_certs)=' || echo 'T6 no proxy or CA variables'; cd /tmp && npm install safedep-test-pkg --no-audit --no-fund"
