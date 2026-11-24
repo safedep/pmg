@@ -42,7 +42,7 @@ function main() {
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
   const binDir = outputs['bin-dir'];
   const bin = path.join(binDir, 'pmg');
-  exportJobDirs(jobContainer);
+  exportJobDirs(jobContainer, lib.input('config-file'));
   // Before any script changes the job, so a refused second step leaves the
   // configuration of the first step in place.
   if (serverMode) {
@@ -90,15 +90,17 @@ function main() {
 // runner agents on one host can run jobs at the same time as one user, and a
 // crashed job can leave a proxy or a sync queue. Each runner agent has its
 // own RUNNER_TEMP, and the runner empties it after each job. A directory
-// that the workflow sets stays. The cache stays shared, because it holds
-// only regenerable data. A job container has its own filesystem, and the
-// proxy CA must stay in /github/home there, so Docker actions can read it.
-function exportJobDirs(jobContainer) {
+// that the workflow sets stays, except a config directory when the job sets
+// config-file, so the staged file does not change the config of later jobs.
+// The cache stays shared, because it holds only regenerable data. A job
+// container has its own filesystem, and the proxy CA must stay in
+// /github/home there, so Docker actions can read it.
+function exportJobDirs(jobContainer, configFile) {
   if (jobContainer) {
     return;
   }
   for (const [name, dir] of [['PMG_CONFIG_DIR', 'config'], ['PMG_STATE_DIR', 'state']]) {
-    if (!process.env[name]) {
+    if (!process.env[name] || (name === 'PMG_CONFIG_DIR' && configFile !== '')) {
       process.env[name] = path.join(process.env.RUNNER_TEMP, 'pmg', dir);
       lib.appendFile('GITHUB_ENV', `${name}=${process.env[name]}`);
     }
@@ -318,7 +320,6 @@ function runStartScript(binDir, enforce, jobContainer, env) {
       ...env,
       PMG_BIN_DIR: binDir,
       PMG_ROOT_STATE: rootStatePath(),
-      INPUT_CONFIG_FILE: lib.input('config-file'),
       ...Object.fromEntries(enforceInputs.map((name) => [`INPUT_${name.toUpperCase().replace(/-/g, '_')}`, lib.input(name)])),
     }, { captureStderr: true }));
   }

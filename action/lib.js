@@ -195,9 +195,10 @@ function runPMG(bin, args, { sudo = false, configDir = '', capture = false, idTo
     Object.assign(env, proxyEnv);
   }
   if (sudo) {
-    // The config directory of the job belongs to the runner user. Root
-    // must not write its event log there.
+    // The directories of the job belong to the runner user. Root must not
+    // write its event log or state there.
     delete env.PMG_CONFIG_DIR;
+    delete env.PMG_STATE_DIR;
     if (configDir !== '') {
       env.PMG_CONFIG_DIR = configDir;
     }

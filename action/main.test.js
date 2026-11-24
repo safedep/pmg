@@ -90,12 +90,12 @@ test('enforcedElsewhere is true only for a daemon that already enforces', async 
 test('exportJobDirs', async (t) => {
   // runExport runs exportJobDirs in a fresh RUNNER_TEMP and returns the
   // directories, the exported variables and RUNNER_TEMP.
-  const runExport = (t, jobContainer, configDir) => {
+  const runExport = (t, jobContainer, configDir, configFile = '') => {
     const tmp = tempDir(t);
     const envFile = path.join(tmp, 'env');
     fs.writeFileSync(envFile, '');
     const dirs = withEnv({ RUNNER_TEMP: tmp, GITHUB_ENV: envFile, PMG_CONFIG_DIR: configDir, PMG_STATE_DIR: undefined }, () => {
-      exportJobDirs(jobContainer);
+      exportJobDirs(jobContainer, configFile);
       return { config: process.env.PMG_CONFIG_DIR, state: process.env.PMG_STATE_DIR };
     });
     return { dirs, exported: Object.fromEntries(lib.parseKeyValues(fs.readFileSync(envFile, 'utf8'))), tmp };
@@ -115,6 +115,13 @@ test('exportJobDirs', async (t) => {
     assert.strictEqual(dirs.config, own);
     assert.ok(fs.statSync(own).isDirectory());
     assert.deepStrictEqual(Object.keys(exported), ['PMG_STATE_DIR']);
+  });
+
+  await t.test('replaces a config directory that the workflow sets when the job sets config-file', (t) => {
+    const own = path.join(tempDir(t), 'own');
+    const { dirs, exported, tmp } = runExport(t, false, own, 'pmg.yml');
+    assert.strictEqual(dirs.config, path.join(tmp, 'pmg', 'config'));
+    assert.strictEqual(exported.PMG_CONFIG_DIR, dirs.config);
   });
 
   await t.test('changes nothing in a job container', (t) => {

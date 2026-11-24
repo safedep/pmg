@@ -82,17 +82,17 @@ test('runPMG runs a helper call with SafeDep Cloud off', (t) => {
   }
 });
 
-test('runPMG under sudo passes only the config directory of the daemon', async (t) => {
+test('runPMG under sudo passes no directory of the job', async (t) => {
   const dir = tempDir(t);
   fs.writeFileSync(path.join(dir, 'sudo'), '#!/bin/sh\nenv\n', { mode: 0o755 });
-  const env = { PATH: `${dir}${path.delimiter}${process.env.PATH}`, PMG_CONFIG_DIR: '/job/config' };
+  const env = { PATH: `${dir}${path.delimiter}${process.env.PATH}`, PMG_CONFIG_DIR: '/job/config', PMG_STATE_DIR: '/job/state' };
   for (const [name, configDir, want] of [
     ['no daemon directory', '', null],
     ['the daemon directory', '/daemon/config', /^PMG_CONFIG_DIR=\/daemon\/config$/m],
   ]) {
     await t.test(name, () => {
       const out = withEnv(env, () => lib.runPMG('pmg', ['version'], { sudo: true, configDir, capture: true }).stdout);
-      assert.doesNotMatch(out, /^PMG_CONFIG_DIR=\/job\/config$/m);
+      assert.doesNotMatch(out, /^PMG_(CONFIG|STATE)_DIR=\/job\//m);
       if (want) {
         assert.match(out, want);
       }

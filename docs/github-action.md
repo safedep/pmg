@@ -646,6 +646,9 @@ Each runner agent has its own `RUNNER_TEMP`, and the runner empties it after eac
 Two jobs on one host then do not share the config, the proxy state or the cloud sync queue.
 A proxy or a queue that a crashed job leaves does not affect the next job.
 The action keeps a directory that the workflow sets.
+When the job sets `config-file`, the action uses its own config directory, so the staged file does not change the config of later jobs.
+Under kernel enforcement, the root daemon gets a copy of `config.yml` from `PMG_CONFIG_DIR`, and uses the directories of root.
+The action keeps the proxy state for each job with PMG v0.35.0 or later. An older `version` keeps it in the shared cache directory.
 A config in `~/.config/safedep/pmg` does not apply. Use `config-file` or the [managed config](config.md#globally-managed-configuration).
 The cache directory stays shared.
 
