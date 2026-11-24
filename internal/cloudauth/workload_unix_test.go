@@ -71,7 +71,7 @@ func TestExchangeToFileRevokesWhenTheWriteFails(t *testing.T) {
 		wantRevoked bool
 	}{
 		{name: "the revoke succeeds", wantRevoked: true},
-		{name: "the revoke fails", revokeErr: status.Error(codes.Unavailable, "down")},
+		{name: "the revoke fails", revokeErr: status.Error(codes.PermissionDenied, "denied")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := &cloudauthtest.Exchange{RevokeErr: tc.revokeErr}

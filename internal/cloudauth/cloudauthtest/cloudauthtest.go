@@ -41,17 +41,20 @@ const (
 
 // Exchange is a stub WorkloadIdentityService. The ExchangeToken calls take
 // the errors of FirstErrs in order. Then Err, when set, is the answer to
-// every call. RevokeErr, when set, is the answer to every RevokeToken call.
-// With Hang, every call waits until the client gives up. With HangFirst, the
-// first HangFirst ExchangeToken calls wait until the client gives up.
+// every call. The RevokeToken calls take RevokeFirstErrs and RevokeErr in
+// the same way. With Hang, every call waits until the client gives up. With
+// HangFirst, the first HangFirst ExchangeToken calls wait until the client
+// gives up. HangFirstRevoke does the same for the RevokeToken calls.
 type Exchange struct {
 	controltowerv1grpc.UnimplementedWorkloadIdentityServiceServer
 
-	FirstErrs []error
-	Err       error
-	RevokeErr error
-	Hang      bool
-	HangFirst int
+	FirstErrs       []error
+	Err             error
+	RevokeFirstErrs []error
+	RevokeErr       error
+	Hang            bool
+	HangFirst       int
+	HangFirstRevoke int
 
 	mu        sync.Mutex
 	hung      int
@@ -68,7 +71,7 @@ func (s *Exchange) Exchanges() []*controltowerv1.ExchangeTokenRequest {
 	return append([]*controltowerv1.ExchangeTokenRequest(nil), s.exchanges...)
 }
 
-// Revokes returns the RevokeToken requests.
+// Revokes returns the RevokeToken requests, also the requests that hang.
 func (s *Exchange) Revokes() []*controltowerv1.RevokeTokenRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -137,14 +140,18 @@ func (s *Exchange) ExchangeToken(ctx context.Context, req *controltowerv1.Exchan
 }
 
 func (s *Exchange) RevokeToken(ctx context.Context, req *controltowerv1.RevokeTokenRequest) (*controltowerv1.RevokeTokenResponse, error) {
-	if s.Hang {
+	s.mu.Lock()
+	s.revokes = append(s.revokes, req)
+	s.recordAuth(ctx)
+	n := len(s.revokes)
+	s.mu.Unlock()
+	if s.Hang || n <= s.HangFirstRevoke {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.revokes = append(s.revokes, req)
-	s.recordAuth(ctx)
+	if n <= len(s.RevokeFirstErrs) && s.RevokeFirstErrs[n-1] != nil {
+		return nil, s.RevokeFirstErrs[n-1]
+	}
 	if s.RevokeErr != nil {
 		return nil, s.RevokeErr
 	}
