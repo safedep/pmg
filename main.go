@@ -149,9 +149,8 @@ func newRootCommand() *cobra.Command {
 
 			// The proxy daemon sends audit events and delivers them itself
 			// with a periodic sync and a shutdown flush. A detached child would
-			// contend for the sync lock. We suppress the spawn directly rather
-			// than flipping AutoSync.Enabled, because the daemon's periodic sync
-			// honors that flag.
+			// contend for the sync lock. The daemon's periodic sync reads
+			// AutoSync.Enabled, so the spawn is suppressed instead of that flag.
 			if isProxyCommand(cmd) {
 				audit.SuppressBackgroundSync()
 			}

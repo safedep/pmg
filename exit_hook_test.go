@@ -28,10 +28,10 @@ func (unparsablePackageManager) Ecosystem() packagev1.Ecosystem {
 	return packagev1.Ecosystem_ECOSYSTEM_NPM
 }
 
-// The GitHub action probed `pmg cloud sync --help` with cloud on. The help
-// started a background sync, and the sync lock it held failed the next
-// `pmg cloud sync --require-policy`.
-func TestExitHookStartsBackgroundSyncOnlyAfterAuditEvents(t *testing.T) {
+// The exit hook starts the background sync only when the process sent an
+// audit event or asked for the sync. A sync after a command without events
+// would hold the sync lock that the next `pmg cloud sync` needs.
+func TestExitHookStartsBackgroundSyncOnlyWhenWanted(t *testing.T) {
 	executeRoot := func(wantErr bool, args ...string) func(t *testing.T) {
 		return func(t *testing.T) {
 			cmd := newRootCommand()
@@ -66,6 +66,11 @@ func TestExitHookStartsBackgroundSyncOnlyAfterAuditEvents(t *testing.T) {
 			},
 			exitThroughUI: true,
 			wantSpawn:     1,
+		},
+		{
+			name:      "sync requested without audit events",
+			run:       func(t *testing.T) { audit.RequestBackgroundSync() },
+			wantSpawn: 1,
 		},
 	}
 

@@ -92,7 +92,7 @@ func TestCloudPolicyResults(t *testing.T) {
 			name:  "no cache warns",
 			setup: func(t *testing.T, cfg *config.RuntimeConfig) {},
 			want: []doctorLine{{doctor.StatusWarn,
-				"cloud policy is on, but no policy cache exists. pmg fetches it after the next command"}},
+				"cloud policy is on, but no policy cache exists. pmg fetches it after the next package manager command or pmg cloud login"}},
 		},
 		{
 			name: "an applied cache passes",
