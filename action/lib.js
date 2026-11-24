@@ -231,14 +231,19 @@ class ScriptError extends Error {
 
 const stripColors = (text) => text.replace(/\x1b\[[0-9;]*m/g, '');
 
-// errorCodes reads the code that pmg prints first on an error line, as in
-// " InvalidArgument   the enforce policy is not valid".
-function errorCodes(text) {
+// errorLines reads the error lines of pmg, as in
+// " InvalidArgument   the enforce policy is not valid". The code comes
+// first, then the message.
+function errorLines(text) {
   return stripColors(text)
     .split('\n')
-    .map((line) => /^\s*([A-Z][A-Za-z]+)\s{2,}\S/.exec(line))
+    .map((line) => /^\s*([A-Z][A-Za-z]+)\s{2,}(\S.*)$/.exec(line))
     .filter(Boolean)
-    .map((match) => match[1]);
+    .map((match) => ({ code: match[1], message: match[2].trim() }));
+}
+
+function errorCodes(text) {
+  return errorLines(text).map((line) => line.code);
 }
 
 function lastLines(text, n) {
@@ -274,6 +279,7 @@ module.exports = {
   childEnv,
   error,
   errorCodes,
+  errorLines,
   group,
   helperEnv,
   inJobContainer,

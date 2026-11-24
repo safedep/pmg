@@ -344,16 +344,24 @@ func TestOIDCWithoutIDTokenFails(t *testing.T) {
 	assert.Empty(t, j.kv("GITHUB_STATE")["pid"], "no proxy starts")
 }
 
-func TestOIDCRefusedExchangeRunsWithLocalConfig(t *testing.T) {
+// A refused exchange fails the step, as a bad API key does. A job whose
+// api-key secret is empty selects OIDC mode, and must not pass without the
+// cloud policy.
+func TestOIDCRefusedExchangeFails(t *testing.T) {
 	stub := &cloudauthtest.Exchange{Err: status.Error(codes.PermissionDenied, "no workload rule matches")}
-	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_SERVER-MODE": "false", "PMG_CLOUD_ENABLED": "true"})
+	j := newJob(t, startStub(t, stub), nil)
 
-	_, code := j.run("main.js")
-	require.Equal(t, 0, code)
-	assert.Contains(t, j.read("GITHUB_STEP_SUMMARY"), "SafeDep Cloud refused the workload identity exchange")
-	assert.Contains(t, j.read("GITHUB_STEP_SUMMARY"), "no workload rule matches")
-	assert.Equal(t, "false", j.kv("GITHUB_ENV")["PMG_CLOUD_ENABLED"], "the shims run without SafeDep Cloud")
-	assert.Empty(t, j.kv("GITHUB_ENV")["PMG_CLOUD_CREDENTIAL_FILE"])
+	out, code := j.run("main.js")
+	assert.Equal(t, 1, code)
+	message := "PMG cannot get a SafeDep Cloud credential for acme.safedep.io. SafeDep Cloud refused the workload identity exchange (no workload rule matches). Add a workload identity rule that matches this job, or set the api-key input. If you meant to use an API key, check that the secret is set and passed to this workflow."
+	assert.Contains(t, out, "::error::"+message)
+	assert.Contains(t, j.read("GITHUB_STEP_SUMMARY"), message)
+	assert.Empty(t, j.kv("GITHUB_STATE")["pid"], "no proxy starts")
+	assert.Empty(t, j.kv("GITHUB_ENV")["PMG_CLOUD_ENABLED"], "the action exports no PMG configuration")
+
+	_, code = j.run("post.js")
+	assert.Equal(t, 0, code)
+	assert.Empty(t, stub.Revokes())
 }
 
 // keepStubEnvThroughSudo makes sudo keep the variables that point pmg at the
