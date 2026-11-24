@@ -55,9 +55,9 @@ function supportsWorkload(bin) {
 }
 
 // exchange returns the workload credential. It returns null on a
-// pull_request from a fork with no ID token, and when SafeDep Cloud refuses
-// the exchange. PMG then runs without SafeDep Cloud. Any other error fails
-// the step.
+// pull_request from a fork with no ID token. PMG then runs without SafeDep
+// Cloud. Every other failure fails the step. A refused exchange fails as a
+// bad API key does, because the job asked for the cloud policy.
 function exchange(bin) {
   const tenant = lib.input('tenant-id');
   if (lib.input('endpoint-id') !== '') {
@@ -79,7 +79,7 @@ function exchange(bin) {
   const file = path.join(dir, 'credential.json');
   const res = lib.group('Exchange the GitHub ID token for a SafeDep Cloud credential', () => {
     const out = lib.runPMG(bin, ['cloud', 'workload', 'exchange', '--tenant-id', tenant, '--output', file], { capture: 'all', idToken: true });
-    process.stdout.write(out.stdout + out.stderr);
+    lib.printUntrusted(out.stdout + out.stderr);
     return out;
   });
 
@@ -91,15 +91,18 @@ function exchange(bin) {
   }
   fs.rmSync(dir, { recursive: true, force: true });
 
-  const codes = lib.errorCodes(res.stderr || '');
-  if (codes.includes(noTokenCode)) {
+  const errors = lib.errorLines(res.stderr || '');
+  if (errors.some((line) => line.code === noTokenCode)) {
     throw new Error('PMG cannot get a SafeDep Cloud credential, because the job has no ID token. Give the job "permissions: id-token: write", or set the api-key input.');
   }
-  if (codes.includes(refusedCode)) {
-    const reason = lib.lastLines(res.stderr || '', 3);
-    lib.warning(`SafeDep Cloud refused the workload identity exchange for ${tenant}. PMG runs with its local config.`);
-    lib.appendFile('GITHUB_STEP_SUMMARY', `## PMG\n\nSafeDep Cloud refused the workload identity exchange for \`${tenant}\`. PMG runs with its local config, without SafeDep Cloud.\n\n\`\`\`text\n${reason}\n\`\`\`\n`);
-    return null;
+  const refusal = errors.find((line) => line.code === refusedCode);
+  if (refusal) {
+    // pmg prints the message of SafeDep Cloud and not the gRPC code, so one
+    // hint covers every kind of refusal. The summary shows the message only
+    // in a code block, so it cannot add markdown to the summary.
+    const hint = 'Fix the cause that SafeDep Cloud presented, or set the api-key input. If you meant to use an API key, check that the secret is set and passed to this workflow.';
+    lib.appendFile('GITHUB_STEP_SUMMARY', `## PMG\n\nPMG cannot get a SafeDep Cloud credential for \`${tenant}\`, because SafeDep Cloud refused the workload identity exchange. ${hint}\n\n\`\`\`text\n${lib.lastLines(res.stderr || '', 3)}\n\`\`\`\n`);
+    throw new Error(`PMG cannot get a SafeDep Cloud credential for ${tenant}. ${refusal.message.replace(/\.?$/, '.')} ${hint}`);
   }
   throw new Error(`PMG could not exchange the GitHub ID token for a SafeDep Cloud credential: ${lib.lastLines(res.stderr || '', 3)}`);
 }

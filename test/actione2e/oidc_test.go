@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -344,16 +345,49 @@ func TestOIDCWithoutIDTokenFails(t *testing.T) {
 	assert.Empty(t, j.kv("GITHUB_STATE")["pid"], "no proxy starts")
 }
 
-func TestOIDCRefusedExchangeRunsWithLocalConfig(t *testing.T) {
-	stub := &cloudauthtest.Exchange{Err: status.Error(codes.PermissionDenied, "no workload rule matches")}
-	j := newJob(t, startStub(t, stub), map[string]string{"INPUT_SERVER-MODE": "false", "PMG_CLOUD_ENABLED": "true"})
+// A refused exchange fails the step, as a bad API key does. A job whose
+// api-key secret is empty selects OIDC mode, and must not pass without the
+// cloud policy.
+func TestOIDCRefusedExchangeFails(t *testing.T) {
+	stub := &cloudauthtest.Exchange{Err: status.Error(codes.ResourceExhausted, "the tenant is over its cap")}
+	j := newJob(t, startStub(t, stub), nil)
 
-	_, code := j.run("main.js")
-	require.Equal(t, 0, code)
-	assert.Contains(t, j.read("GITHUB_STEP_SUMMARY"), "SafeDep Cloud refused the workload identity exchange")
-	assert.Contains(t, j.read("GITHUB_STEP_SUMMARY"), "no workload rule matches")
-	assert.Equal(t, "false", j.kv("GITHUB_ENV")["PMG_CLOUD_ENABLED"], "the shims run without SafeDep Cloud")
-	assert.Empty(t, j.kv("GITHUB_ENV")["PMG_CLOUD_CREDENTIAL_FILE"])
+	out, code := j.run("main.js")
+	assert.Equal(t, 1, code)
+	hint := "Fix the cause that SafeDep Cloud presented, or set the api-key input. If you meant to use an API key, check that the secret is set and passed to this workflow."
+	assert.Contains(t, out, "::error::PMG cannot get a SafeDep Cloud credential for acme.safedep.io. SafeDep Cloud refused the workload identity exchange (the tenant is over its cap). "+hint)
+	body, block, ok := strings.Cut(j.read("GITHUB_STEP_SUMMARY"), "```text\n")
+	require.True(t, ok, "the summary has a code block")
+	assert.Equal(t, "## PMG\n\nPMG cannot get a SafeDep Cloud credential for `acme.safedep.io`, because SafeDep Cloud refused the workload identity exchange. "+hint+"\n\n", body,
+		"the message of the server is not markdown of the summary")
+	assert.Contains(t, block, "the tenant is over its cap")
+	assert.Empty(t, j.kv("GITHUB_STATE")["pid"], "no proxy starts")
+	assert.Empty(t, j.kv("GITHUB_ENV")["PMG_CLOUD_ENABLED"], "the action exports no PMG configuration")
+
+	_, code = j.run("post.js")
+	assert.Equal(t, 0, code)
+	assert.Empty(t, stub.Revokes())
+}
+
+// The action prints the output of the exchange. A message of the server
+// must not reach the runner as a workflow command.
+func TestOIDCExchangeOutputRunsNoCommand(t *testing.T) {
+	stub := &cloudauthtest.Exchange{Err: status.Error(codes.PermissionDenied,
+		"no rule\n::warning::injected\n##[add-mask]acme\r::add-mask::acme")}
+	j := newJob(t, startStub(t, stub), nil)
+
+	out, code := j.run("main.js")
+	assert.Equal(t, 1, code)
+	stopped := regexp.MustCompile(`(?s)::stop-commands::([0-9a-f-]{36})\n.*?::([0-9a-f-]{36})::\n`)
+	for _, m := range stopped.FindAllStringSubmatch(out, -1) {
+		require.Equal(t, m[1], m[2])
+	}
+	outside := stopped.ReplaceAllString(out, "")
+	for _, payload := range []string{"::warning::injected", "##[add-mask]", "::add-mask::acme"} {
+		assert.Contains(t, out, payload)
+		assert.NotContains(t, outside, payload)
+	}
+	assert.NotContains(t, j.read("GITHUB_STEP_SUMMARY"), "::warning::")
 }
 
 // keepStubEnvThroughSudo makes sudo keep the variables that point pmg at the

@@ -3,6 +3,7 @@
 // Helpers that main.js and post.js share. The action has no dependencies, so
 // these replace the parts of @actions/core it needs.
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -231,21 +232,45 @@ class ScriptError extends Error {
 
 const stripColors = (text) => text.replace(/\x1b\[[0-9;]*m/g, '');
 
-// errorCodes reads the code that pmg prints first on an error line, as in
-// " InvalidArgument   the enforce policy is not valid".
-function errorCodes(text) {
+// errorLines reads the error lines of pmg, as in
+// " InvalidArgument   the enforce policy is not valid". The code comes
+// first, then the message.
+function errorLines(text) {
   return stripColors(text)
     .split('\n')
-    .map((line) => /^\s*([A-Z][A-Za-z]+)\s{2,}\S/.exec(line))
+    .map((line) => /^\s*([A-Z][A-Za-z]+)\s{2,}(\S.*)$/s.exec(line))
     .filter(Boolean)
-    .map((match) => match[1]);
+    .map((match) => ({ code: match[1], message: match[2].trim() }));
+}
+
+function errorCodes(text) {
+  return errorLines(text).map((line) => line.code);
+}
+
+// isCommand is true for a line that the runner reads as a workflow command.
+const isCommand = (line) => stripColors(line).trim().startsWith('::');
+
+// printUntrusted prints text that came from pmg or SafeDep Cloud. Between the
+// stop line and the resume line, the runner runs no workflow command in either
+// syntax. A filter of the text misses the legacy ##[command] syntax and a line
+// that ends at a bare carriage return. The token is random, so the text cannot
+// resume the commands. The resume line must start a line of its own, or the
+// later commands of the action stay off.
+function printUntrusted(text) {
+  const token = crypto.randomUUID();
+  process.stdout.write(`::stop-commands::${token}\n`);
+  try {
+    process.stdout.write(text.endsWith('\n') || text === '' ? text : `${text}\n`);
+  } finally {
+    process.stdout.write(`::${token}::\n`);
+  }
 }
 
 function lastLines(text, n) {
   return stripColors(text)
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line !== '' && !line.startsWith('::'))
+    .filter((line) => line !== '' && !isCommand(line))
     .slice(-n)
     .join(' ');
 }
@@ -274,6 +299,7 @@ module.exports = {
   childEnv,
   error,
   errorCodes,
+  errorLines,
   group,
   helperEnv,
   inJobContainer,
@@ -288,6 +314,7 @@ module.exports = {
   saveState,
   ScriptError,
   state,
+  printUntrusted,
   warning,
   workspacePath,
 };

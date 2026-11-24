@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	drygrpc "github.com/safedep/dry/adapters/grpc"
@@ -28,7 +29,7 @@ const CredentialFileEnv = "PMG_CLOUD_CREDENTIAL_FILE"
 const (
 	toolName = "pmg"
 
-	exchangeAttempts = 2
+	callAttempts = 2
 
 	// The WorkloadIdentityService runs on the data plane. dry reads the same
 	// variable and default for its own exchange connection.
@@ -36,15 +37,15 @@ const (
 	defaultDataPlaneAddr = "api.safedep.io:443"
 )
 
-// callTimeout bounds one exchange, with its retry, and one revoke. A server
+// callTimeout bounds one exchange or one revoke, with its retry. A server
 // that takes a call and never answers would otherwise hold the action step,
 // and the post step would not remove the credential copies. Tests set it
 // shorter.
 var callTimeout = 30 * time.Second
 
-// exchangeRetryDelay is the wait before the second exchange attempt. Tests
-// set it shorter.
-var exchangeRetryDelay = time.Second
+// retryDelay is the wait before the second attempt of a call. Tests set it
+// shorter.
+var retryDelay = time.Second
 
 // ErrCredentialFileUnsupported is returned on Windows for every use of a
 // credential file. pmg checks the owner and the mode of the file, and
@@ -61,8 +62,7 @@ func credentialFileSupported() error {
 
 // ErrExchangeRefused marks an exchange that SafeDep Cloud refused. For
 // example, no trust rule matches the token, the tenant has no usable provider
-// or feature, or the tenant is over its cap. pmg then runs with its local
-// config.
+// or feature, or the tenant is over its cap.
 var ErrExchangeRefused = errors.New("SafeDep Cloud refused the workload identity exchange")
 
 // ExchangeWorkloadIdentity trades the workload identity token of the
@@ -77,44 +77,18 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 		return cloud.WorkloadCredential{}, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-
 	var cred cloud.WorkloadCredential
-	for attempt := 1; ; attempt++ {
-		var attemptTimedOut bool
-		err = withExchangeClient(func(client *cloud.WorkloadExchangeClient) error {
-			// Each attempt gets its part of the timeout. An attempt that
-			// reaches its own deadline is tried again, so a hung first
-			// attempt does not use the time of the retry.
-			attemptCtx, cancelAttempt := context.WithTimeout(ctx, callTimeout/exchangeAttempts)
-			defer cancelAttempt()
-			var err error
-			cred, err = client.Exchange(attemptCtx, source, cloud.WorkloadExchangeRequest{
-				TenantDomain: tenantDomain,
-				ToolName:     toolName,
-				ToolVersion:  version.Version,
-			})
-			// The server gets the attempt deadline too and can answer
-			// DeadlineExceeded a moment before attemptCtx expires here.
-			attemptTimedOut = ctx.Err() == nil &&
-				(status.Code(err) == codes.DeadlineExceeded || errors.Is(attemptCtx.Err(), context.DeadlineExceeded))
-			return err
-		})
+	err = callWithRetry(ctx, "workload identity exchange", []codes.Code{codes.Unavailable}, func(ctx context.Context, client *cloud.WorkloadExchangeClient) error {
 		// The exchange gets a new ID token for each attempt, because the
 		// server can spend a token before it fails.
-		retry := err != nil && (status.Code(err) == codes.Unavailable || attemptTimedOut)
-		if attempt == exchangeAttempts || !retry {
-			break
-		}
-		log.Warnf("SafeDep Cloud did not answer the workload identity exchange, pmg tries again: %v", err)
-		select {
-		case <-ctx.Done():
-			// The last attempt's error keeps its gRPC status. ctx.Err() has none.
-			return cloud.WorkloadCredential{}, err
-		case <-time.After(exchangeRetryDelay):
-		}
-	}
+		var err error
+		cred, err = client.Exchange(ctx, source, cloud.WorkloadExchangeRequest{
+			TenantDomain: tenantDomain,
+			ToolName:     toolName,
+			ToolVersion:  version.Version,
+		})
+		return err
+	})
 	if refused(err) {
 		return cloud.WorkloadCredential{}, fmt.Errorf("%w: %w", ErrExchangeRefused, err)
 	}
@@ -164,13 +138,50 @@ func (e *CredentialWriteError) Unwrap() []error {
 	return []error{ErrCredentialFileWrite, e.Err}
 }
 
-// RevokeWorkloadCredential revokes cred at once.
+// RevokeWorkloadCredential revokes cred at once. A credential that stays
+// valid can serve a job for hours, so a temporary failure gets a retry.
+// SafeDep Cloud accepts a second revoke of a credential, and it answers
+// Internal when a revoke failed and can succeed on a retry.
 func RevokeWorkloadCredential(ctx context.Context, cred cloud.WorkloadCredential) error {
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-	return withExchangeClient(func(client *cloud.WorkloadExchangeClient) error {
+	return callWithRetry(ctx, "revoke of the workload credential", []codes.Code{codes.Unavailable, codes.Internal}, func(ctx context.Context, client *cloud.WorkloadExchangeClient) error {
 		return client.Revoke(ctx, cred)
 	})
+}
+
+// callWithRetry runs call within callTimeout, on a new connection for each
+// attempt. It tries again on an error with one of retryCodes, and when an
+// attempt reaches its own deadline while ctx still has time.
+func callWithRetry(ctx context.Context, name string, retryCodes []codes.Code, call func(context.Context, *cloud.WorkloadExchangeClient) error) error {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+
+	for attempt := 1; ; attempt++ {
+		var attemptTimedOut bool
+		err := withExchangeClient(func(client *cloud.WorkloadExchangeClient) error {
+			// Each attempt gets its part of the timeout. An attempt that
+			// reaches its own deadline is tried again, so a hung first
+			// attempt does not use the time of the retry.
+			attemptCtx, cancelAttempt := context.WithTimeout(ctx, callTimeout/callAttempts)
+			defer cancelAttempt()
+			err := call(attemptCtx, client)
+			// The server gets the attempt deadline too and can answer
+			// DeadlineExceeded a moment before attemptCtx expires here.
+			attemptTimedOut = ctx.Err() == nil &&
+				(status.Code(err) == codes.DeadlineExceeded || errors.Is(attemptCtx.Err(), context.DeadlineExceeded))
+			return err
+		})
+		retry := err != nil && (slices.Contains(retryCodes, status.Code(err)) || attemptTimedOut)
+		if attempt == callAttempts || !retry {
+			return err
+		}
+		log.Warnf("SafeDep Cloud did not answer the %s, pmg tries again: %v", name, err)
+		select {
+		case <-ctx.Done():
+			// The last attempt's error keeps its gRPC status. ctx.Err() has none.
+			return err
+		case <-time.After(retryDelay):
+		}
+	}
 }
 
 // refused reports whether SafeDep Cloud answered the exchange with a denial.
