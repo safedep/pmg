@@ -490,14 +490,28 @@ jobs:
           fail-on-cache-miss: true
       - name: The cache restored the test data
         run: grep -qx "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" storage-data/run.txt
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pmg-e2e-storage-${{ github.run_attempt }}
           path: storage-data
           retention-days: 1
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      # The artifact service can answer "Artifact not found" for an artifact
+      # that the upload finalized a moment before. The job then tries once
+      # more after a short wait, so the step fails only on a real denial.
+      - id: download
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: pmg-e2e-storage-${{ github.run_attempt }}
+          artifact-ids: ${{ steps.upload.outputs.artifact-id }}
+          path: downloaded
+      - name: Wait before the second download
+        if: steps.download.outcome == 'failure'
+        run: sleep 15
+      - if: steps.download.outcome == 'failure'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ steps.upload.outputs.artifact-id }}
           path: downloaded
       - name: The artifact holds the test data
         run: grep -qx "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" downloaded/run.txt
