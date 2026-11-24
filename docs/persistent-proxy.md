@@ -899,6 +899,76 @@ RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem,mode=0444 \
     NODE_EXTRA_CA_CERTS=/run/pmg-ca.pem npm ci
 ```
 
+#### Trust in the containers of a runner image
+
+A runner image that starts dockerd in the runner container, and runs
+`pmg-entrypoint.sh`, can give the CA to every container of that dockerd.
+Set `PMG_CONTAINER_TRUST=1` on the runner container. The variable is off by
+default. To turn it off, remove the variable and start the Pod again.
+
+With the variable on, `pmg-entrypoint.sh` does three things:
+
+- It starts PMG with `--enforce-namespaces redirect`.
+- It copies the PMG CA certificate and `PMG_CA_BUNDLE` to `/etc/pmg-runc`.
+- It links `/usr/local/sbin/runc` to `pmg-runc`, a wrapper for `runc`.
+
+dockerd and its BuildKit start every container with the first `runc` on
+`PATH`. `/usr/local/sbin` must come before the directory of the real `runc`.
+The wrapper then changes `docker run`, `docker create`, `docker exec`, and
+the `RUN` steps of `docker build`, with the default builder and with a
+`docker-container` builder:
+
+- It mounts these files read-only in `/dev/pmg-ca`, on the `/dev` tmpfs. A
+  build does not keep them in the image.
+  - `ca.pem`: the PMG CA certificate. It never mounts the key.
+  - `ca-bundle.pem`: the CA bundle of the image and the PMG CA. An image with
+    no bundle gets `PMG_CA_BUNDLE`.
+  - `vars/<NAME>.pem`: a copy of the CA file that the image names in a CA
+    variable, with the PMG CA added.
+- It sets `NODE_EXTRA_CA_CERTS=/dev/pmg-ca/ca.pem`, `UV_NATIVE_TLS=1`, and
+  `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and `PIP_CERT` to
+  `/dev/pmg-ca/ca-bundle.pem`. A variable that the container sets keeps its
+  value.
+- A CA variable that the image sets to its own file names that file's copy
+  in `vars/`. The variables are `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+  `PIP_CERT`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO` and
+  `CARGO_HTTP_CAINFO`.
+- In a BuildKit container, it mounts itself on
+  `/usr/local/bin/buildkit-runc`, so the build steps get the same changes.
+
+The wrapper does not change the system bundle of the image, so
+`update-ca-certificates` runs. The wrapper copies the CA files of the image
+when it creates the container. The variables name that copy. A CA that
+`update-ca-certificates` adds in a running container is not in the copy. A
+CA file from a volume is not in the copy either.
+
+When the wrapper cannot make a change, it starts the container with no
+change. An install in that container then fails on the certificate. It does
+not install without a check. The wrapper writes to `/var/log/pmg-runc.log`
+in the runner container.
+
+dockerd must run in the runner container. When `DOCKER_HOST` is set, as in
+a dind sidecar of an ARC scale set, `pmg-entrypoint.sh` stops with an
+error. The redirect would cover the containers of the sidecar, but the
+wrapper would not.
+
+Some cases get no PMG check, or fail on the certificate:
+
+- A `--network host` container is not on a bridge, and it is not in the
+  cgroup of PMG. PMG does not check it.
+- A container with `-v /dev:/dev` gets no CA, because its `/dev` is not a
+  tmpfs. A container of a dockerd that runs in a container also gets no
+  CA. An install in these containers fails on the certificate.
+- Java, wget with GnuTLS, and Bun 1.2 do not read these variables.
+  They fail on the certificate of a registry host.
+- A tool that reads these variables does not trust a CA that the container
+  adds after it starts, or a CA file from a volume. A connection to a host
+  with that CA fails on the certificate.
+
+With the redirect on, PMG adds `169.254.200.1` to `lo`. A runner process
+that connects to a proxy on `172.17.0.1` then has this source address, not
+the Pod IP. Allow `169.254.200.1` in the access list of that proxy.
+
 ### Test it before you deploy
 
 Run these on a Linux machine with Docker. If a daemon runs, stop it first.

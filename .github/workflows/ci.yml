@@ -46,7 +46,7 @@ jobs:
           unset SAFEDEP_API_KEY SAFEDEP_TENANT_ID PMG_CLOUD_ENABLED PMG_CLOUD_AUTO_SYNC_ENABLED PMG_CLOUD_ENDPOINT_ID
           go mod tidy
           go build
-          go test -coverprofile=coverage.txt -v ./...
+          go test -coverprofile=coverage.txt -v ./... ./scripts/...
 
       - name: Upload Coverage
         if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push'
