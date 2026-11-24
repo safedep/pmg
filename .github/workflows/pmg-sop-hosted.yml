@@ -1,0 +1,105 @@
+# Throwaway: runs the ARC validation runbook cases on a GitHub-hosted runner.
+# Squid stands in for the customer's local forward proxy, and a second Squid,
+# which PMG exempts, stands in for the parent pool that carries GitHub.
+name: pmg-sop-hosted
+on:
+  push:
+    branches: [claude/ebpf-proxy-enforcement-grrwvp]
+    paths:
+      - .github/pmg-sop/**
+      - .github/workflows/pmg-sop-hosted.yml
+permissions:
+  contents: read
+jobs:
+  sop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PKG: safedep-test-pkg
+      GITDEP: github:safedep/pmg#${{ github.sha }}
+      TARBALL: https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz
+      CASE: ${{ github.workspace }}/.github/pmg-sop/case.sh
+      RESULTS: ${{ runner.temp }}/results.txt
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Squid, and a copy of its binary for the parent pool
+        run: |
+          sudo apt-get update -q >/dev/null && sudo apt-get install -y -q squid >/dev/null
+          sudo systemctl stop squid && sudo systemctl disable squid >/dev/null 2>&1 || true
+          sudo cp /usr/sbin/squid /usr/local/sbin/squid-parent
+      - name: PMG with kernel enforcement, containers left alone as at the customer
+        uses: safedep/pmg@8d0304d2897abbfa428a9e83ff191990d55d1d20 # v2
+        with:
+          enforce: "true"
+          enforce-namespaces: ignore
+          enforce-exempt-executables: /usr/local/sbin/squid-parent
+          auto-stop: "false"
+      - name: Start Squid and the parent pool, and point jobs at Squid
+        run: |
+          sudo cp .github/pmg-sop/squid.conf /etc/squid/runner.conf
+          sudo cp .github/pmg-sop/parent.conf /etc/squid/parent.conf
+          sudo /usr/local/sbin/squid-parent -f /etc/squid/parent.conf
+          sudo squid -f /etc/squid/runner.conf
+          sleep 3
+          echo "HTTPS_PROXY=http://172.17.0.1:3128" >> "$GITHUB_ENV"
+          echo "https_proxy=http://172.17.0.1:3128" >> "$GITHUB_ENV"
+          echo "NO_PROXY=localhost,127.0.0.1" >> "$GITHUB_ENV"
+      - name: T0 what the job sees
+        run: |
+          pmg version || "$PMG_BIN" version
+          sudo "$PMG_BIN" proxy status --state "$PMG_PROXY_STATE"
+          env | grep -iE '^(https?_proxy|no_proxy|node_extra_ca_certs|node_use_system_ca)=' || true
+          npm config ls -l | grep -Ei '^(registry|proxy|https-proxy|noproxy|strict-ssl) ' || true
+          for p in $(pgrep -f 'squid'); do echo "$p $(tr '\0' ' ' < /proc/$p/cmdline | cut -c1-60) $(grep ^0:: /proc/$p/cgroup)"; done
+          echo "registry through Squid:"; curl -sv -x "$HTTPS_PROXY" https://registry.npmjs.org/ -o /dev/null 2>&1 | grep -i 'issuer:'
+          echo "github through Squid and the parent:"; curl -sv -x "$HTTPS_PROXY" https://github.com/ -o /dev/null 2>&1 | grep -i 'issuer:'
+          sudo cp /etc/ssl/certs/ca-certificates.crt "$GITHUB_WORKSPACE/pmg-bundle.pem"; sudo chmod 644 "$GITHUB_WORKSPACE/pmg-bundle.pem"
+      - name: T1a npm in a job step, through Squid
+        run: cd "$(mktemp -d)" && "$CASE" T1a npm install "$PKG" --no-audit --no-fund --cache "$PWD/.c"
+      - name: T1b npm in a job step, direct
+        run: cd "$(mktemp -d)" && "$CASE" T1b env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy npm install "$PKG" --no-audit --no-fund --cache "$PWD/.c"
+      - name: T1c tarball through Squid
+        run: |
+          "$CASE" T1c curl -s -o /dev/null -w '%{http_code}' -x "$HTTPS_PROXY" "$TARBALL"
+      - name: T2a docker run, through Squid, trusts the PMG CA
+        run: |
+          "$CASE" T2a docker run --rm -e HTTPS_PROXY="$HTTPS_PROXY" -e https_proxy="$HTTPS_PROXY" -v "$GITHUB_WORKSPACE/pmg-bundle.pem:/pmg-bundle.pem:ro" -e NODE_EXTRA_CA_CERTS=/pmg-bundle.pem node:22-slim sh -c "cd /tmp && npm install $PKG --no-audit --no-fund"
+      - name: T2b docker run, no proxy
+        run: |
+          "$CASE" T2b docker run --rm node:22-slim sh -c "cd /tmp && npm install $PKG --no-audit --no-fund"
+      - name: T3a docker build, as used today
+        run: |
+          d=$(mktemp -d); printf 'FROM node:22-slim\nRUN cd /tmp && npm install %s --no-audit --no-fund\n' "$PKG" > "$d/Dockerfile"
+          "$CASE" T3a docker build --no-cache --progress=plain "$d"
+      - name: T3b docker build, through Squid, with the PMG CA
+        run: |
+          d=$(mktemp -d); cp "$GITHUB_WORKSPACE/pmg-bundle.pem" "$d/pmg-bundle.pem"
+          printf 'FROM node:22-slim\nCOPY pmg-bundle.pem /pmg-bundle.pem\nENV NODE_EXTRA_CA_CERTS=/pmg-bundle.pem\nRUN cd /tmp && npm install %s --no-audit --no-fund\n' "$PKG" > "$d/Dockerfile"
+          "$CASE" T3b docker build --no-cache --progress=plain --build-arg HTTPS_PROXY="$HTTPS_PROXY" --build-arg https_proxy="$HTTPS_PROXY" "$d"
+      - name: T4a git dependency, through Squid and the parent
+        run: cd "$(mktemp -d)" && "$CASE" T4a npm install "$GITDEP" --no-audit --no-fund --cache "$PWD/.c" --loglevel http
+      - name: T6a container action
+        continue-on-error: true
+        uses: docker://node:22-slim
+        with:
+          entrypoint: sh
+          args: -c "env | grep -iE '^(https?_proxy|node_extra_ca_certs)=' || echo 'T6a no proxy or CA variables'; cd /tmp && npm install safedep-test-pkg --no-audit --no-fund"
+      - name: T6b container action, with the PMG CA
+        continue-on-error: true
+        uses: docker://node:22-slim
+        env:
+          NODE_EXTRA_CA_CERTS: /github/workspace/pmg-bundle.pem
+        with:
+          entrypoint: sh
+          args: -c "env | grep -iE '^(https?_proxy|node_extra_ca_certs)=' || echo 'T6b no proxy variables'; cd /tmp && npm install safedep-test-pkg --no-audit --no-fund"
+      - name: Results, Squid logs and PMG events
+        if: always()
+        run: |
+          echo "== verdicts"; cat "$RESULTS" || true
+          echo "== squid"; sudo cat /var/log/squid/access.log || true
+          echo "== parent"; sudo cat /var/log/squid/parent-access.log || true
+          echo "== pmg events"; sudo sh -c 'cat /root/.config/safedep/pmg/logs/*-pmg.log' | grep -oE '"event_type":"[^"]*"' | sort | uniq -c || true
+          { echo '```'; cat "$RESULTS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
+          sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" || true
