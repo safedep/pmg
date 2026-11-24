@@ -100,7 +100,7 @@ function exchange(bin) {
     // pmg prints the message of SafeDep Cloud and not the gRPC code, so one
     // hint covers every kind of refusal. The summary shows the message only
     // in a code block, so it cannot add markdown to the summary.
-    const hint = 'Fix the cause that SafeDep Cloud names, or set the api-key input. If you meant to use an API key, check that the secret is set and passed to this workflow.';
+    const hint = 'Fix the cause that SafeDep Cloud presented, or set the api-key input. If you meant to use an API key, check that the secret is set and passed to this workflow.';
     lib.appendFile('GITHUB_STEP_SUMMARY', `## PMG\n\nPMG cannot get a SafeDep Cloud credential for \`${tenant}\`, because SafeDep Cloud refused the workload identity exchange. ${hint}\n\n\`\`\`text\n${lib.lastLines(res.stderr || '', 3)}\n\`\`\`\n`);
     throw new Error(`PMG cannot get a SafeDep Cloud credential for ${tenant}. ${refusal.message.replace(/\.?$/, '.')} ${hint}`);
   }

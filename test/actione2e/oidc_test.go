@@ -354,7 +354,7 @@ func TestOIDCRefusedExchangeFails(t *testing.T) {
 
 	out, code := j.run("main.js")
 	assert.Equal(t, 1, code)
-	hint := "Fix the cause that SafeDep Cloud names, or set the api-key input. If you meant to use an API key, check that the secret is set and passed to this workflow."
+	hint := "Fix the cause that SafeDep Cloud presented, or set the api-key input. If you meant to use an API key, check that the secret is set and passed to this workflow."
 	assert.Contains(t, out, "::error::PMG cannot get a SafeDep Cloud credential for acme.safedep.io. SafeDep Cloud refused the workload identity exchange (the tenant is over its cap). "+hint)
 	body, block, ok := strings.Cut(j.read("GITHUB_STEP_SUMMARY"), "```text\n")
 	require.True(t, ok, "the summary has a code block")
