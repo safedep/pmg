@@ -129,20 +129,43 @@ func TestCallsEndAtTheTimeout(t *testing.T) {
 	})
 }
 
-// A first attempt that reaches its own deadline leaves half of callTimeout,
-// so pmg tries again in that time.
-func TestExchangeRetriesAfterAHungAttempt(t *testing.T) {
+// A first attempt that runs out of its part of callTimeout leaves the other
+// part, so pmg tries again in that time. The server gets the attempt
+// deadline too, and can answer DeadlineExceeded before the deadline of the
+// client passes.
+func TestExchangeRetriesAfterAnAttemptTimesOut(t *testing.T) {
 	savedTimeout, savedDelay := callTimeout, exchangeRetryDelay
 	callTimeout, exchangeRetryDelay = 2*time.Second, 10*time.Millisecond
 	t.Cleanup(func() { callTimeout, exchangeRetryDelay = savedTimeout, savedDelay })
 
-	stub := &cloudauthtest.Exchange{HangFirst: 1}
-	startStubExchange(t, stub)
+	tests := []struct {
+		name      string
+		stub      *cloudauthtest.Exchange
+		exchanges int
+	}{
+		{
+			name:      "the first attempt hangs",
+			stub:      &cloudauthtest.Exchange{HangFirst: 1},
+			exchanges: 1,
+		},
+		{
+			name: "the server answers DeadlineExceeded",
+			stub: &cloudauthtest.Exchange{FirstErrs: []error{
+				status.Error(codes.DeadlineExceeded, "context deadline exceeded"),
+			}},
+			exchanges: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			startStubExchange(t, tt.stub)
 
-	cred, err := ExchangeWorkloadIdentity(context.Background(), testTenant)
-	require.NoError(t, err)
-	assert.Equal(t, cloudauthtest.CredentialID, cred.CredentialID)
-	assert.Len(t, stub.Exchanges(), 1)
+			cred, err := ExchangeWorkloadIdentity(context.Background(), testTenant)
+			require.NoError(t, err)
+			assert.Equal(t, cloudauthtest.CredentialID, cred.CredentialID)
+			assert.Len(t, tt.stub.Exchanges(), tt.exchanges)
+		})
+	}
 }
 
 func TestResolveCredentialsFromCredentialFile(t *testing.T) {

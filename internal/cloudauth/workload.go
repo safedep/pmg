@@ -95,7 +95,10 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 				ToolName:     toolName,
 				ToolVersion:  version.Version,
 			})
-			attemptTimedOut = errors.Is(attemptCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+			// The server gets the attempt deadline too and can answer
+			// DeadlineExceeded a moment before attemptCtx expires here.
+			attemptTimedOut = ctx.Err() == nil &&
+				(status.Code(err) == codes.DeadlineExceeded || errors.Is(attemptCtx.Err(), context.DeadlineExceeded))
 			return err
 		})
 		// The exchange gets a new ID token for each attempt, because the
