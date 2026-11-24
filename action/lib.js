@@ -238,7 +238,7 @@ const stripColors = (text) => text.replace(/\x1b\[[0-9;]*m/g, '');
 function errorLines(text) {
   return stripColors(text)
     .split('\n')
-    .map((line) => /^\s*([A-Z][A-Za-z]+)\s{2,}(\S.*)$/.exec(line))
+    .map((line) => /^\s*([A-Z][A-Za-z]+)\s{2,}(\S.*)$/s.exec(line))
     .filter(Boolean)
     .map((match) => ({ code: match[1], message: match[2].trim() }));
 }

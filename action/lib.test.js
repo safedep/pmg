@@ -109,6 +109,9 @@ test('errorLines reads the code and the message of each pmg error line', () => {
   assert.deepStrictEqual(lib.errorCodes(stderr), ['EnforceRequirements']);
   assert.deepStrictEqual(lib.errorCodes(' InvalidArgument   the enforce policy is not valid\n'), ['InvalidArgument']);
   assert.deepStrictEqual(lib.errorCodes('Network: 2 destination(s) observed\n'), []);
+  assert.deepStrictEqual(lib.errorLines(' WorkloadExchangeRefused   refused (no rule\r::add-mask::acme)\n'), [
+    { code: 'WorkloadExchangeRefused', message: 'refused (no rule\r::add-mask::acme)' },
+  ]);
 });
 
 test('runPMG runs a helper call with SafeDep Cloud off', (t) => {
