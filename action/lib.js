@@ -121,6 +121,15 @@ function childEnv(env = {}) {
   return out;
 }
 
+// helperEnv is the environment of a pmg call that the action makes outside
+// the proxy start and the cloud policy fetch. None of these calls needs
+// SafeDep Cloud. With cloud on, pmg can start a detached sync on exit, and
+// that sync can use a keychain credential of another tenant on a
+// self-hosted runner, against the policy cache and the events of the proxy.
+function helperEnv() {
+  return childEnv({ PMG_CLOUD_ENABLED: 'false' });
+}
+
 // run starts one setup script. The runner applies GITHUB_ENV and
 // GITHUB_PATH only after the step ends, so run applies what the script
 // appended to this process, and the next script sees it. It returns the
@@ -166,17 +175,31 @@ function run(shell, script, env, { captureStderr = false } = {}) {
 // daemon and its event log belong to root. Only root gets the root
 // daemon's config directory. The runner user cannot write it, and every pmg
 // command opens the event log there. capture pipes stdout, and 'all'
-// pipes stderr too.
-function runPMG(bin, args, { sudo = false, configDir = '', capture = false } = {}) {
+// pipes stderr too. idToken keeps the ID token request token, for the
+// exchange of the workload identity only. No other pmg process gets it.
+// proxyEnv, when set, replaces the proxy variables in every letter case,
+// for a call after the proxy stopped. Every call runs with helperEnv.
+function runPMG(bin, args, { sudo = false, configDir = '', capture = false, idToken = false, proxyEnv = null } = {}) {
   let file = bin;
   let argv = args;
-  const env = childEnv();
+  const env = helperEnv();
+  if (idToken && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+    env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  }
+  if (proxyEnv) {
+    for (const name of Object.keys(env)) {
+      if (isProxyVar(name)) {
+        delete env[name];
+      }
+    }
+    Object.assign(env, proxyEnv);
+  }
   if (sudo) {
     if (configDir !== '') {
       env.PMG_CONFIG_DIR = configDir;
     }
     file = 'sudo';
-    argv = ['-n', '--preserve-env=PMG_CONFIG_DIR,GITHUB_ACTIONS', bin, ...args];
+    argv = ['-n', '--preserve-env=PMG_CONFIG_DIR,PMG_CLOUD_ENABLED,GITHUB_ACTIONS', bin, ...args];
   }
   const res = spawnSync(file, argv, {
     env,
@@ -187,6 +210,13 @@ function runPMG(bin, args, { sudo = false, configDir = '', capture = false } = {
     throw res.error;
   }
   return res;
+}
+
+// isProxyVar matches the proxy variables that `pmg proxy env` exports, such
+// as HTTPS_PROXY and https_proxy, and not the PMG_PROXY_* variables of the
+// action.
+function isProxyVar(name) {
+  return /proxy/i.test(name) && !name.startsWith('PMG_PROXY_');
 }
 
 // A ScriptError holds the error codes that pmg printed, so a caller can tell
@@ -245,9 +275,11 @@ module.exports = {
   error,
   errorCodes,
   group,
+  helperEnv,
   inJobContainer,
   input,
   isProfilePath,
+  isProxyVar,
   lastLines,
   notice,
   parseKeyValues,

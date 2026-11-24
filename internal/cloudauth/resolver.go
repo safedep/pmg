@@ -6,6 +6,7 @@ package cloudauth
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
@@ -18,7 +19,20 @@ import (
 //
 // An error is returned when no credentials are available, which callers can
 // use to decide whether authenticated cloud features should be enabled.
+//
+// A credential file in CredentialFileEnv takes precedence over both. A file
+// that pmg cannot use is an error, so pmg does not fall back to the
+// credentials of another tenant.
 func ResolveCredentials() (*cloud.Credentials, func() error, error) {
+	noop := func() error { return nil }
+	if path := os.Getenv(CredentialFileEnv); path != "" {
+		creds, err := credentialFileResolver{path: path}.Resolve()
+		if err != nil {
+			return nil, noop, fmt.Errorf("failed to resolve cloud credentials from %s: %w", CredentialFileEnv, err)
+		}
+		return creds, noop, nil
+	}
+
 	var resolvers []cloud.CredentialResolver
 	var keychainResolver cloud.CloseableCredentialResolver
 

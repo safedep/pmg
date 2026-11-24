@@ -37,6 +37,13 @@ export_var() {
   fi
 }
 
+# set_var writes the value also when it is empty. A value that an earlier
+# step of the job exported then does not stay.
+set_var() {
+  no_line_break "$1" "$2"
+  printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"
+}
+
 # Guard mode is removed: fail loudly when a workflow still opts out of
 # proxy interception instead of silently switching it to proxy mode.
 case "$(printf '%s' "$IN_PROXY_MODE" | tr '[:upper:]' '[:lower:]')" in
@@ -51,29 +58,40 @@ case "$(printf '%s' "$IN_PROXY_MODE" | tr '[:upper:]' '[:lower:]')" in
 esac
 
 # Cloud credentials. PMG sync reads these directly when no keychain
-# credential is found, so we skip "pmg cloud login" entirely.
+# credential is found, so we skip "pmg cloud login" entirely. In OIDC mode
+# IN_API_KEY is the access token of the workload credential. In OIDC server
+# mode IN_EXPORT_CREDENTIAL is false, and only the proxy gets the credential.
 if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
   if [ -z "$IN_API_KEY" ] || [ -z "$IN_TENANT_ID" ]; then
-    printf '%s\n' "::error::api-key and tenant-id must be set together." >&2
+    printf '%s\n' "::error::api-key needs tenant-id." >&2
     exit 1
   fi
   no_line_break api-key "$IN_API_KEY"
   printf '%s\n' "::add-mask::$IN_API_KEY"
-  export_var SAFEDEP_API_KEY "$IN_API_KEY"
-  export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
-  export_var PMG_CLOUD_ENABLED "true"
-
-  if [ "$IN_SERVER_MODE" = "true" ]; then
-    # In server mode the proxy daemon owns delivery and uses auto_sync
-    # to gate both periodic sync and the shutdown flush.
-    export_var PMG_CLOUD_AUTO_SYNC_ENABLED "true"
+  if [ "${IN_EXPORT_CREDENTIAL:-true}" = "true" ]; then
+    export_var SAFEDEP_API_KEY "$IN_API_KEY"
+    export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
+    export_var PMG_CLOUD_ENABLED "true"
+    if [ "$IN_SERVER_MODE" = "true" ]; then
+      # In server mode the proxy daemon owns delivery and uses auto_sync
+      # to gate both periodic sync and the shutdown flush.
+      export_var PMG_CLOUD_AUTO_SYNC_ENABLED "true"
+    else
+      # PMG's opportunistic background auto-sync is designed for
+      # long-lived workstations. On an ephemeral runner the detached child
+      # can be torn down before it drains the WAL, and the WAL goes with
+      # it. Turn it off and rely on an explicit `pmg cloud sync` at
+      # job-end if the user wants events delivered.
+      export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
+    fi
   else
-    # PMG's opportunistic background auto-sync is designed for
-    # long-lived workstations. On an ephemeral runner the detached child
-    # can be torn down before it drains the WAL, and the WAL goes with
-    # it. Turn it off and rely on an explicit `pmg cloud sync` at
-    # job-end if the user wants events delivered.
-    export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
+    # The later steps of an OIDC server mode job have no credential. With
+    # cloud on, the exit of a pmg command in such a step can start a
+    # background sync with a saved login of a self-hosted runner. That sync
+    # would send the events of this job to the tenant of the saved login.
+    # main.js turns cloud on only for the proxy start.
+    set_var PMG_CLOUD_ENABLED false
+    set_var PMG_CLOUD_AUTO_SYNC_ENABLED false
   fi
 
   if [ -n "$IN_ENDPOINT_ID" ]; then
@@ -84,6 +102,20 @@ if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
     # same id on a GitHub-hosted runner.
     export_var PMG_CLOUD_ENDPOINT_ID "gh:${GH_REPOSITORY}"
   fi
+fi
+
+# pmg reads the workload credential from this file before every other
+# credential, also before a keychain credential that a self-hosted runner
+# keeps. Only an OIDC step in shim mode sets it. Every other step clears it,
+# so a later action step of the job never uses the credential of an earlier
+# one. The action owns this variable, and pmg treats an empty value as unset.
+set_var PMG_CLOUD_CREDENTIAL_FILE "${IN_CREDENTIAL_FILE:-}"
+
+# An OIDC step that got no credential runs without SafeDep Cloud, also when
+# the runner config or an earlier step turned cloud on.
+if [ "${IN_CLOUD_OFF:-false}" = "true" ]; then
+  set_var PMG_CLOUD_ENABLED false
+  set_var PMG_CLOUD_AUTO_SYNC_ENABLED false
 fi
 
 # Only emit PMG_* vars when the user explicitly set the input. This

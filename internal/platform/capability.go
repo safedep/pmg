@@ -19,6 +19,9 @@ const (
 	// (`pmg proxy start --enforce`). It is the only reader of the system CA
 	// keypair.
 	EnforcingProxy
+	// OwnerOnlyFiles means a file has an owner uid and Unix mode bits, so pmg
+	// can check that only its owner can read it, as for a credential file.
+	OwnerOnlyFiles
 )
 
 // Supports reports whether the current platform has the capability.

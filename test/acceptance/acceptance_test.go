@@ -116,12 +116,15 @@ func TestAcceptance(t *testing.T) {
 					return nil
 				},
 				Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
-					"policy-cache": cmdPolicyCache,
+					"policy-cache":      cmdPolicyCache,
+					"workload-exchange": cmdWorkloadExchange(pmgBin),
 				},
 				Condition: func(cond string) (bool, error) {
 					switch cond {
 					case "cloud":
 						return hasCloudCredentials(), nil
+					case "workload-identity":
+						return hasWorkloadIdentity(), nil
 					case "apparmor-userns":
 						return appArmorRestrictsUserns(), nil
 					case "userns":
@@ -158,6 +161,20 @@ const (
 
 	trustStoreCleanupTimeout = 2 * time.Minute
 )
+
+const (
+	githubIDTokenRequestURL   = "ACTIONS_ID_TOKEN_REQUEST_URL"
+	githubIDTokenRequestToken = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+)
+
+// hasWorkloadIdentity reports whether the run can exchange a GitHub Actions
+// ID token for the tenant. It is false on a developer machine, in a fork pull
+// request and in a job without "permissions: id-token: write".
+func hasWorkloadIdentity() bool {
+	return os.Getenv(githubIDTokenRequestURL) != "" &&
+		os.Getenv(githubIDTokenRequestToken) != "" &&
+		os.Getenv("SAFEDEP_TENANT_ID") != ""
+}
 
 // cloudPolicyDir holds the scripts of the cloud policy. They run with no
 // cloud fetch: policy-cache writes the policy cache that pmg applies.
@@ -563,4 +580,49 @@ func hasCloudCredentials() bool {
 		}
 	}
 	return creds != nil
+}
+
+// cmdWorkloadExchange runs "pmg cloud workload exchange" with the ID token
+// request variables of the job. The variables go only to that process, never
+// to the script environment, because testscript logs the script environment
+// when a script fails and the logs of a public repository are public. The
+// command also revokes the credential when the script ends, so a failed
+// assertion does not leave a valid credential behind.
+func cmdWorkloadExchange(pmgBin string) func(ts *testscript.TestScript, neg bool, args []string) {
+	return func(ts *testscript.TestScript, neg bool, args []string) {
+		if neg {
+			ts.Fatalf("unsupported: ! workload-exchange")
+		}
+		if len(args) != 2 {
+			ts.Fatalf("usage: workload-exchange <tenant> <credential file>")
+		}
+		credential := ts.MkAbs(args[1])
+
+		exchange := workloadCommand(ts, pmgBin, "exchange", "--tenant-id", args[0], "--output", credential)
+		exchange.Stdout = ts.Stdout()
+		exchange.Stderr = ts.Stderr()
+		exchange.Env = append(exchange.Env,
+			githubIDTokenRequestURL+"="+os.Getenv(githubIDTokenRequestURL),
+			githubIDTokenRequestToken+"="+os.Getenv(githubIDTokenRequestToken))
+		ts.Check(exchange.Run())
+
+		ts.Defer(func() {
+			// A script that revoked the credential itself makes this second
+			// revoke fail, which is expected.
+			out, err := workloadCommand(ts, pmgBin, "revoke", "--credential", credential).CombinedOutput()
+			if err != nil {
+				ts.Logf("workload-exchange: the revoke at the end of the script failed: %v: %s", err, out)
+			}
+		})
+	}
+}
+
+func workloadCommand(ts *testscript.TestScript, pmgBin string, args ...string) *exec.Cmd {
+	cmd := exec.Command(pmgBin, append([]string{"cloud", "workload"}, args...)...)
+	cmd.Env = []string{
+		"PATH=" + ts.Getenv("PATH"),
+		"HOME=" + ts.Getenv("HOME"),
+		"TMPDIR=" + ts.Getenv("TMPDIR"),
+	}
+	return cmd
 }

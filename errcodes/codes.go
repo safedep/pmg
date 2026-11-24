@@ -61,6 +61,13 @@ const (
 	// keychain or environment.
 	CloudCredentialsNotFound = "CloudCredentialsNotFound"
 
+	// Workload identity error codes. WorkloadIdentityNotFound is returned when
+	// the environment has no workload identity, such as a GitHub Actions job
+	// without "id-token: write". WorkloadExchangeRefused is returned when
+	// SafeDep Cloud refuses the exchange. The GitHub Action reads both codes.
+	WorkloadIdentityNotFound = "WorkloadIdentityNotFound"
+	WorkloadExchangeRefused  = "WorkloadExchangeRefused"
+
 	// UserDirUnresolved is returned when neither the environment nor the
 	// user database gives the home directory of the current user.
 	UserDirUnresolved = "UserDirUnresolved"
