@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	drygrpc "github.com/safedep/dry/adapters/grpc"
@@ -77,7 +78,7 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 	}
 
 	var cred cloud.WorkloadCredential
-	err = callWithRetry(ctx, "workload identity exchange", func(ctx context.Context, client *cloud.WorkloadExchangeClient) error {
+	err = callWithRetry(ctx, "workload identity exchange", []codes.Code{codes.Unavailable}, func(ctx context.Context, client *cloud.WorkloadExchangeClient) error {
 		// The exchange gets a new ID token for each attempt, because the
 		// server can spend a token before it fails.
 		var err error
@@ -138,18 +139,19 @@ func (e *CredentialWriteError) Unwrap() []error {
 }
 
 // RevokeWorkloadCredential revokes cred at once. A credential that stays
-// valid can serve a job for hours, so a temporary failure gets the retry of
-// the exchange. SafeDep Cloud accepts a second revoke of a credential.
+// valid can serve a job for hours, so a temporary failure gets a retry.
+// SafeDep Cloud accepts a second revoke of a credential, and it answers
+// Internal when a revoke failed and can succeed on a retry.
 func RevokeWorkloadCredential(ctx context.Context, cred cloud.WorkloadCredential) error {
-	return callWithRetry(ctx, "revoke of the workload credential", func(ctx context.Context, client *cloud.WorkloadExchangeClient) error {
+	return callWithRetry(ctx, "revoke of the workload credential", []codes.Code{codes.Unavailable, codes.Internal}, func(ctx context.Context, client *cloud.WorkloadExchangeClient) error {
 		return client.Revoke(ctx, cred)
 	})
 }
 
 // callWithRetry runs call within callTimeout, on a new connection for each
-// attempt. It tries again when SafeDep Cloud is unavailable, and when an
+// attempt. It tries again on an error with one of retryCodes, and when an
 // attempt reaches its own deadline while ctx still has time.
-func callWithRetry(ctx context.Context, name string, call func(context.Context, *cloud.WorkloadExchangeClient) error) error {
+func callWithRetry(ctx context.Context, name string, retryCodes []codes.Code, call func(context.Context, *cloud.WorkloadExchangeClient) error) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 
@@ -168,7 +170,7 @@ func callWithRetry(ctx context.Context, name string, call func(context.Context, 
 				(status.Code(err) == codes.DeadlineExceeded || errors.Is(attemptCtx.Err(), context.DeadlineExceeded))
 			return err
 		})
-		retry := err != nil && (status.Code(err) == codes.Unavailable || attemptTimedOut)
+		retry := err != nil && (slices.Contains(retryCodes, status.Code(err)) || attemptTimedOut)
 		if attempt == callAttempts || !retry {
 			return err
 		}

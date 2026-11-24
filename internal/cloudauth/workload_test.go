@@ -40,6 +40,7 @@ func TestExchangeWorkloadIdentity(t *testing.T) {
 		{name: "no usable provider", err: status.Error(codes.FailedPrecondition, "no provider"), wantExchanges: 1, wantRefused: true, wantErr: true},
 		{name: "unavailable once, then issued", firstErrs: []error{unavailable}, wantExchanges: 2},
 		{name: "unavailable twice", err: unavailable, wantExchanges: 2, wantErr: true},
+		{name: "internal is not tried again", err: status.Error(codes.Internal, "boom"), wantExchanges: 1, wantErr: true},
 	}
 
 	for _, tc := range cases {
@@ -84,7 +85,7 @@ func TestExchangeWorkloadIdentityWithoutIDToken(t *testing.T) {
 }
 
 // A credential that pmg fails to revoke stays valid for hours, so the
-// revoke tries again on the same errors as the exchange.
+// revoke tries again on a temporary error.
 func TestRevokeWorkloadCredential(t *testing.T) {
 	savedTimeout, savedDelay := callTimeout, retryDelay
 	callTimeout, retryDelay = 2*time.Second, 10*time.Millisecond
@@ -99,6 +100,7 @@ func TestRevokeWorkloadCredential(t *testing.T) {
 	}{
 		{name: "revoked", stub: &cloudauthtest.Exchange{}, wantRevokes: 1},
 		{name: "unavailable once, then revoked", stub: &cloudauthtest.Exchange{RevokeFirstErrs: []error{unavailable}}, wantRevokes: 2},
+		{name: "internal once, then revoked", stub: &cloudauthtest.Exchange{RevokeFirstErrs: []error{status.Error(codes.Internal, "the revocation failed, retry")}}, wantRevokes: 2},
 		{name: "the first attempt hangs", stub: &cloudauthtest.Exchange{HangFirstRevoke: 1}, wantRevokes: 2},
 		{name: "unavailable twice", stub: &cloudauthtest.Exchange{RevokeErr: unavailable}, wantRevokes: 2, wantCode: codes.Unavailable},
 		{name: "every attempt hangs", stub: &cloudauthtest.Exchange{Hang: true}, wantRevokes: 2, wantCode: codes.DeadlineExceeded},

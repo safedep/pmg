@@ -257,7 +257,7 @@ When the proxy still runs at the end of the job, the post step fails.
 On a persistent self-hosted runner, a proxy that stays alive would serve later jobs under the credential of this job.
 A cancel can stop the action step after the proxy starts and before the action saves the proxy state.
 The post step then cannot find that proxy, and the proxy keeps running, but the post step still revokes the credential.
-When SafeDep Cloud is unavailable or does not answer, pmg tries the revoke one more time.
+When SafeDep Cloud is unavailable, does not answer or reports an internal error, pmg tries the revoke one more time.
 When the revoke fails, the post step prints a warning, and the credential stays valid until it expires.
 
 These cases change the result of the action step:

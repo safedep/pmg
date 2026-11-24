@@ -246,11 +246,20 @@ function errorCodes(text) {
   return errorLines(text).map((line) => line.code);
 }
 
+// isCommand is true for a line that the runner reads as a workflow command.
+const isCommand = (line) => stripColors(line).trim().startsWith('::');
+
+// withoutCommands drops the workflow command lines from the output of pmg,
+// so that a message from a server cannot act as a command.
+function withoutCommands(text) {
+  return text.split('\n').filter((line) => !isCommand(line)).join('\n');
+}
+
 function lastLines(text, n) {
   return stripColors(text)
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line !== '' && !line.startsWith('::'))
+    .filter((line) => line !== '' && !isCommand(line))
     .slice(-n)
     .join(' ');
 }
@@ -294,6 +303,7 @@ module.exports = {
   saveState,
   ScriptError,
   state,
+  withoutCommands,
   warning,
   workspacePath,
 };

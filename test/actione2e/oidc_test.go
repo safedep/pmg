@@ -348,20 +348,37 @@ func TestOIDCWithoutIDTokenFails(t *testing.T) {
 // api-key secret is empty selects OIDC mode, and must not pass without the
 // cloud policy.
 func TestOIDCRefusedExchangeFails(t *testing.T) {
-	stub := &cloudauthtest.Exchange{Err: status.Error(codes.PermissionDenied, "no workload rule matches")}
+	stub := &cloudauthtest.Exchange{Err: status.Error(codes.ResourceExhausted, "the tenant is over its cap")}
 	j := newJob(t, startStub(t, stub), nil)
 
 	out, code := j.run("main.js")
 	assert.Equal(t, 1, code)
-	message := "PMG cannot get a SafeDep Cloud credential for acme.safedep.io. SafeDep Cloud refused the workload identity exchange (no workload rule matches). Add a workload identity rule that matches this job, or set the api-key input. If you meant to use an API key, check that the secret is set and passed to this workflow."
-	assert.Contains(t, out, "::error::"+message)
-	assert.Contains(t, j.read("GITHUB_STEP_SUMMARY"), message)
+	hint := "Fix the cause that SafeDep Cloud names, or set the api-key input. If you meant to use an API key, check that the secret is set and passed to this workflow."
+	assert.Contains(t, out, "::error::PMG cannot get a SafeDep Cloud credential for acme.safedep.io. SafeDep Cloud refused the workload identity exchange (the tenant is over its cap). "+hint)
+	body, block, ok := strings.Cut(j.read("GITHUB_STEP_SUMMARY"), "```text\n")
+	require.True(t, ok, "the summary has a code block")
+	assert.Equal(t, "## PMG\n\nPMG cannot get a SafeDep Cloud credential for `acme.safedep.io`, because SafeDep Cloud refused the workload identity exchange. "+hint+"\n\n", body,
+		"the message of the server is not markdown of the summary")
+	assert.Contains(t, block, "the tenant is over its cap")
 	assert.Empty(t, j.kv("GITHUB_STATE")["pid"], "no proxy starts")
 	assert.Empty(t, j.kv("GITHUB_ENV")["PMG_CLOUD_ENABLED"], "the action exports no PMG configuration")
 
 	_, code = j.run("post.js")
 	assert.Equal(t, 0, code)
 	assert.Empty(t, stub.Revokes())
+}
+
+// The action prints the output of the exchange. A message of the server
+// must not reach the runner as a workflow command.
+func TestOIDCExchangeOutputRunsNoCommand(t *testing.T) {
+	stub := &cloudauthtest.Exchange{Err: status.Error(codes.PermissionDenied, "no rule\n::warning::injected\n::add-mask::acme")}
+	j := newJob(t, startStub(t, stub), nil)
+
+	out, code := j.run("main.js")
+	assert.Equal(t, 1, code)
+	assert.NotContains(t, out, "::warning::injected")
+	assert.NotContains(t, out, "::add-mask::")
+	assert.NotContains(t, j.read("GITHUB_STEP_SUMMARY"), "::warning::")
 }
 
 // keepStubEnvThroughSudo makes sudo keep the variables that point pmg at the

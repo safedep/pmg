@@ -53,6 +53,11 @@ test('lastLines keeps the cause and drops colors and workflow commands', () => {
   assert.strictEqual(lib.lastLines(stderr, 2), 'InvalidArgument  bad prefix → fix the CIDR');
 });
 
+test('withoutCommands drops the lines that the runner reads as workflow commands', () => {
+  const out = ' WorkloadExchangeRefused   refused (no rule\n::warning::injected\n  \x1b[31m::add-mask::x\x1b[0m\n a::b)\n';
+  assert.strictEqual(lib.withoutCommands(out), ' WorkloadExchangeRefused   refused (no rule\n a::b)\n');
+});
+
 test('errorLines reads the code and the message of each pmg error line', () => {
   const stderr = '✓ CA already installed\n\x1b[41m EnforceRequirements \x1b[0m  this host cannot enforce\n → load the BTF\n';
   assert.deepStrictEqual(lib.errorLines(stderr), [{ code: 'EnforceRequirements', message: 'this host cannot enforce' }]);
