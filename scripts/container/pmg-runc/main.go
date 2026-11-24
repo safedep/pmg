@@ -88,10 +88,10 @@ func main() {
 	}
 	real, err := realRunc(os.Args[0])
 	if err != nil {
-		exitf("pmg-runc: %v", err)
+		exitf("%v", err)
 	}
 	if err := syscall.Exec(real, append([]string{real}, args...), os.Environ()); err != nil {
-		exitf("pmg-runc: exec %s: %v", real, err)
+		exitf("exec %s: %v", real, err)
 	}
 }
 
@@ -589,7 +589,8 @@ func logf(format string, a ...any) {
 }
 
 func exitf(format string, a ...any) {
+	logf(format, a...)
 	// The process exits next, so a failed write changes nothing.
-	_, _ = fmt.Fprintf(os.Stderr, format+"\n", a...)
+	_, _ = fmt.Fprintf(os.Stderr, "pmg-runc: "+format+"\n", a...)
 	os.Exit(1)
 }

@@ -191,6 +191,10 @@ check_container_trust() {
     log "PMG_CONTAINER_TRUST=1 needs dockerd in this container. DOCKER_HOST is set, so dockerd runs in another container. Remove PMG_CONTAINER_TRUST."
     exit 1
   fi
+  if { [ -e /usr/local/sbin/runc ] || [ -L /usr/local/sbin/runc ]; } && [ "$(readlink /usr/local/sbin/runc)" != "$here/pmg-runc" ]; then
+    log "PMG_CONTAINER_TRUST=1 needs /usr/local/sbin/runc for pmg-runc, but the image has another runc there. Move that runc to /usr/bin/runc."
+    exit 1
+  fi
 }
 
 # install_container_trust puts pmg-runc first on PATH as runc, so dockerd and
