@@ -915,8 +915,8 @@ With the variable on, `pmg-entrypoint.sh` does three things:
 
 dockerd and its BuildKit start every container with the first `runc` on
 `PATH`. `/usr/local/sbin` must come before the directory of the real `runc`.
-The real `runc` must not be in `/usr/local/sbin`. When it is there,
-`pmg-entrypoint.sh` stops with an error and does not replace it.
+The real `runc` must not be in `/usr/local/sbin`. When one of these
+conditions is false, `pmg-entrypoint.sh` stops with an error.
 The wrapper then changes `docker run`, `docker create`, `docker exec`, and
 the `RUN` steps of `docker build`, with the default builder and with a
 `docker-container` builder:

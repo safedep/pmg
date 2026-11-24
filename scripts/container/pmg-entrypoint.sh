@@ -195,6 +195,15 @@ check_container_trust() {
     log "PMG_CONTAINER_TRUST=1 needs /usr/local/sbin/runc for pmg-runc, but the image has another runc there. Move that runc to /usr/bin/runc."
     exit 1
   fi
+  local dir dirs
+  IFS=: read -ra dirs <<<"$PATH"
+  for dir in "${dirs[@]}"; do
+    [ "$dir" = /usr/local/sbin ] && break
+    if [ -x "$dir/runc" ]; then
+      log "PMG_CONTAINER_TRUST=1 needs /usr/local/sbin before $dir on PATH, because dockerd starts the first runc on PATH."
+      exit 1
+    fi
+  done
 }
 
 # install_container_trust puts pmg-runc first on PATH as runc, so dockerd and
