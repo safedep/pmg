@@ -46,8 +46,6 @@ func TestCredentialWriteHelp(t *testing.T) {
 	}
 }
 
-// exchangeHelperDirEnv names the directory where TestWorkloadExchangeHelper
-// writes its marks.
 const exchangeHelperDirEnv = "PMG_TEST_EXCHANGE_HELPER_DIR"
 
 // The exchange runs with the ID token request token in its environment. A
@@ -70,9 +68,6 @@ func TestWorkloadExchangeStartsNoBackgroundSync(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "spawn"))
 }
 
-// TestWorkloadExchangeHelper is the child of
-// TestWorkloadExchangeStartsNoBackgroundSync. It does nothing in a normal test
-// run.
 func TestWorkloadExchangeHelper(t *testing.T) {
 	dir := os.Getenv(exchangeHelperDirEnv)
 	if dir == "" {

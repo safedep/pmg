@@ -59,9 +59,8 @@ func EventSyncDue(cfg *config.RuntimeConfig) bool {
 // when this process sent an audit event or called RequestBackgroundSync,
 // cloud.enabled is on and one of two paces passed: the event pacing of
 // auto_sync, or the policy pacing of cloud.policy. The policy fetch runs also
-// when auto_sync is off. A command without events, such as help, a usage error
-// or a foreground sync, starts no child. A child would hold the sync lock that
-// the next pmg cloud sync needs.
+// when auto_sync is off. A child holds the sync lock that the next pmg cloud
+// sync needs, so a command without events starts none.
 // The call returns as soon as `cmd.Start()` finishes (~milliseconds), so it
 // must only be called after audit.Close() has released the parent's SQLite
 // handle on the WAL.

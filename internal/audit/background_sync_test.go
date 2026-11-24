@@ -73,8 +73,6 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 	return cfg
 }
 
-// sendAuditEvent gives the test a new auditor and sends one event to it. The
-// child starts only after the process sent an audit event.
 func sendAuditEvent(t *testing.T) {
 	t.Helper()
 	t.Cleanup(UseSinksForTest())

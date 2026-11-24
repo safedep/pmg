@@ -28,9 +28,6 @@ func (unparsablePackageManager) Ecosystem() packagev1.Ecosystem {
 	return packagev1.Ecosystem_ECOSYSTEM_NPM
 }
 
-// The exit hook starts the background sync only when the process sent an
-// audit event or asked for the sync. A sync after a command without events
-// would hold the sync lock that the next `pmg cloud sync` needs.
 func TestExitHookStartsBackgroundSyncOnlyWhenWanted(t *testing.T) {
 	executeRoot := func(wantErr bool, args ...string) func(t *testing.T) {
 		return func(t *testing.T) {

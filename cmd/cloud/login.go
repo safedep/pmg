@@ -112,7 +112,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			WithHelp("Your system may not support secure credential storage"))
 	}
 
-	// The first install after a login needs the cloud policy in the cache.
 	audit.RequestBackgroundSync()
 	ui.Successf("Credentials saved securely")
 	return nil

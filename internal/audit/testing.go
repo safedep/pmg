@@ -14,9 +14,8 @@ func UseSinksForTest(sinks ...Sink) (restore func()) {
 	return func() { setGlobal(previous) }
 }
 
-// UseSpawnerForTest sends the background sync spawns of this process to spawn
-// and clears the request and the suppression of the background sync. The
-// returned function restores the previous spawner, request and suppression.
+// UseSpawnerForTest replaces the spawner and clears the request and the
+// suppression until restore runs.
 func UseSpawnerForTest(spawn func(name string, args ...string) error) (restore func()) {
 	if !testing.Testing() {
 		panic("audit: UseSpawnerForTest called outside a test")
