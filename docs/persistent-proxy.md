@@ -904,7 +904,8 @@ RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem,mode=0444 \
 A runner image that starts dockerd in the runner container, and runs
 `pmg-entrypoint.sh`, can give the CA to every container of that dockerd.
 Set `PMG_CONTAINER_TRUST=1` on the runner container. The variable is off by
-default. To turn it off, remove the variable and start the Pod again.
+default. To turn it off, remove the variable and start the Pod again. A
+value that is not `0` or `1` stops `pmg-entrypoint.sh` with an error.
 
 With the variable on, `pmg-entrypoint.sh` does three things:
 
@@ -945,7 +946,8 @@ CA file from a volume is not in the copy either.
 When the wrapper cannot make a change, it starts the container with no
 change. An install in that container then fails on the certificate. It does
 not install without a check. The wrapper writes to `/var/log/pmg-runc.log`
-in the runner container.
+in the runner container. For a build step of a `docker-container` builder,
+it writes to the same path in the BuildKit container.
 
 dockerd must run in the runner container. When `DOCKER_HOST` is set, as in
 a dind sidecar of an ARC scale set, `pmg-entrypoint.sh` stops with an

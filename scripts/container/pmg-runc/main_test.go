@@ -99,6 +99,7 @@ func TestParseArgs(t *testing.T) {
 		{"global flags with equals", []string{"--root=/r", "--debug", "run", "-b", "/b", "id2"}, call{cmd: "run", bundle: "/b", id: "id2"}},
 		{"bundle with equals", []string{"run", "--bundle=/b2", "--detach", "id3"}, call{cmd: "run", bundle: "/b2", id: "id3"}},
 		{"create with console socket before bundle", []string{"create", "--console-socket", "/s", "--bundle", "/b", "id4"}, call{cmd: "create", bundle: "/b", id: "id4"}},
+		{"create with pidfd socket before bundle", []string{"create", "--pidfd-socket", "/s", "--bundle", "/b", "id16"}, call{cmd: "create", bundle: "/b", id: "id16"}},
 		{"create without bundle", []string{"create", "id5"}, call{cmd: "create", id: "id5"}},
 		{"exec with process", []string{"--root", "/r", "exec", "--process", "/p.json", "--detach", "--pid-file", "/pid", "id6"}, call{cmd: "exec", process: "/p.json", id: "id6"}},
 		{"exec with short process", []string{"exec", "-p", "/p.json", "id7"}, call{cmd: "exec", process: "/p.json", id: "id7"}},
@@ -214,6 +215,10 @@ func TestInjectLeavesSpecUnchanged(t *testing.T) {
 		}},
 		{"bundle file missing", baseSpec, func(t *testing.T, f fixture) {
 			require.NoError(t, os.Remove(filepath.Join(f.ca, "ca-bundle.pem")))
+		}},
+		{"state directory cannot be made", baseSpec, func(t *testing.T, f fixture) {
+			writeTestFile(t, filepath.Join(f.dir, "blocker"), "")
+			stateDir = filepath.Join(f.dir, "blocker", "state")
 		}},
 		{"no dev mount", `{"root":{"path":"rootfs"},"process":{"env":[]},"mounts":[]}`, nil},
 		{"dev is a bind of another dev", `{"root":{"path":"rootfs"},"process":{"env":[]},"mounts":[{"destination":"/dev","type":"tmpfs","source":"tmpfs"},{"destination":"/dev","type":"bind","source":"/dev","options":["rbind"]}]}`, nil},

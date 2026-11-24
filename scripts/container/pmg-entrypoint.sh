@@ -159,7 +159,8 @@ pmg_alive() {
 start_pmg() {
   local ns=()
   if [ "$PMG_CONTAINER_TRUST" = 1 ]; then ns=(--enforce-namespaces redirect); fi
-  pmg_root proxy start --daemon --state "$PMG_STATE" --enforce --enforce-cgroup "$pmg_cgroup" "${ns[@]}" && load_pid
+  # Bash before 4.4 stops on an empty array under "set -u".
+  pmg_root proxy start --daemon --state "$PMG_STATE" --enforce --enforce-cgroup "$pmg_cgroup" ${ns[@]+"${ns[@]}"} && load_pid
 }
 
 # write_trust exports the variables that make job steps trust the PMG CA, and
@@ -229,7 +230,14 @@ start_all() {
     . "$PMG_ENV_FILE"
     return
   fi
-  if [ "$PMG_CONTAINER_TRUST" = 1 ]; then check_container_trust; fi
+  case $PMG_CONTAINER_TRUST in
+    0) ;;
+    1) check_container_trust ;;
+    *)
+      log "PMG_CONTAINER_TRUST must be 0 or 1, not '$PMG_CONTAINER_TRUST'"
+      exit 1
+      ;;
+  esac
   attach_cgroup
   $SUDO mkdir -p "$PMG_RUN_DIR"
   $SUDO rm -f "$PMG_RUN_DIR/stopping"

@@ -66,7 +66,7 @@ var (
 
 	commandValueFlags = map[string]bool{
 		"bundle": true, "b": true, "process": true, "p": true,
-		"console-socket": true, "pid-file": true, "preserve-fds": true,
+		"console-socket": true, "pidfd-socket": true, "pid-file": true, "preserve-fds": true,
 		"cwd": true, "env": true, "e": true, "user": true, "u": true,
 		"additional-gids": true, "g": true, "apparmor": true, "process-label": true,
 		"cap": true, "c": true, "cgroup": true,
@@ -275,10 +275,16 @@ func inject(bundle, id string) error {
 	}
 	addTrustEnv(proc)
 	spec["mounts"] = mounts
-	if err := writeJSON(cfgPath, spec); err != nil {
+
+	// The state goes first. A container with the CA files and no state would
+	// get no trust variables on "runc exec".
+	if err := saveState(id, remap); err != nil {
 		return err
 	}
-	return saveState(id, remap)
+	if err := writeJSON(cfgPath, spec); err != nil {
+		return errors.Join(err, os.Remove(statePath(id)))
+	}
+	return nil
 }
 
 // loadCA finds the PMG CA files. Only certificates may reach a container,
@@ -565,8 +571,9 @@ func writeFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// logf writes to the log file. A BuildKit container has no log file, so the
-// wrapper then writes to stderr, which BuildKit keeps in its log.
+// logf writes to the log file of the container that the wrapper runs in. For
+// a build step of a docker-container builder, that is the BuildKit
+// container. When the file does not open, the wrapper writes to stderr.
 func logf(format string, a ...any) {
 	line := fmt.Sprintf("%s pmg-runc: %s\n", time.Now().UTC().Format(time.RFC3339), fmt.Sprintf(format, a...))
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
