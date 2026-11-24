@@ -3,6 +3,7 @@
 // Helpers that main.js and post.js share. The action has no dependencies, so
 // these replace the parts of @actions/core it needs.
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -249,10 +250,20 @@ function errorCodes(text) {
 // isCommand is true for a line that the runner reads as a workflow command.
 const isCommand = (line) => stripColors(line).trim().startsWith('::');
 
-// withoutCommands drops the workflow command lines from the output of pmg,
-// so that a message from a server cannot act as a command.
-function withoutCommands(text) {
-  return text.split('\n').filter((line) => !isCommand(line)).join('\n');
+// printUntrusted prints text that came from pmg or SafeDep Cloud. Between the
+// stop line and the resume line, the runner runs no workflow command in either
+// syntax. A filter of the text misses the legacy ##[command] syntax and a line
+// that ends at a bare carriage return. The token is random, so the text cannot
+// resume the commands. The resume line must start a line of its own, or the
+// later commands of the action stay off.
+function printUntrusted(text) {
+  const token = crypto.randomUUID();
+  process.stdout.write(`::stop-commands::${token}\n`);
+  try {
+    process.stdout.write(text.endsWith('\n') || text === '' ? text : `${text}\n`);
+  } finally {
+    process.stdout.write(`::${token}::\n`);
+  }
 }
 
 function lastLines(text, n) {
@@ -303,7 +314,7 @@ module.exports = {
   saveState,
   ScriptError,
   state,
-  withoutCommands,
+  printUntrusted,
   warning,
   workspacePath,
 };

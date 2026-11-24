@@ -146,7 +146,7 @@ function legacyStop(pmg, enforce, failOnViolation) {
   }
   const stop = lib.group('Stop the PMG proxy', () => {
     const res = pmg(args, { capture: 'all' });
-    process.stdout.write(res.stdout + res.stderr);
+    lib.printUntrusted(res.stdout + res.stderr);
     return res;
   });
   clearProxyVars();

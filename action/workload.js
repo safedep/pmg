@@ -79,7 +79,7 @@ function exchange(bin) {
   const file = path.join(dir, 'credential.json');
   const res = lib.group('Exchange the GitHub ID token for a SafeDep Cloud credential', () => {
     const out = lib.runPMG(bin, ['cloud', 'workload', 'exchange', '--tenant-id', tenant, '--output', file], { capture: 'all', idToken: true });
-    process.stdout.write(lib.withoutCommands(out.stdout + out.stderr));
+    lib.printUntrusted(out.stdout + out.stderr);
     return out;
   });
 

@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -371,13 +372,21 @@ func TestOIDCRefusedExchangeFails(t *testing.T) {
 // The action prints the output of the exchange. A message of the server
 // must not reach the runner as a workflow command.
 func TestOIDCExchangeOutputRunsNoCommand(t *testing.T) {
-	stub := &cloudauthtest.Exchange{Err: status.Error(codes.PermissionDenied, "no rule\n::warning::injected\n::add-mask::acme")}
+	stub := &cloudauthtest.Exchange{Err: status.Error(codes.PermissionDenied,
+		"no rule\n::warning::injected\n##[add-mask]acme\r::add-mask::acme")}
 	j := newJob(t, startStub(t, stub), nil)
 
 	out, code := j.run("main.js")
 	assert.Equal(t, 1, code)
-	assert.NotContains(t, out, "::warning::injected")
-	assert.NotContains(t, out, "::add-mask::")
+	stopped := regexp.MustCompile(`(?s)::stop-commands::([0-9a-f-]{36})\n.*?::([0-9a-f-]{36})::\n`)
+	for _, m := range stopped.FindAllStringSubmatch(out, -1) {
+		require.Equal(t, m[1], m[2])
+	}
+	outside := stopped.ReplaceAllString(out, "")
+	for _, payload := range []string{"::warning::injected", "##[add-mask]", "::add-mask::acme"} {
+		assert.Contains(t, out, payload)
+		assert.NotContains(t, outside, payload)
+	}
 	assert.NotContains(t, j.read("GITHUB_STEP_SUMMARY"), "::warning::")
 }
 
