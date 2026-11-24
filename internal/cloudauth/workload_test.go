@@ -129,6 +129,22 @@ func TestCallsEndAtTheTimeout(t *testing.T) {
 	})
 }
 
+// A first attempt that reaches its own deadline leaves half of callTimeout,
+// so pmg tries again in that time.
+func TestExchangeRetriesAfterAHungAttempt(t *testing.T) {
+	savedTimeout, savedDelay := callTimeout, exchangeRetryDelay
+	callTimeout, exchangeRetryDelay = 2*time.Second, 10*time.Millisecond
+	t.Cleanup(func() { callTimeout, exchangeRetryDelay = savedTimeout, savedDelay })
+
+	stub := &cloudauthtest.Exchange{HangFirst: 1}
+	startStubExchange(t, stub)
+
+	cred, err := ExchangeWorkloadIdentity(context.Background(), testTenant)
+	require.NoError(t, err)
+	assert.Equal(t, cloudauthtest.CredentialID, cred.CredentialID)
+	assert.Len(t, stub.Exchanges(), 1)
+}
+
 func TestResolveCredentialsFromCredentialFile(t *testing.T) {
 	t.Setenv("SAFEDEP_API_KEY", "env-api-key")
 	t.Setenv("SAFEDEP_TENANT_ID", "other.safedep.io")

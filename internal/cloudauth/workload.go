@@ -28,8 +28,7 @@ const CredentialFileEnv = "PMG_CLOUD_CREDENTIAL_FILE"
 const (
 	toolName = "pmg"
 
-	exchangeAttempts   = 2
-	exchangeRetryDelay = time.Second
+	exchangeAttempts = 2
 
 	// The WorkloadIdentityService runs on the data plane. dry reads the same
 	// variable and default for its own exchange connection.
@@ -42,6 +41,10 @@ const (
 // and the post step would not remove the credential copies. Tests set it
 // shorter.
 var callTimeout = 30 * time.Second
+
+// exchangeRetryDelay is the wait before the second exchange attempt. Tests
+// set it shorter.
+var exchangeRetryDelay = time.Second
 
 // ErrCredentialFileUnsupported is returned on Windows for every use of a
 // credential file. pmg checks the owner and the mode of the file, and
@@ -79,9 +82,11 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 
 	var cred cloud.WorkloadCredential
 	for attempt := 1; ; attempt++ {
+		var attemptTimedOut bool
 		err = withExchangeClient(func(client *cloud.WorkloadExchangeClient) error {
-			// Each attempt gets its part of the timeout, so a hung first
-			// attempt leaves time for the retry.
+			// Each attempt gets its part of the timeout. An attempt that
+			// reaches its own deadline is tried again, so a hung first
+			// attempt does not use the time of the retry.
 			attemptCtx, cancelAttempt := context.WithTimeout(ctx, callTimeout/exchangeAttempts)
 			defer cancelAttempt()
 			var err error
@@ -90,17 +95,20 @@ func ExchangeWorkloadIdentity(ctx context.Context, tenantDomain string) (cloud.W
 				ToolName:     toolName,
 				ToolVersion:  version.Version,
 			})
+			attemptTimedOut = errors.Is(attemptCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 			return err
 		})
 		// The exchange gets a new ID token for each attempt, because the
 		// server can spend a token before it fails.
-		if attempt == exchangeAttempts || status.Code(err) != codes.Unavailable {
+		retry := err != nil && (status.Code(err) == codes.Unavailable || attemptTimedOut)
+		if attempt == exchangeAttempts || !retry {
 			break
 		}
-		log.Warnf("SafeDep Cloud is unavailable for the workload identity exchange, pmg tries again: %v", err)
+		log.Warnf("SafeDep Cloud did not answer the workload identity exchange, pmg tries again: %v", err)
 		select {
 		case <-ctx.Done():
-			return cloud.WorkloadCredential{}, ctx.Err()
+			// The last attempt's error keeps its gRPC status. ctx.Err() has none.
+			return cloud.WorkloadCredential{}, err
 		case <-time.After(exchangeRetryDelay):
 		}
 	}

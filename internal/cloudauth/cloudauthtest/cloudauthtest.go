@@ -42,7 +42,8 @@ const (
 // Exchange is a stub WorkloadIdentityService. The ExchangeToken calls take
 // the errors of FirstErrs in order. Then Err, when set, is the answer to
 // every call. RevokeErr, when set, is the answer to every RevokeToken call.
-// With Hang, every call waits until the client gives up.
+// With Hang, every call waits until the client gives up. With HangFirst, the
+// first HangFirst ExchangeToken calls wait until the client gives up.
 type Exchange struct {
 	controltowerv1grpc.UnimplementedWorkloadIdentityServiceServer
 
@@ -50,8 +51,10 @@ type Exchange struct {
 	Err       error
 	RevokeErr error
 	Hang      bool
+	HangFirst int
 
 	mu        sync.Mutex
+	hung      int
 	exchanges []*controltowerv1.ExchangeTokenRequest
 	revokes   []*controltowerv1.RevokeTokenRequest
 	auth      []string
@@ -103,7 +106,13 @@ func (s *Exchange) recordAuth(ctx context.Context) {
 }
 
 func (s *Exchange) ExchangeToken(ctx context.Context, req *controltowerv1.ExchangeTokenRequest) (*controltowerv1.ExchangeTokenResponse, error) {
-	if s.Hang {
+	s.mu.Lock()
+	hang := s.Hang || s.hung < s.HangFirst
+	if hang {
+		s.hung++
+	}
+	s.mu.Unlock()
+	if hang {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
