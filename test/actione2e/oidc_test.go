@@ -248,7 +248,10 @@ func TestOIDCUserProxy(t *testing.T) {
 	assert.Equal(t, tenant, daemon["SAFEDEP_TENANT_ID"])
 	assert.Equal(t, j.kv("GITHUB_STATE")["credential"], daemon["PMG_CLOUD_CREDENTIAL_FILE"], "the workload credential wins over a keychain credential")
 	assert.NotContains(t, daemon, "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "the proxy never asks GitHub for a token")
+	assert.Equal(t, "true", daemon["PMG_CLOUD_ENABLED"], "the proxy runs with SafeDep Cloud")
 	assert.NotContains(t, j.read("GITHUB_ENV"), cloudauthtest.AccessToken, "in server mode the steps of the job do not get the credential")
+	assert.Equal(t, "false", j.kv("GITHUB_ENV")["PMG_CLOUD_ENABLED"], "a later step has no credential, so it runs without SafeDep Cloud")
+	assert.Equal(t, "false", j.kv("GITHUB_ENV")["PMG_CLOUD_AUTO_SYNC_ENABLED"])
 	assert.Equal(t, cloudauthtest.EndpointID, j.kv("GITHUB_ENV")["PMG_CLOUD_ENDPOINT_ID"])
 	require.NotEmpty(t, j.kv("GITHUB_ENV")["HTTPS_PROXY"], "the post step starts with the proxy variables of the main step")
 
@@ -396,6 +399,8 @@ func TestOIDCRootProxy(t *testing.T) {
 	daemon := procEnviron(t, pid, true)
 	file := daemon["PMG_CLOUD_CREDENTIAL_FILE"]
 	require.NotEmpty(t, file, "the root daemon reads the credential from a file")
+	assert.Equal(t, "true", daemon["PMG_CLOUD_ENABLED"], "the root daemon runs with SafeDep Cloud")
+	assert.Equal(t, "false", j.kv("GITHUB_ENV")["PMG_CLOUD_ENABLED"], "a later step has no credential, so it runs without SafeDep Cloud")
 	assert.NotContains(t, daemon, "SAFEDEP_API_KEY")
 	assert.NotContains(t, daemon, "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 	owner, err := exec.Command("sudo", "-n", "stat", "-c", "%u %a", file).Output()

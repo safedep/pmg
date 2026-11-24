@@ -215,10 +215,15 @@ function startProxy(binDir, profile, enforceInput, jobContainer, cred) {
   // environment. PMG_CLOUD_CREDENTIAL_FILE makes pmg use it before a
   // keychain credential that a self-hosted runner keeps. The root daemon
   // reads a copy that only root can read.
+  // config.sh turns cloud off for the later steps of the job, which have no
+  // credential. Only the proxy start turns it on.
+  const cloudOn = { PMG_CLOUD_ENABLED: 'true', PMG_CLOUD_AUTO_SYNC_ENABLED: 'true' };
   const userEnv = cred
-    ? { SAFEDEP_API_KEY: cred.AccessToken, SAFEDEP_TENANT_ID: cred.TenantDomain, PMG_CLOUD_CREDENTIAL_FILE: cred.file }
+    ? { ...cloudOn, SAFEDEP_API_KEY: cred.AccessToken, SAFEDEP_TENANT_ID: cred.TenantDomain, PMG_CLOUD_CREDENTIAL_FILE: cred.file }
     : {};
-  const rootEnv = cred ? { PMG_WORKLOAD_CREDENTIAL: cred.file, PMG_ROOT_CREDENTIAL_DIR: workload.rootCredentialDir() } : {};
+  const rootEnv = cred
+    ? { ...cloudOn, PMG_WORKLOAD_CREDENTIAL: cred.file, PMG_ROOT_CREDENTIAL_DIR: workload.rootCredentialDir() }
+    : {};
 
   const mode = enforceMode(enforceInput, jobContainer);
   if (mode === 'required' && jobContainer) {

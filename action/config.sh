@@ -71,20 +71,27 @@ if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
   if [ "${IN_EXPORT_CREDENTIAL:-true}" = "true" ]; then
     export_var SAFEDEP_API_KEY "$IN_API_KEY"
     export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
-  fi
-  export_var PMG_CLOUD_ENABLED "true"
-
-  if [ "$IN_SERVER_MODE" = "true" ]; then
-    # In server mode the proxy daemon owns delivery and uses auto_sync
-    # to gate both periodic sync and the shutdown flush.
-    export_var PMG_CLOUD_AUTO_SYNC_ENABLED "true"
+    export_var PMG_CLOUD_ENABLED "true"
+    if [ "$IN_SERVER_MODE" = "true" ]; then
+      # In server mode the proxy daemon owns delivery and uses auto_sync
+      # to gate both periodic sync and the shutdown flush.
+      export_var PMG_CLOUD_AUTO_SYNC_ENABLED "true"
+    else
+      # PMG's opportunistic background auto-sync is designed for
+      # long-lived workstations. On an ephemeral runner the detached child
+      # can be torn down before it drains the WAL, and the WAL goes with
+      # it. Turn it off and rely on an explicit `pmg cloud sync` at
+      # job-end if the user wants events delivered.
+      export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
+    fi
   else
-    # PMG's opportunistic background auto-sync is designed for
-    # long-lived workstations. On an ephemeral runner the detached child
-    # can be torn down before it drains the WAL, and the WAL goes with
-    # it. Turn it off and rely on an explicit `pmg cloud sync` at
-    # job-end if the user wants events delivered.
-    export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
+    # The later steps of an OIDC server mode job have no credential. With
+    # cloud on, the exit of a pmg command in such a step can start a
+    # background sync with a saved login of a self-hosted runner. That sync
+    # would send the events of this job to the tenant of the saved login.
+    # main.js turns cloud on only for the proxy start.
+    set_var PMG_CLOUD_ENABLED false
+    set_var PMG_CLOUD_AUTO_SYNC_ENABLED false
   fi
 
   if [ -n "$IN_ENDPOINT_ID" ]; then
