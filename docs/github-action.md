@@ -261,11 +261,11 @@ These cases change the result of the action step:
 | Case | Result |
 |---|---|
 | The job has no `id-token: write` | The step fails, and the message names `permissions: id-token: write`. |
-| A `pull_request` run from a fork | GitHub gives the run no ID token. The step prints a warning, and PMG runs without SafeDep Cloud. |
+| A `pull_request`, `pull_request_review` or `pull_request_review_comment` run from a fork | GitHub gives the run no ID token. The step prints a warning, and PMG runs without SafeDep Cloud. |
 | SafeDep Cloud refuses the exchange, for example no rule matches or the tenant is over its limit | The job summary shows the reason, and PMG runs with its local config. A tenant admin can list denied exchanges with `safedep workload exchange list --denied`. |
 | Any case above where PMG runs without SafeDep Cloud | The action sets `PMG_CLOUD_ENABLED=false` for the proxy and the later steps, also when the runner config or an earlier step turned cloud on. |
 | SafeDep Cloud is unavailable | pmg tries the exchange one more time with a new ID token. A second failure fails the step. |
-| The `version` input names a PMG release without `pmg cloud workload exchange` | The step fails. A `pull_request` run from a fork warns first, as above. |
+| The `version` input names a PMG release without `pmg cloud workload exchange` | The step fails. A run from a fork warns first, as above. |
 
 ### Use `config-file` for custom settings
 

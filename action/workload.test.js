@@ -49,6 +49,9 @@ test('isForkPullRequest', async (t) => {
     ['a pull request from a fork', 'pull_request', { full_name: 'mallory/app' }, true],
     ['a pull request from a fork that is gone', 'pull_request', null, true],
     ['a pull request from a branch of the repository', 'pull_request', { full_name: 'acme/app' }, false],
+    ['a review of a pull request from a fork', 'pull_request_review', { full_name: 'mallory/app' }, true],
+    ['a review comment on a pull request from a fork', 'pull_request_review_comment', { full_name: 'mallory/app' }, true],
+    ['a review of a pull request from a branch of the repository', 'pull_request_review', { full_name: 'acme/app' }, false],
     ['pull_request_target gets an ID token', 'pull_request_target', { full_name: 'mallory/app' }, false],
     ['a push', 'push', { full_name: 'mallory/app' }, false],
   ]) {

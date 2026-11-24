@@ -27,10 +27,15 @@ function cloudMode() {
   return lib.input('tenant-id') !== '' ? 'oidc' : '';
 }
 
-// isForkPullRequest is true for a pull_request run from a fork. GitHub gives
-// such a run no ID token. A head repository that is gone is a fork too.
+// forkEvents are the pull request events that run the code of a fork with a
+// read-only token and no ID token. pull_request_target runs in the base
+// repository and gets an ID token, so it is not in the list.
+const forkEvents = new Set(['pull_request', 'pull_request_review', 'pull_request_review_comment']);
+
+// isForkPullRequest is true for a run of a fork event from a fork. GitHub
+// gives such a run no ID token. A head repository that is gone is a fork too.
 function isForkPullRequest() {
-  if (process.env.GITHUB_EVENT_NAME !== 'pull_request' || !process.env.GITHUB_EVENT_PATH) {
+  if (!forkEvents.has(process.env.GITHUB_EVENT_NAME) || !process.env.GITHUB_EVENT_PATH) {
     return false;
   }
   const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
