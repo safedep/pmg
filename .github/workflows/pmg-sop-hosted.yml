@@ -19,7 +19,7 @@ jobs:
       GITDEP: github:safedep/pmg#${{ github.sha }}
       TARBALL: https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz
       CASE: ${{ github.workspace }}/.github/pmg-sop/case.sh
-      RESULTS: ${{ runner.temp }}/results.txt
+      RESULTS: /tmp/pmg-sop-results.txt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
