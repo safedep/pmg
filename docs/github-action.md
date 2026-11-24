@@ -144,8 +144,6 @@ The install cache verifies only the cached tarball.
 On a cache hit, it runs the extracted binary without checking or extracting it again.
 Protect that directory on a shared self-hosted runner.
 GitHub-hosted runner tool caches do not persist between jobs.
-Do not set `PMG_CONFIG_DIR` together with `config-file`.
-The staging script uses `${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg` regardless of that variable.
 
 ## Outputs
 
@@ -183,7 +181,7 @@ The action fetches the policy before the next step runs, so the first install of
 The fetch takes 25 seconds at most.
 When no cloud policy applies after the fetch, the action step fails.
 When your SafeDep plan does not include the cloud policy, the step prints a warning and does not fail.
-On a self-hosted runner that keeps its policy cache, a failed fetch prints a warning, and the last policy applies.
+Under kernel enforcement on a self-hosted runner, root keeps its policy cache. A failed fetch then prints a warning, and the last policy applies.
 A PMG `version` without `pmg cloud sync --require-policy` does not fail the step.
 The action then runs the full sync and prints a warning only when that sync fails.
 That sync waits up to 30 seconds for the sync lock and then runs for up to 10 seconds.
@@ -286,7 +284,7 @@ trusted_packages:
     config-file: .github/pmg.yml
 ```
 
-The action copies the file to `${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml`.
+The action copies the file to `$PMG_CONFIG_DIR/config.yml`.
 Server mode does not run `pmg setup install`.
 Under kernel enforcement, the root daemon gets a copy in `$PMG_PROXY_CONFIG_DIR`.
 In server mode, PMG applies the missing template keys in memory.
@@ -643,13 +641,21 @@ A hung daemon keeps its programs, so the runner cannot reach GitHub and
 stays offline until an operator restarts the daemon. `Restart=on-failure`
 does not restart a hung daemon.
 
-On a persistent runner, the action leaves staged configuration and installed shims.
+On the runner host, the action sets `PMG_CONFIG_DIR` to `$RUNNER_TEMP/pmg/config` and `PMG_STATE_DIR` to `$RUNNER_TEMP/pmg/state`.
+Each runner agent has its own `RUNNER_TEMP`, and the runner empties it after each job.
+Two jobs on one host then do not share the config, the proxy state or the cloud sync queue.
+A proxy or a queue that a crashed job leaves does not affect the next job.
+The action keeps a directory that the workflow sets.
+A config in `~/.config/safedep/pmg` does not apply. Use `config-file` or the [managed config](config.md#globally-managed-configuration).
+The cache directory stays shared.
+
+On a persistent runner, the action leaves installed shims.
 Sandbox preparation also attempts host changes that the post step does not restore.
-Use ephemeral runners or reset configuration and host state for each job.
-Concurrent jobs that share a user can collide on the default proxy state.
-A second enforced daemon on the same cgroup fails to start.
+Use ephemeral runners or reset host state for each job.
+Kernel enforcement allows one enforcing daemon on each host.
+When another job on the host enforces, a step with `enforce: true` fails.
 Other eligible host processes route through the first daemon.
-Run one enforced job at a time on a host. See
+Run one runner agent on each host, or set `enforce: false`. See
 [Kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux).
 
 The enforcing daemon receives no upstream proxy variables from this action.

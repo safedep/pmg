@@ -113,8 +113,11 @@ jobs:
       - name: Verify config staged into PMG config dir
         run: |
           set -e
-          dest="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml"
+          dest="$PMG_CONFIG_DIR/config.yml"
           test -f "$dest"
+          # The root daemon gets its own copy, and leaves no root-owned
+          # file in the config directory of the job.
+          test -z "$(find "$PMG_CONFIG_DIR" -user root)"
           grep -q "^paranoid: true" "$dest"
           grep -q "days: 365" "$dest"
       - name: Verify env doesn't shadow file-based tuning
@@ -381,6 +384,18 @@ jobs:
           npm init -y >/dev/null
           npm install lodash@4.17.21
           test -d node_modules/lodash
+      - name: The proxy state is under RUNNER_TEMP, and another job does not see it
+        run: |
+          set -euo pipefail
+          test "$PMG_CONFIG_DIR" = "$RUNNER_TEMP/pmg/config"
+          test "$PMG_STATE_DIR" = "$RUNNER_TEMP/pmg/state"
+          test -f "$PMG_STATE_DIR/proxy-state.json"
+          pmg proxy status | tee status.txt
+          grep -q 'running (pid' status.txt
+          # A job of another runner agent has another RUNNER_TEMP.
+          other="$(mktemp -d)"
+          PMG_CONFIG_DIR="$other/config" PMG_STATE_DIR="$other/state" pmg proxy status | tee other.txt
+          grep -q 'not running' other.txt
 
   post-step-enforce:
     name: The post step fails on a connection the profile denies under enforce

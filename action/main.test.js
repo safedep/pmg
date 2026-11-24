@@ -4,30 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert');
 const lib = require('./lib');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { checkInputs, enforceMode, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
-
-// withEnv sets the variables for one call and restores them after it.
-function withEnv(vars, fn) {
-  const saved = {};
-  for (const [name, value] of Object.entries(vars)) {
-    saved[name] = process.env[name];
-    process.env[name] = value;
-  }
-  try {
-    return fn();
-  } finally {
-    for (const [name, value] of Object.entries(saved)) {
-      if (value === undefined) {
-        delete process.env[name];
-      } else {
-        process.env[name] = value;
-      }
-    }
-  }
-}
+const { tempDir, withEnv } = require('./testenv');
+const { checkInputs, enforceMode, enforcedElsewhere, exportJobDirs, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
 
 test('resolveServerMode', async (t) => {
   for (const [name, env, profile, want] of [
@@ -97,11 +77,56 @@ test('failedPolicyFetch is true only for the policy exit status of enforce.sh', 
   }
 });
 
+test('enforcedElsewhere is true only for a daemon that already enforces', async (t) => {
+  for (const [name, err, want] of [
+    ['another daemon enforces', new lib.ScriptError('enforce.sh', 1, '', ['EnforceAlreadyActive']), true],
+    ['missing kernel support', new lib.ScriptError('enforce.sh', 1, '', ['EnforceRequirements']), false],
+    ['not a script error', new Error('x'), false],
+  ]) {
+    await t.test(name, () => assert.strictEqual(enforcedElsewhere(err), want));
+  }
+});
+
+test('exportJobDirs', async (t) => {
+  // runExport runs exportJobDirs in a fresh RUNNER_TEMP and returns the
+  // directories, the exported variables and RUNNER_TEMP.
+  const runExport = (t, jobContainer, configDir) => {
+    const tmp = tempDir(t);
+    const envFile = path.join(tmp, 'env');
+    fs.writeFileSync(envFile, '');
+    const dirs = withEnv({ RUNNER_TEMP: tmp, GITHUB_ENV: envFile, PMG_CONFIG_DIR: configDir, PMG_STATE_DIR: undefined }, () => {
+      exportJobDirs(jobContainer);
+      return { config: process.env.PMG_CONFIG_DIR, state: process.env.PMG_STATE_DIR };
+    });
+    return { dirs, exported: Object.fromEntries(lib.parseKeyValues(fs.readFileSync(envFile, 'utf8'))), tmp };
+  };
+
+  await t.test('puts config and state under RUNNER_TEMP', (t) => {
+    const { dirs, exported, tmp } = runExport(t, false, undefined);
+    assert.deepStrictEqual(dirs, { config: path.join(tmp, 'pmg', 'config'), state: path.join(tmp, 'pmg', 'state') });
+    assert.deepStrictEqual(exported, { PMG_CONFIG_DIR: dirs.config, PMG_STATE_DIR: dirs.state });
+    assert.ok(fs.statSync(dirs.config).isDirectory());
+    assert.ok(fs.statSync(dirs.state).isDirectory());
+  });
+
+  await t.test('keeps a directory that the workflow sets', (t) => {
+    const own = path.join(tempDir(t), 'own');
+    const { dirs, exported } = runExport(t, false, own);
+    assert.strictEqual(dirs.config, own);
+    assert.ok(fs.statSync(own).isDirectory());
+    assert.deepStrictEqual(Object.keys(exported), ['PMG_STATE_DIR']);
+  });
+
+  await t.test('changes nothing in a job container', (t) => {
+    const { dirs, exported } = runExport(t, true, undefined);
+    assert.deepStrictEqual(dirs, { config: undefined, state: undefined });
+    assert.deepStrictEqual(exported, {});
+  });
+});
+
 // fakePMG writes a pmg that prints status as pmg proxy status does.
 function fakePMG(t, status) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmg-test-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const bin = path.join(dir, 'pmg');
+  const bin = path.join(tempDir(t), 'pmg');
   fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' '${status}'\n`, { mode: 0o755 });
   return bin;
 }
@@ -116,6 +141,31 @@ test('refuseSecondProxy passes when no proxy runs', (t) => {
   assert.doesNotThrow(() => refuseSecondProxy(bin));
 });
 
+// runConfigScript runs config.sh in dir with the IN_* inputs empty, then env,
+// and returns the variables that it exported.
+function runConfigScript(dir, env) {
+  const envFile = path.join(dir, 'env');
+  fs.writeFileSync(envFile, '');
+  const inputs = ['IN_API_KEY', 'IN_TENANT_ID', 'IN_ENDPOINT_ID', 'IN_PROXY_MODE', 'IN_PARANOID', 'IN_COOLDOWN_ENABLED',
+    'IN_COOLDOWN_DAYS', 'IN_SANDBOX', 'IN_SANDBOX_DRIVER', 'IN_VERBOSITY', 'IN_DISABLE_TELEMETRY', 'IN_SKIP_EVENT_LOGGING'];
+  const res = spawnSync('sh', [path.join(lib.actionDir, 'config.sh')], {
+    encoding: 'utf8',
+    env: {
+      ...Object.fromEntries(inputs.map((name) => [name, ''])),
+      PATH: process.env.PATH,
+      HOME: dir,
+      GITHUB_ENV: envFile,
+      GITHUB_WORKSPACE: dir,
+      GH_REPOSITORY: '',
+      INPUT_CONFIG_FILE: '',
+      IN_SERVER_MODE: 'true',
+      ...env,
+    },
+  });
+  assert.strictEqual(res.status, 0, res.stderr);
+  return new Map(lib.parseKeyValues(fs.readFileSync(envFile, 'utf8')));
+}
+
 test('config.sh exports the endpoint id of the repository', async (t) => {
   for (const [name, repository, endpointID, want] of [
     ['the default uses the form of pmg', 'octo-org/octo-repo', '', 'gh:octo-org/octo-repo'],
@@ -123,36 +173,27 @@ test('config.sh exports the endpoint id of the repository', async (t) => {
     ['no repository leaves the id to pmg', '', '', undefined],
   ]) {
     await t.test(name, (t) => {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmg-test-'));
-      t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-      const envFile = path.join(dir, 'env');
-      fs.writeFileSync(envFile, '');
-      const res = spawnSync('sh', [path.join(lib.actionDir, 'config.sh')], {
-        encoding: 'utf8',
-        env: {
-          PATH: process.env.PATH,
-          HOME: dir,
-          GITHUB_ENV: envFile,
-          GH_REPOSITORY: repository,
-          INPUT_CONFIG_FILE: '',
-          IN_API_KEY: 'key',
-          IN_TENANT_ID: 'tenant',
-          IN_ENDPOINT_ID: endpointID,
-          IN_SERVER_MODE: 'true',
-          IN_PROXY_MODE: '',
-          IN_PARANOID: '',
-          IN_COOLDOWN_ENABLED: '',
-          IN_COOLDOWN_DAYS: '',
-          IN_SANDBOX: '',
-          IN_SANDBOX_DRIVER: '',
-          IN_VERBOSITY: '',
-          IN_DISABLE_TELEMETRY: '',
-          IN_SKIP_EVENT_LOGGING: '',
-        },
+      const exported = runConfigScript(tempDir(t), {
+        GH_REPOSITORY: repository,
+        IN_API_KEY: 'key',
+        IN_TENANT_ID: 'tenant',
+        IN_ENDPOINT_ID: endpointID,
       });
-      assert.strictEqual(res.status, 0, res.stderr);
-      const exported = new Map(lib.parseKeyValues(fs.readFileSync(envFile, 'utf8')));
       assert.strictEqual(exported.get('PMG_CLOUD_ENDPOINT_ID'), want);
+    });
+  }
+});
+
+test('config.sh stages config-file in PMG_CONFIG_DIR', async (t) => {
+  for (const [name, configDir, want] of [
+    ['the config directory of the job', 'job', 'job/config.yml'],
+    ['the default without PMG_CONFIG_DIR', '', '.config/safedep/pmg/config.yml'],
+  ]) {
+    await t.test(name, (t) => {
+      const dir = tempDir(t);
+      fs.writeFileSync(path.join(dir, 'pmg.yml'), 'paranoid: true\n');
+      runConfigScript(dir, { INPUT_CONFIG_FILE: 'pmg.yml', PMG_CONFIG_DIR: configDir && path.join(dir, configDir) });
+      assert.strictEqual(fs.readFileSync(path.join(dir, want), 'utf8'), 'paranoid: true\n');
     });
   }
 });

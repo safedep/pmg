@@ -42,6 +42,7 @@ function main() {
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
   const binDir = outputs['bin-dir'];
   const bin = path.join(binDir, 'pmg');
+  exportJobDirs(jobContainer);
   // Before any script changes the job, so a refused second step leaves the
   // configuration of the first step in place.
   if (serverMode) {
@@ -83,6 +84,26 @@ function main() {
 
   const verify = spawnSync('sh', ['-c', 'pmg version && printf "%s\\n" "npm resolves to: $(command -v npm || printf "%s" "<not installed>")"'], { stdio: 'inherit', env: lib.helperEnv() });
   return verify.status === 0 ? 0 : 1;
+}
+
+// exportJobDirs puts the config and state of PMG under RUNNER_TEMP. Two
+// runner agents on one host can run jobs at the same time as one user, and a
+// crashed job can leave a proxy or a sync queue. Each runner agent has its
+// own RUNNER_TEMP, and the runner empties it after each job. A directory
+// that the workflow sets stays. The cache stays shared, because it holds
+// only regenerable data. A job container has its own filesystem, and the
+// proxy CA must stay in /github/home there, so Docker actions can read it.
+function exportJobDirs(jobContainer) {
+  if (jobContainer) {
+    return;
+  }
+  for (const [name, dir] of [['PMG_CONFIG_DIR', 'config'], ['PMG_STATE_DIR', 'state']]) {
+    if (!process.env[name]) {
+      process.env[name] = path.join(process.env.RUNNER_TEMP, 'pmg', dir);
+      lib.appendFile('GITHUB_ENV', `${name}=${process.env[name]}`);
+    }
+    fs.mkdirSync(process.env[name], { recursive: true });
+  }
 }
 
 // cloudInputs gives the cloud inputs of config.sh. In OIDC mode the access
@@ -197,6 +218,12 @@ function runnerCannotEnforce(err) {
   return err instanceof lib.ScriptError && err.codes.some((code) => runnerErrorCodes.includes(code));
 }
 
+// enforcedElsewhere is true when a daemon that this job did not start
+// enforces. refuseSecondProxy already refused a daemon of this job.
+function enforcedElsewhere(err) {
+  return err instanceof lib.ScriptError && err.codes.includes('EnforceAlreadyActive');
+}
+
 function failedPolicyFetch(err) {
   return err instanceof lib.ScriptError && err.status === policyFetchStatus;
 }
@@ -237,6 +264,9 @@ function startProxy(binDir, profile, enforceInput, jobContainer, cred) {
     } catch (err) {
       if (failedPolicyFetch(err)) {
         throw err;
+      }
+      if (enforcedElsewhere(err)) {
+        throw new Error('Another PMG daemon on this host already enforces, such as the daemon of a job of another runner agent. PMG enforces for one daemon on each host. Run one runner agent on each host, or set enforce to false.');
       }
       // Only a runner that cannot enforce falls back. A policy error, such
       // as a typo in an enforce-* input or in config-file, fails as
@@ -391,4 +421,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkInputs, enforceMode, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };
+module.exports = { checkInputs, enforceMode, enforcedElsewhere, exportJobDirs, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };
