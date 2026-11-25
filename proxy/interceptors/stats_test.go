@@ -39,10 +39,11 @@ func TestRecordUnanalyzedCapsTheList(t *testing.T) {
 		collector.RecordUnanalyzed(unanalyzedPkg(fmt.Sprintf("1.0.%d", i)))
 	}
 	collector.RecordUnanalyzed(unanalyzedPkg("1.0.0"))
+	collector.RecordUnanalyzed(unanalyzedPkg(fmt.Sprintf("1.0.%d", maxUnanalyzedPackages)))
 
 	unanalyzed, more := collector.GetUnanalyzedPackages()
 	assert.Len(t, unanalyzed, maxUnanalyzedPackages)
-	assert.Equal(t, 3, more, "a listed version is not counted again")
+	assert.Equal(t, 3, more, "a retried version is counted once, in the list or past it")
 }
 
 func TestRecordRuleBlockedCountsNoAnalysis(t *testing.T) {

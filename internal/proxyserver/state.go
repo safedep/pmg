@@ -35,6 +35,7 @@ type State struct {
 
 	// Unanalyzed names each package that the daemon allowed because the
 	// analysis failed, written at shutdown for the stop report.
+	// UnanalyzedMore counts the distinct packages past the cap of the list.
 	Unanalyzed     []string `json:"unanalyzed,omitempty"`
 	UnanalyzedMore int      `json:"unanalyzed_more,omitempty"`
 

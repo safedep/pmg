@@ -128,20 +128,17 @@ func closeConn(c net.Conn) {
 	}
 }
 
-// testDialer opens the first connection to first and every later connection
-// to next.
+// testDialer opens connection n to addrs[n], and every later connection to
+// the last address.
 type testDialer struct {
 	t     *testing.T
-	first string
-	next  string
+	addrs []string
 	dials atomic.Int32
 }
 
 func (d *testDialer) dial() (closableConn, error) {
-	addr := d.next
-	if d.dials.Add(1) == 1 {
-		addr = d.first
-	}
+	n := int(d.dials.Add(1)) - 1
+	addr := d.addrs[min(n, len(d.addrs)-1)]
 
 	conn, err := grpc.NewClient("passthrough:///"+addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -155,10 +152,10 @@ func (d *testDialer) dial() (closableConn, error) {
 	return conn, nil
 }
 
-func newTestConn(t *testing.T, first, next string, hedgeDelay time.Duration) (*reconnectingConn, *testDialer) {
+func newTestConn(t *testing.T, hedgeDelay time.Duration, addrs ...string) (*reconnectingConn, *testDialer) {
 	t.Helper()
 
-	dialer := &testDialer{t: t, first: first, next: next}
+	dialer := &testDialer{t: t, addrs: addrs}
 	conn, err := newReconnectingConn(dialer.dial)
 	require.NoError(t, err)
 	conn.hedgeDelay = hedgeDelay
@@ -185,23 +182,24 @@ func queryWithin(t *testing.T, conn grpc.ClientConnInterface, version string, ti
 
 // deadConn starts a server behind a proxy, opens the first connection
 // through the proxy, and then drops that connection.
-func deadConn(t *testing.T, hedgeDelay time.Duration) (*reconnectingConn, *testDialer, *testMalysisServer) {
+func deadConn(t *testing.T, hedgeDelay, answerDelay time.Duration) (*reconnectingConn, *testDialer, *testMalysisServer) {
 	t.Helper()
 
-	srv, addr := startMalysisServer(t, 0)
+	srv, addr := startMalysisServer(t, answerDelay)
 	proxy, proxyAddr := startBlackholeProxy(t, addr)
-	conn, dialer := newTestConn(t, proxyAddr, addr, hedgeDelay)
+	conn, dialer := newTestConn(t, time.Minute, proxyAddr, addr)
 
 	_, _, err := queryWithin(t, conn, "warm", 5*time.Second)
 	require.NoError(t, err)
 	proxy.drop.Store(true)
+	conn.hedgeDelay = hedgeDelay
 
 	return conn, dialer, srv
 }
 
 func TestReconnectingConnWaitsForASlowAnswer(t *testing.T) {
 	_, addr := startMalysisServer(t, 600*time.Millisecond)
-	conn, _ := newTestConn(t, addr, addr, 100*time.Millisecond)
+	conn, _ := newTestConn(t, 100*time.Millisecond, addr)
 
 	resp, _, err := queryWithin(t, conn, "1.0.0", time.Second)
 	require.NoError(t, err, "a slow answer inside the deadline of the caller is a verdict")
@@ -210,7 +208,7 @@ func TestReconnectingConnWaitsForASlowAnswer(t *testing.T) {
 
 func TestReconnectingConnReturnsNotFoundAtOnce(t *testing.T) {
 	srv, addr := startMalysisServer(t, 0)
-	conn, dialer := newTestConn(t, addr, addr, time.Minute)
+	conn, dialer := newTestConn(t, time.Minute, addr)
 
 	_, _, err := queryWithin(t, conn, missingVersion, 5*time.Second)
 	assert.Equal(t, codes.NotFound, status.Code(err))
@@ -220,7 +218,7 @@ func TestReconnectingConnReturnsNotFoundAtOnce(t *testing.T) {
 
 func TestReconnectingConnRecoversFromADeadConnection(t *testing.T) {
 	const hedgeDelay = 300 * time.Millisecond
-	conn, dialer, _ := deadConn(t, hedgeDelay)
+	conn, dialer, _ := deadConn(t, hedgeDelay, 0)
 
 	resp, elapsed, err := queryWithin(t, conn, "1.0.0", 10*time.Second)
 	require.NoError(t, err)
@@ -235,7 +233,7 @@ func TestReconnectingConnRecoversFromADeadConnection(t *testing.T) {
 }
 
 func TestReconnectingConnOpensOneConnectionForABurst(t *testing.T) {
-	conn, dialer, _ := deadConn(t, 300*time.Millisecond)
+	conn, dialer, _ := deadConn(t, 300*time.Millisecond, 0)
 
 	var wg sync.WaitGroup
 	errs := make([]error, 30)
@@ -255,7 +253,7 @@ func TestReconnectingConnOpensOneConnectionForABurst(t *testing.T) {
 }
 
 func TestReconnectingConnRetriesCanceledOnTheCurrentConnection(t *testing.T) {
-	conn, dialer, _ := deadConn(t, time.Minute)
+	conn, dialer, _ := deadConn(t, time.Minute, 0)
 	old := conn.current()
 
 	done := make(chan error, 1)
@@ -265,7 +263,7 @@ func TestReconnectingConnRetriesCanceledOnTheCurrentConnection(t *testing.T) {
 	}()
 	time.Sleep(200 * time.Millisecond)
 
-	fresh, err := conn.next(old)
+	fresh, _, err := conn.next(old)
 	require.NoError(t, err)
 	conn.promote(old, fresh)
 
@@ -276,6 +274,133 @@ func TestReconnectingConnRetriesCanceledOnTheCurrentConnection(t *testing.T) {
 		require.Fail(t, "the call waited for the hedge delay")
 	}
 	assert.Equal(t, int32(2), dialer.dials.Load())
+}
+
+func TestReconnectingConnKeepsTheSpareWhenShortCallersTimeOut(t *testing.T) {
+	conn, dialer, _ := deadConn(t, 100*time.Millisecond, 800*time.Millisecond)
+
+	var wg sync.WaitGroup
+	long := make([]error, 6)
+	short := make([]error, 8)
+	for i := range long {
+		wg.Go(func() { _, _, long[i] = queryWithin(t, conn, "1.0.0", 4*time.Second) })
+	}
+	for i := range short {
+		wg.Go(func() { _, _, short[i] = queryWithin(t, conn, "short", 400*time.Millisecond) })
+	}
+	wg.Wait()
+
+	for i, err := range short {
+		assert.Equal(t, codes.DeadlineExceeded, status.Code(err), "short call %d", i)
+	}
+	for i, err := range long {
+		assert.NoError(t, err, "long call %d gets its answer on the shared spare", i)
+	}
+	assert.Equal(t, int32(2), dialer.dials.Load(), "the short callers do not close the shared spare")
+}
+
+func TestReconnectingConnKeepsTheSpareWhenACallerCancels(t *testing.T) {
+	conn, dialer, _ := deadConn(t, 100*time.Millisecond, 800*time.Millisecond)
+
+	var wg sync.WaitGroup
+	long := make([]error, 3)
+	for i := range long {
+		wg.Go(func() { _, _, long[i] = queryWithin(t, conn, "1.0.0", 4*time.Second) })
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var canceledErr error
+	wg.Go(func() { _, canceledErr = query(ctx, conn, "aborted") })
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	wg.Wait()
+
+	assert.Equal(t, codes.Canceled, status.Code(canceledErr))
+	for i, err := range long {
+		assert.NoError(t, err, "long call %d", i)
+	}
+	assert.Equal(t, int32(2), dialer.dials.Load())
+}
+
+func TestReconnectingConnClosesTheSpareWhenTheCurrentConnectionWins(t *testing.T) {
+	_, addr := startMalysisServer(t, 300*time.Millisecond)
+	proxy0, addr0 := startBlackholeProxy(t, addr)
+	proxy1, addr1 := startBlackholeProxy(t, addr)
+	conn, dialer := newTestConn(t, 100*time.Millisecond, addr0, addr1, addr)
+
+	_, _, err := queryWithin(t, conn, "1.0.0", 5*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, int32(2), dialer.dials.Load(), "the slow answer made the call hedge")
+
+	proxy0.drop.Store(true)
+	proxy1.drop.Store(true)
+
+	resp, elapsed, err := queryWithin(t, conn, "2.0.0", 5*time.Second)
+	require.NoError(t, err, "the call does not reuse an idle spare that died")
+	assert.Equal(t, "analysis-2.0.0", resp.GetAnalysisId())
+	assert.Less(t, elapsed, 2*time.Second)
+	assert.Equal(t, int32(3), dialer.dials.Load())
+}
+
+func TestReconnectingConnClosesASpareThatGaveNoAnswer(t *testing.T) {
+	_, addr := startMalysisServer(t, 0)
+	proxy0, addr0 := startBlackholeProxy(t, addr)
+	proxy1, addr1 := startBlackholeProxy(t, addr)
+	conn, dialer := newTestConn(t, 100*time.Millisecond, addr0, addr1, addr)
+
+	_, _, err := queryWithin(t, conn, "warm", 5*time.Second)
+	require.NoError(t, err)
+	proxy0.drop.Store(true)
+	proxy1.drop.Store(true)
+
+	_, _, err = queryWithin(t, conn, "1.0.0", 500*time.Millisecond)
+	assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	assert.Equal(t, int32(2), dialer.dials.Load())
+
+	_, _, err = queryWithin(t, conn, "2.0.0", 5*time.Second)
+	require.NoError(t, err, "the next hedge opens a new spare")
+	assert.Equal(t, int32(3), dialer.dials.Load())
+}
+
+func TestReconnectingConnFollowsTwoPromotions(t *testing.T) {
+	_, addr := startMalysisServer(t, 0)
+	proxy0, addr0 := startBlackholeProxy(t, addr)
+	proxy1, addr1 := startBlackholeProxy(t, addr)
+	conn, dialer := newTestConn(t, 100*time.Millisecond, addr0, addr1, addr)
+
+	_, _, err := queryWithin(t, conn, "warm", 5*time.Second)
+	require.NoError(t, err)
+	proxy0.drop.Store(true)
+	proxy1.drop.Store(true)
+	c0 := conn.current()
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := queryWithin(t, conn, "1.0.0", 30*time.Second)
+		done <- err
+	}()
+
+	require.Eventually(t, func() bool { return dialer.dials.Load() == 2 }, 5*time.Second, 10*time.Millisecond,
+		"the call hedges onto a second connection")
+	c1, _, err := conn.next(c0)
+	require.NoError(t, err)
+
+	// Another call promotes c1. The call that hedged now waits only on c1.
+	conn.promote(c0, c1)
+	time.Sleep(100 * time.Millisecond)
+
+	// A later call hedges from c1 onto c2 and promotes c2, which closes c1.
+	c2, _, err := conn.next(c1)
+	require.NoError(t, err)
+	conn.promote(c1, c2)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err, "the call follows the second promotion to the current connection")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "the call waited on a closed connection")
+	}
+	assert.Equal(t, int32(3), dialer.dials.Load())
 }
 
 type stubConn struct {

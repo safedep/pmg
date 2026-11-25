@@ -183,6 +183,8 @@ PMG uses the first answer from the server.
 Both attempts share the 10 second limit of one analysis.
 The install report lists each package that PMG allowed without analysis.
 The proxy daemon writes a line to `proxy.log` for each such package, and `pmg proxy stop` lists them.
+`proxy.log` gets at most 20 such lines each minute, then one line with the number of lines that it did not write.
+The install report and `pmg proxy stop` list at most 1000 packages, then the number of the other packages.
 Use `pmg --debug npm install` or `pmg --log pmg-debug.log npm install` to inspect the errors.
 
 The proxy daemon connects to these hosts directly.

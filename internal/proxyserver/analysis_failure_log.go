@@ -56,7 +56,8 @@ func (l *analysisFailureLog) Record(pkg *packagev1.PackageVersion, err error) {
 	}
 	l.written++
 
-	l.write(now, fmt.Sprintf("Allowed %s without malware analysis: %v", ui.PackageVersionPurl(pkg), err))
+	l.write(now, fmt.Sprintf("Allowed %s without malware analysis: %s",
+		ui.PackageVersionPurl(pkg), ui.RemoveControlChars(err.Error())))
 }
 
 func (l *analysisFailureLog) write(now time.Time, line string) {

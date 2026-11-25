@@ -40,7 +40,6 @@ type AnalysisStatsCollector struct {
 
 	unanalyzed     []*packagev1.PackageVersion
 	unanalyzedSeen map[string]bool
-	unanalyzedMore int
 }
 
 // maxUnanalyzedPackages caps the list of packages allowed without analysis.
@@ -241,8 +240,7 @@ func (c *AnalysisStatsCollector) GetCooldownWithheld() []models.CooldownWithheld
 // RecordUnanalyzed records a package that PMG allowed because the analysis
 // failed. A package manager can retry a download, so each version is kept
 // once. It does not count toward analyzed or allowed totals. After
-// maxUnanalyzedPackages, it only counts. That count can hold a retried
-// download more than once.
+// maxUnanalyzedPackages, it keeps only the key of each version, to count it.
 func (c *AnalysisStatsCollector) RecordUnanalyzed(pkg *packagev1.PackageVersion) {
 	key := pkg.GetPackage().GetEcosystem().String() + "|" + pkg.GetPackage().GetName() + "|" + pkg.GetVersion()
 
@@ -252,15 +250,13 @@ func (c *AnalysisStatsCollector) RecordUnanalyzed(pkg *packagev1.PackageVersion)
 	if c.unanalyzedSeen[key] {
 		return
 	}
-	if len(c.unanalyzed) >= maxUnanalyzedPackages {
-		c.unanalyzedMore++
-		return
-	}
 	if c.unanalyzedSeen == nil {
 		c.unanalyzedSeen = make(map[string]bool)
 	}
 	c.unanalyzedSeen[key] = true
-	c.unanalyzed = append(c.unanalyzed, pkg)
+	if len(c.unanalyzed) < maxUnanalyzedPackages {
+		c.unanalyzed = append(c.unanalyzed, pkg)
+	}
 }
 
 // GetUnanalyzedPackages returns the packages that PMG allowed because the
@@ -270,5 +266,5 @@ func (c *AnalysisStatsCollector) GetUnanalyzedPackages() ([]*packagev1.PackageVe
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return slices.Clone(c.unanalyzed), c.unanalyzedMore
+	return slices.Clone(c.unanalyzed), len(c.unanalyzedSeen) - len(c.unanalyzed)
 }

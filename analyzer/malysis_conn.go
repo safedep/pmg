@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -39,16 +40,23 @@ type dialFunc func() (closableConn, error)
 // dead idle connection only after up to 40 seconds, and the authenticated
 // client has no keepalive. A call on a dead connection gets no answer, so
 // after hedgeDelay, or at once when the call fails fast, the same call also
-// goes on a new connection. The first answer from the server wins. Each
+// goes on a spare connection. The first answer from the server wins. Each
 // attempt keeps the full deadline of the caller, so a slow but healthy
 // server still answers.
+//
+// The spare exists only while hedged calls use it. It becomes the current
+// connection when the server answers on it first. It is closed when the
+// current connection answers first, when it fails while its caller waits, or
+// when the last call on it ends at its deadline with no answer. Without the
+// last two rules, a dead spare would stay for the next hedge.
 type reconnectingConn struct {
 	dial       dialFunc
 	hedgeDelay time.Duration
 
-	mu    sync.Mutex
-	conn  closableConn
-	spare closableConn
+	mu         sync.Mutex
+	conn       closableConn
+	spare      closableConn
+	spareCalls int
 }
 
 var _ grpc.ClientConnInterface = &reconnectingConn{}
@@ -77,8 +85,11 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// At most two attempts run at once, so the loser never blocks on send.
 	results := make(chan attemptResult, 2)
+	var running []closableConn
 	start := func(conn closableConn) {
+		running = append(running, conn)
 		attemptReply := out.ProtoReflect().New().Interface()
 		go func() {
 			results <- attemptResult{conn: conn, reply: attemptReply,
@@ -88,34 +99,49 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 
 	first := c.current()
 	start(first)
-	pending, hedged := 1, false
+	hedged := false
+
+	var spare closableConn
+	timedOut := false
+	defer func() {
+		if spare != nil {
+			c.leaveSpare(spare, timedOut)
+		}
+	}()
 
 	hedge := func() {
 		hedged = true
-		next, err := c.next(first)
+		next, isSpare, err := c.next(first)
 		if err != nil {
 			log.Warnf("failed to open a new malysis connection: %v", err)
 			return
 		}
+		if isSpare {
+			spare = next
+		}
 		log.Debugf("Sending %s on a new connection", method)
 		start(next)
-		pending++
 	}
 
 	timer := time.NewTimer(c.hedgeDelay)
 	defer timer.Stop()
 
 	var err error
-	for pending > 0 {
+	for len(running) > 0 {
 		select {
 		case <-timer.C:
 			if !hedged {
 				hedge()
 			}
 		case res := <-results:
-			pending--
+			i := slices.Index(running, res.conn)
+			running = slices.Delete(running, i, i+1)
 			if isServerAnswer(res.err) {
-				c.promote(first, res.conn)
+				if spare != nil && res.conn == spare {
+					c.promote(first, spare)
+				} else if spare != nil {
+					c.closeSpare(spare)
+				}
 				if res.err == nil {
 					proto.Reset(out)
 					proto.Merge(out, res.reply)
@@ -123,13 +149,27 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 				return res.err
 			}
 
+			// An attempt that ended with the caller's own deadline says
+			// nothing about the spare that other calls share. gRPC can end
+			// an attempt at the deadline before ctx.Err() is set, so the
+			// check reads the deadline.
 			err = res.err
-			c.discardSpare(res.conn)
+			if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+				timedOut = true
+				return err
+			}
 			if ctx.Err() != nil {
 				return err
 			}
-			if !hedged {
+			c.closeSpare(res.conn)
+
+			switch current := c.current(); {
+			case !hedged:
 				hedge()
+			case status.Code(res.err) == codes.Canceled && res.conn != current && !slices.Contains(running, current):
+				// Another call closed this connection. The call follows the
+				// current connection until its context ends.
+				start(current)
 			}
 		}
 	}
@@ -150,23 +190,25 @@ func (c *reconnectingConn) current() closableConn {
 
 // next gives the connection for the second attempt of a call that started on
 // old. When another call already replaced old, it is the current connection.
-// Otherwise it is one spare connection that all calls on old share, so a
-// burst of calls on a dead connection opens one new connection.
-func (c *reconnectingConn) next(old closableConn) (closableConn, error) {
+// Otherwise it is the spare, which all calls on old share, so a burst of
+// calls on a dead connection opens one new connection. isSpare tells the
+// call to leave the spare when it ends.
+func (c *reconnectingConn) next(old closableConn) (conn closableConn, isSpare bool, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.conn != old {
-		return c.conn, nil
+		return c.conn, false, nil
 	}
 	if c.spare == nil {
 		spare, err := c.dial()
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		c.spare = spare
+		c.spare, c.spareCalls = spare, 0
 	}
-	return c.spare, nil
+	c.spareCalls++
+	return c.spare, true, nil
 }
 
 // promote makes the spare the current connection after the server answered
@@ -176,28 +218,47 @@ func (c *reconnectingConn) promote(old, answered closableConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.conn != old || c.spare != answered || answered == nil {
+	if c.conn != old || c.spare != answered {
 		return
 	}
 
-	c.conn, c.spare = answered, nil
+	c.conn, c.spare, c.spareCalls = answered, nil, 0
 	if err := old.Close(); err != nil {
 		log.Warnf("failed to close the old malysis connection: %v", err)
 	}
 }
 
-// discardSpare drops a spare connection that failed, so the next hedge opens
-// a new one instead of a spare that died while it was idle.
-func (c *reconnectingConn) discardSpare(failed closableConn) {
+// closeSpare closes conn when it is still the spare. The calls that the close
+// cancels go on the current connection, and find no spare to close again.
+func (c *reconnectingConn) closeSpare(conn closableConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.spare != failed {
+	if c.spare == conn {
+		c.closeSpareLocked()
+	}
+}
+
+// leaveSpare ends the use of the spare by one call. A call that reached its
+// deadline with no answer closes the spare when no other call waits on it.
+func (c *reconnectingConn) leaveSpare(conn closableConn, timedOut bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.spare != conn {
 		return
 	}
 
-	c.spare = nil
-	if err := failed.Close(); err != nil {
+	c.spareCalls--
+	if timedOut && c.spareCalls == 0 {
+		c.closeSpareLocked()
+	}
+}
+
+func (c *reconnectingConn) closeSpareLocked() {
+	spare := c.spare
+	c.spare, c.spareCalls = nil, 0
+	if err := spare.Close(); err != nil {
 		log.Warnf("failed to close the spare malysis connection: %v", err)
 	}
 }

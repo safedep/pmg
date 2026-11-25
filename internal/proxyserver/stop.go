@@ -34,7 +34,7 @@ type StopResult struct {
 	// Unanalyzed names each package that the daemon allowed because the
 	// analysis failed.
 	Unanalyzed []string
-	// UnanalyzedMore counts the packages past the cap of the list.
+	// UnanalyzedMore counts the distinct packages past the cap of the list.
 	UnanalyzedMore int
 	// StateVerified is false when the final state could not be read after
 	// shutdown (e.g. the proxy crashed), which callers may treat as fail-closed.

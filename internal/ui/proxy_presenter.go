@@ -115,7 +115,7 @@ func PolicyRuleBlockMessage(blockCtx *proxy.BlockContext) string {
 	}
 	rule := blockCtx.PolicyRule
 	pkg := packagePurl(blockCtx)
-	ruleID := removeControlChars(rule.RuleID)
+	ruleID := RemoveControlChars(rule.RuleID)
 
 	details := []string{"rule " + ruleID}
 	var lines []string
@@ -125,9 +125,9 @@ func PolicyRuleBlockMessage(blockCtx *proxy.BlockContext) string {
 			fmt.Sprintf("policy revision %d", rule.Revision),
 			fmt.Sprintf("default policy revision %d", rule.DefaultPolicyRevision))
 	} else {
-		lines = append(lines, fmt.Sprintf("pmg: blocked %s by blocked_packages in %s", pkg, removeControlChars(rule.File)))
+		lines = append(lines, fmt.Sprintf("pmg: blocked %s by blocked_packages in %s", pkg, RemoveControlChars(rule.File)))
 	}
-	if reason := removeControlChars(rule.Reason); reason != "" {
+	if reason := RemoveControlChars(rule.Reason); reason != "" {
 		details = append(details, reason)
 	}
 	lines = append(lines, policyRuleIndent+strings.Join(details, " · "))
@@ -149,7 +149,7 @@ func PolicyRuleBlockMessage(blockCtx *proxy.BlockContext) string {
 func BlockedPackageLine(reason proxy.BlockReason, blockCtx *proxy.BlockContext) string {
 	pkg := packagePurl(blockCtx)
 	if blockCtx.Ecosystem == packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED {
-		pkg = removeControlChars(blockCtx.PackageName + "@" + blockCtx.PackageVersion)
+		pkg = RemoveControlChars(blockCtx.PackageName + "@" + blockCtx.PackageVersion)
 	}
 
 	switch reason {
@@ -159,9 +159,9 @@ func BlockedPackageLine(reason proxy.BlockReason, blockCtx *proxy.BlockContext) 
 			return pkg + " · package rule"
 		}
 		if rule.Cloud {
-			return fmt.Sprintf("%s · rule %s · policy revision %d", pkg, removeControlChars(rule.RuleID), rule.Revision)
+			return fmt.Sprintf("%s · rule %s · policy revision %d", pkg, RemoveControlChars(rule.RuleID), rule.Revision)
 		}
-		return fmt.Sprintf("%s · blocked_packages in %s", pkg, removeControlChars(rule.File))
+		return fmt.Sprintf("%s · blocked_packages in %s", pkg, RemoveControlChars(rule.File))
 	case proxy.BlockReasonDependencyCooldown:
 		return pkg + " · dependency cooldown"
 	case proxy.BlockReasonUserDeclined, proxy.BlockReasonConfirmationFailed:
@@ -191,13 +191,13 @@ func PackageVersionPurl(pkg *packagev1.PackageVersion) string {
 	} else if decoded, decodeErr := url.PathUnescape(purl); decodeErr == nil {
 		purl = decoded
 	}
-	return removeControlChars(purl)
+	return RemoveControlChars(purl)
 }
 
-// removeControlChars removes control characters from text that an admin or
-// a config file wrote, so the text cannot move the cursor or change the
-// terminal.
-func removeControlChars(text string) string {
+// RemoveControlChars removes control characters from text that an admin, a
+// config file or a remote service wrote, so the text cannot move the cursor,
+// change the terminal or start a new log line.
+func RemoveControlChars(text string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1

@@ -60,6 +60,20 @@ func TestRunGitHubSummary(t *testing.T) {
 	}
 }
 
+func TestRunGitHubSummaryListsUnanalyzedPackages(t *testing.T) {
+	report := filepath.Join(t.TempDir(), "stop.json")
+	require.NoError(t, os.WriteFile(report, []byte(`{"stopped":true,"state_verified":true,"blocked_count":0,`+
+		`"unanalyzed":["pkg:npm/safedep-test-pkg@0.1.2"],"unanalyzed_count":3}`), 0o644))
+
+	var out bytes.Buffer
+	require.NoError(t, runGitHubSummary(&out, &githubSummaryOptions{report: report, failOnViolation: true}, ""))
+
+	assert.Contains(t, out.String(), "### Packages allowed without malware analysis")
+	assert.Contains(t, out.String(), "- `pkg:npm/safedep-test-pkg@0.1.2`")
+	assert.Contains(t, out.String(), "2 more package(s) are not shown.")
+	assert.Contains(t, out.String(), "::warning title=PMG::PMG allowed 3 package(s) without malware analysis")
+}
+
 func TestRunGitHubSummaryErrors(t *testing.T) {
 	bad := filepath.Join(t.TempDir(), "bad.json")
 	require.NoError(t, os.WriteFile(bad, []byte("{"), 0o644))

@@ -32,6 +32,20 @@ func TestAnalysisFailureLogWritesALine(t *testing.T) {
 		"rpc error: code = DeadlineExceeded desc = context deadline exceeded\n", out.String())
 }
 
+func TestAnalysisFailureLogRemovesControlCharacters(t *testing.T) {
+	var out bytes.Buffer
+	l := newAnalysisFailureLog(&out)
+	l.now = func() time.Time { return time.Date(2026, 11, 25, 5, 7, 34, 0, time.UTC) }
+
+	forged := status.Error(codes.Unavailable,
+		"bad\n2026-11-25T05:07:35Z Allowed pkg:npm/forged@1.0.0 without malware analysis\x1b[2J")
+	l.Record(npmPackage("0.1.2"), forged)
+
+	assert.Equal(t, 1, strings.Count(out.String(), "\n"), "the error text cannot start a new line")
+	assert.NotContains(t, out.String(), "\x1b")
+	assert.Contains(t, out.String(), "desc = bad2026-11-25T05:07:35Z Allowed pkg:npm/forged@1.0.0")
+}
+
 func TestAnalysisFailureLogLimitsABurst(t *testing.T) {
 	var out bytes.Buffer
 	now := time.Date(2026, 11, 25, 5, 0, 0, 0, time.UTC)
