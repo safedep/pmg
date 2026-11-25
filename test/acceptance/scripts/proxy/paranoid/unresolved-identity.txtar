@@ -13,9 +13,13 @@ state="$PWD/proxy-state.json"
 
 pmg proxy start --port 0 --paranoid --state "$state" >proxy.log 2>&1 &
 proxy_pid=$!
+proxy_waited=0
 cleanup() {
-  pmg proxy stop --if-running --state "$state" >/dev/null 2>&1 || true
-  wait "$proxy_pid" 2>/dev/null || true
+  if [ "$proxy_waited" -eq 0 ]; then
+    pmg proxy stop --if-running --state "$state" >/dev/null 2>&1 || true
+    kill "$proxy_pid" 2>/dev/null || true
+    wait "$proxy_pid" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -42,3 +46,4 @@ test "$status" = 403
 cat response.txt
 pmg proxy stop --state "$state" >/dev/null
 wait "$proxy_pid"
+proxy_waited=1

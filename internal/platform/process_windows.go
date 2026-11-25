@@ -1,13 +1,13 @@
 package platform
 
 import (
+	"math"
 	"path/filepath"
 
 	"github.com/safedep/dry/log"
 	"golang.org/x/sys/windows"
 )
 
-// stillActive matches Windows STILL_ACTIVE (STATUS_PENDING).
 const stillActive uint32 = 259
 
 func parentProcessName() (string, error) {
@@ -26,7 +26,7 @@ func parentProcessName() (string, error) {
 }
 
 func isProcessAlive(pid int) bool {
-	if pid <= 0 {
+	if pid <= 0 || uint64(pid) > math.MaxUint32 {
 		return false
 	}
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))

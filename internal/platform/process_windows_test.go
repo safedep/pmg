@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,6 +49,13 @@ func TestIsProcessAliveInvalidPID(t *testing.T) {
 		{name: "zero", pid: 0},
 		{name: "negative", pid: -1},
 		{name: "large negative", pid: -9999},
+	}
+	if uint64(math.MaxInt) > math.MaxUint32 {
+		overflowPID := int(uint64(os.Getpid()) + (uint64(1) << 32))
+		tests = append(tests, struct {
+			name string
+			pid  int
+		}{name: "exceeds uint32", pid: overflowPID})
 	}
 
 	for _, tt := range tests {
