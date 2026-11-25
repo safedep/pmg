@@ -29,8 +29,7 @@ const (
 	malysisMaxAttempts = 3
 	malysisRetryMargin = 100 * time.Millisecond
 
-	// grpcHTTP429 is part of the message of grpc-go for an HTTP 429 from a
-	// proxy in front of the service. grpc-go maps it to Unavailable.
+	// grpc-go reports an HTTP 429 from a proxy as Unavailable with this message.
 	grpcHTTP429 = "status code received from server: 429"
 )
 
@@ -39,8 +38,7 @@ type MalysisQueryAnalyzerConfig struct {
 	// applied as a decorator by newMalysisAnalyzer. nil = no caching.
 	Cache MalysisCache
 
-	// RetryWait turns the base wait before a retry into the real wait. nil
-	// adds jitter. Tests shorten the wait.
+	// RetryWait maps the base wait of a retry to the real wait. Nil adds jitter.
 	RetryWait func(base time.Duration) time.Duration
 }
 
@@ -169,10 +167,14 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 	return analysisResult, nil
 }
 
-// query makes at most 3 attempts. Only the first attempt hedges on a new
-// connection, so one package costs at most 4 queries and 1 new connection.
+// query retries only in paranoid mode. Default mode allows the package on a
+// failure, so a retry would only add load to an outage.
 func (a *malysisQueryAnalyzer) query(ctx context.Context,
 	req *malysisv1.QueryPackageAnalysisRequest) (*malysisv1.QueryPackageAnalysisResponse, error) {
+	if !config.Get().FailClosed() {
+		return a.client.QueryPackageAnalysis(ctx, req)
+	}
+
 	jitter := a.Config.RetryWait
 	if jitter == nil {
 		jitter = malysisJitter
@@ -206,8 +208,8 @@ func (a *malysisQueryAnalyzer) query(ctx context.Context,
 	}
 }
 
-// malysisRetryBase gives the base wait before the next attempt. It refuses an
-// error that a retry cannot change, for example Internal from a backend bug.
+// malysisRetryBase gives the wait before the next attempt, or false for an
+// error that a retry cannot fix, such as Internal from a backend bug.
 func malysisRetryBase(err error, attempt int) (time.Duration, bool) {
 	s := status.Convert(err)
 	var base time.Duration

@@ -375,6 +375,11 @@ func (c *unavailableClient) QueryPackageAnalysis(context.Context, *malysisv1.Que
 }
 
 func TestCircuitBreaker_CountsOneResultForARetriedAnalysis(t *testing.T) {
+	rc := pmgconfig.Get()
+	saved := *rc
+	t.Cleanup(func() { *rc = saved })
+	rc.Config.Paranoid = true
+
 	client := &unavailableClient{}
 	malysis, err := analyzer.NewMalysisQueryAnalyzerWithClient(client, analyzer.MalysisQueryAnalyzerConfig{
 		RetryWait: func(time.Duration) time.Duration { return time.Millisecond },

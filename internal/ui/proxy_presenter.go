@@ -31,8 +31,7 @@ type ProxyPresenter struct {
 // from the interceptor's structured block decision.
 func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.BlockContext) string {
 	if reason == proxy.BlockReasonNoVerdict {
-		// An outage and not a policy blocked the package, so the advisory
-		// message is not appended.
+		// An outage blocked the package, not a policy, so no advisory message.
 		return noVerdictMessage(blockCtx)
 	}
 	if blockCtx == nil {
@@ -188,12 +187,10 @@ func BlockedPackageReason(reason proxy.BlockReason, blockCtx *proxy.BlockContext
 	}
 }
 
-// NoVerdictRetry tells a user why paranoid mode blocked a package with no
-// verdict and what to do.
+// NoVerdictRetry tells the user why paranoid mode blocked the package.
 const NoVerdictRetry = "Paranoid mode blocks a package that has no verdict. Retry the install in a few minutes."
 
-// noVerdictMessage has no package name when an interceptor failed before it
-// read the package from the request.
+// noVerdictMessage has no package name when an interceptor failed before it read one.
 func noVerdictMessage(blockCtx *proxy.BlockContext) string {
 	if blockCtx == nil {
 		return "PMG could not check this request. " + NoVerdictRetry

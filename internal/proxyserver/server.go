@@ -483,9 +483,8 @@ func logSessionSummary(cfg *config.RuntimeConfig, stats interceptors.AnalysisSta
 	audit.LogSessionSummary(daemonSessionData(cfg, stats, duration))
 }
 
-// daemonSessionData maps the proxy stats onto SessionData. The outcome is
-// blocked when anything was blocked. The count leaves out the no-verdict
-// blocks, as the one-shot flow does, because the cloud gets no event for them.
+// daemonSessionData leaves the no-verdict blocks out of the blocked count, as
+// the one-shot flow does, because the cloud gets no event for them.
 func daemonSessionData(cfg *config.RuntimeConfig, stats interceptors.AnalysisStats, duration time.Duration) audit.SessionData {
 	outcome := audit.OutcomeSuccess
 	if stats.BlockedCount > 0 {
@@ -633,8 +632,7 @@ func (l *blockLog) Record(reason pmgproxy.BlockReason, blockCtx *pmgproxy.BlockC
 	l.blocked = append(l.blocked, BlockedPackage{Reason: reason, Context: blockCtx})
 }
 
-// List leaves out a block with no verdict when a later download of the same
-// package got a verdict, because the install then got the package.
+// List leaves out a no-verdict block that a later download of the package healed.
 func (l *blockLog) List(blockedWithoutVerdict func(*pmgproxy.BlockContext) bool) []BlockedPackage {
 	l.mu.Lock()
 	defer l.mu.Unlock()

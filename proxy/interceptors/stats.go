@@ -266,8 +266,7 @@ func (c *AnalysisStatsCollector) RecordNoVerdictBlocked(block *proxy.BlockContex
 	}
 }
 
-// ClearNoVerdictBlock removes the block of a package that a retried download
-// analyzed, because the install then gets the package.
+// ClearNoVerdictBlock removes the block of a package that a later download analyzed.
 func (c *AnalysisStatsCollector) ClearNoVerdictBlock(ecosystem packagev1.Ecosystem, name, version string) {
 	key := packageKey(ecosystem, name, version)
 
@@ -291,8 +290,7 @@ func (c *AnalysisStatsCollector) HasNoVerdictBlock(block *proxy.BlockContext) bo
 	return c.noVerdictSeen[blockKey(block)]
 }
 
-// GetNoVerdictBlocks returns the kept packages that PMG blocked with no
-// verdict, and how many more it blocked.
+// GetNoVerdictBlocks returns the kept no-verdict blocks and the count of the rest.
 func (c *AnalysisStatsCollector) GetNoVerdictBlocks() ([]*proxy.BlockContext, int) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

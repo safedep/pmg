@@ -345,8 +345,7 @@ func (h *Harness) Destinations() []proxy.NetworkDecision {
 	return append([]proxy.NetworkDecision(nil), h.decisions...)
 }
 
-// Block is one block that the proxy sent, with the reason the daemon writes to
-// its state file.
+// Block is one block that the proxy sent, with its reason.
 type Block struct {
 	Reason  proxy.BlockReason
 	Context *proxy.BlockContext

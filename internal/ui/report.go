@@ -96,8 +96,7 @@ type ReportData struct {
 	// Rendered as a hint when the install fails.
 	CooldownWithheldPackages []models.CooldownWithheld
 
-	// Packages that paranoid mode blocked because the malware analysis failed
-	// (proxy mode only)
+	// Packages that paranoid mode blocked with no malware verdict (proxy mode only)
 	NoVerdictBlockedPackages []*proxy.BlockContext
 	NoVerdictMore            int
 
@@ -207,8 +206,7 @@ func printRuleBlockSection(data *ReportData) {
 	fmt.Println()
 }
 
-// NoVerdictBlockedHeadline is the headline printed when paranoid mode blocked
-// a package because PMG could not get a malware verdict.
+// NoVerdictBlockedHeadline heads the packages blocked with no malware verdict.
 const NoVerdictBlockedHeadline = "Blocked with no malware verdict"
 
 func printNoVerdictBlockSection(data *ReportData) {

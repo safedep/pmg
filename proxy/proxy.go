@@ -157,7 +157,6 @@ type ProxyConfig struct {
 	OnBlock func(BlockReason, *BlockContext)
 
 	// FailClosed blocks a request with HTTP 503 when an interceptor fails.
-	// Paranoid mode sets it. Otherwise the proxy allows the request.
 	FailClosed bool
 }
 

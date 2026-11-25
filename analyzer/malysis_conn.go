@@ -28,8 +28,7 @@ const malysisHedgeDelay = 3 * time.Second
 
 type noHedgeKey struct{}
 
-// withoutHedge marks a retry. It goes on the current connection only, so the
-// retry and the hedge do not multiply the queries.
+// withoutHedge marks a retry, which goes on the current connection only.
 func withoutHedge(ctx context.Context) context.Context {
 	return context.WithValue(ctx, noHedgeKey{}, true)
 }
@@ -160,8 +159,7 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 	return err
 }
 
-// invokeCurrent follows the current connection when another call closed the
-// one that this call used.
+// invokeCurrent follows the current connection when another call closed this one.
 func (c *reconnectingConn) invokeCurrent(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
 	conn := c.current()
 	for {

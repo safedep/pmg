@@ -189,7 +189,8 @@ When `SAFEDEP_CLOUD_DATA_ADDR` names another address, the profile must allow tha
 
 When a query gets no answer in 3 seconds, or the connection fails, PMG also sends the query on a new connection.
 PMG uses the first answer from the server.
-When the server answers `Unavailable` or `ResourceExhausted`, PMG sends the query again.
+In paranoid mode, when the server answers `Unavailable` or `ResourceExhausted`, PMG sends the query again.
+Default mode does not send it again, because it allows the package on a failure.
 A proxy in front of the service, such as Cloudflare, gives `Unavailable` for HTTP 429, 502, 503 and 504.
 PMG makes at most 3 attempts.
 Only the first attempt also goes on a new connection, so one package costs at most 4 queries and 1 new connection.

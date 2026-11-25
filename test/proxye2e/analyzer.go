@@ -81,8 +81,7 @@ func NotFound() Verdict {
 	return Verdict{err: status.Error(codes.NotFound, "package not found")}
 }
 
-// ServerError reports a transient upstream failure on every attempt, so the
-// analyzer retries and then fails. Default mode allows, paranoid mode blocks.
+// ServerError reports a transient upstream failure on every attempt.
 func ServerError() Verdict {
 	return Verdict{err: status.Error(codes.Unavailable, "analysis service unavailable")}
 }
@@ -93,8 +92,7 @@ func Delayed(v Verdict, d time.Duration) Verdict {
 	return v
 }
 
-// FailOnce answers the first query for the package with Unavailable, and
-// later queries with v.
+// FailOnce answers the first query with Unavailable and later queries with v.
 func FailOnce(v Verdict) Verdict {
 	v.failOnce = true
 	return v

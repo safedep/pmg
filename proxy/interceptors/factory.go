@@ -38,12 +38,11 @@ type InterceptorContext struct {
 	// process, cloudpolicy.Global.
 	Policy cloudpolicy.Source
 
-	// BreakerOpenPeriod replaces the open period of the analyzer circuit
-	// breaker. Zero means the default of the mode. Set by the proxy E2E tests.
+	// BreakerOpenPeriod overrides the open period of the circuit breaker. Zero
+	// keeps the default of the mode.
 	BreakerOpenPeriod time.Duration
 
 	// OnAnalysisFailure is called for each package that PMG could not analyze.
-	// blocked is true when paranoid mode blocked the package.
 	OnAnalysisFailure func(pkg *packagev1.PackageVersion, err error, blocked bool)
 }
 

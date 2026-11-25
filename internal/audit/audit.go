@@ -102,8 +102,8 @@ func LogMalwareBlocked(pv *packagev1.PackageVersion, reason, analysisID, referen
 	}
 }
 
-// LogNoVerdictBlocked records that paranoid mode blocked a package with no
-// malware verdict. pv is nil when the request has no package identity.
+// LogNoVerdictBlocked records a block with no malware verdict. pv is nil when
+// the request has no package identity.
 func LogNoVerdictBlocked(pv *packagev1.PackageVersion, err error) {
 	message := "Blocked a request with no malware verdict"
 	if pv != nil {

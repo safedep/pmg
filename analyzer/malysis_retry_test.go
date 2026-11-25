@@ -7,6 +7,7 @@ import (
 
 	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	"github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -17,9 +18,18 @@ func waitFor(d time.Duration) func(time.Duration) time.Duration {
 	return func(time.Duration) time.Duration { return d }
 }
 
+func useParanoid(t *testing.T, paranoid bool) {
+	t.Helper()
+	cfg := config.Get()
+	orig := cfg.Config.Paranoid
+	cfg.Config.Paranoid = paranoid
+	t.Cleanup(func() { cfg.Config.Paranoid = orig })
+}
+
 func newRetryTestAnalyzer(t *testing.T, client malysisv1grpc.MalwareAnalysisServiceClient,
 	wait func(time.Duration) time.Duration) *malysisQueryAnalyzer {
 	t.Helper()
+	useParanoid(t, true)
 	an, err := NewMalysisQueryAnalyzerWithClient(client, MalysisQueryAnalyzerConfig{RetryWait: wait}, false)
 	require.NoError(t, err)
 	return an
@@ -107,11 +117,25 @@ func TestMalysisQueryAnalyzerZeroValueRetries(t *testing.T) {
 		errs: []error{status.Error(codes.Unavailable, "down")},
 		resp: &malysisv1.QueryPackageAnalysisResponse{AnalysisId: "a-1"},
 	}
+	useParanoid(t, true)
 	an := &malysisQueryAnalyzer{client: client}
 
 	result, err := an.Analyze(context.Background(), makePkgVersion("pkg", "1.0.0"))
 	require.NoError(t, err)
 	assert.Equal(t, "a-1", result.AnalysisID)
+}
+
+func TestMalysisQueryAnalyzerDoesNotRetryInDefaultMode(t *testing.T) {
+	client := &stubMalwareAnalysisServiceClient{
+		errs: []error{status.Error(codes.Unavailable, "down")},
+		resp: &malysisv1.QueryPackageAnalysisResponse{AnalysisId: "a-1"},
+	}
+	an := newRetryTestAnalyzer(t, client, waitFor(time.Millisecond))
+	useParanoid(t, false)
+
+	_, err := an.Analyze(context.Background(), makePkgVersion("pkg", "1.0.0"))
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+	assert.Equal(t, 1, client.calls)
 }
 
 func TestMalysisQueryAnalyzerDoesNotWaitPastTheDeadline(t *testing.T) {
