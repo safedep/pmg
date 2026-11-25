@@ -37,8 +37,9 @@ type InterceptorContext struct {
 	// process, cloudpolicy.Global.
 	Policy cloudpolicy.Source
 
-	// OnAnalysisFailure is called for each package allowed without analysis.
-	OnAnalysisFailure func(pkg *packagev1.PackageVersion, err error)
+	// OnAnalysisFailure is called for each package that PMG could not analyze.
+	// blocked is true when paranoid mode blocked the package.
+	OnAnalysisFailure func(pkg *packagev1.PackageVersion, err error, blocked bool)
 }
 
 // currentPolicy returns the policy of src, or the policy of the process when

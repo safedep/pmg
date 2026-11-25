@@ -96,6 +96,10 @@ type ReportData struct {
 	// Rendered as a hint when the install fails.
 	CooldownWithheldPackages []models.CooldownWithheld
 
+	// Packages that paranoid mode blocked because the malware analysis failed
+	// (proxy mode only)
+	NoVerdictBlockedPackages []*proxy.BlockContext
+
 	// UnanalyzedPackages is set in proxy mode only.
 	UnanalyzedPackages []*packagev1.PackageVersion
 	UnanalyzedMore     int
@@ -141,7 +145,8 @@ func (r *ReportData) Finalize() {
 
 // HasIssues returns true if any packages were blocked or required confirmation
 func (r *ReportData) HasIssues() bool {
-	return r.BlockedCount > 0 || r.ConfirmedCount > 0 || len(r.CooldownBlockedPackages) > 0 || len(r.RuleBlockedPackages) > 0
+	return r.BlockedCount > 0 || r.ConfirmedCount > 0 || len(r.CooldownBlockedPackages) > 0 || len(r.RuleBlockedPackages) > 0 ||
+		len(r.NoVerdictBlockedPackages) > 0
 }
 
 // WasSuccessful returns true if execution completed without blocks or errors
@@ -201,17 +206,37 @@ func printRuleBlockSection(data *ReportData) {
 	fmt.Println()
 }
 
+// NoVerdictBlockedHeadline is the headline printed when paranoid mode blocked
+// a package because PMG could not get a malware verdict.
+const NoVerdictBlockedHeadline = "Blocked with no malware verdict"
+
+func printNoVerdictBlockSection(data *ReportData) {
+	if len(data.NoVerdictBlockedPackages) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red(NoVerdictBlockedHeadline))
+	for _, block := range data.NoVerdictBlockedPackages {
+		fmt.Printf("    %s\n", packagePurl(block))
+	}
+	fmt.Printf("  %s\n", Colors.Dim("The malware analysis failed. "+noVerdictRetry))
+	fmt.Println()
+}
+
 // reportSilent shows output only when the install was blocked: silent mode
 // hides PMG except for errors, malicious package detection and package rule
 // blocks. Cooldown-only blocks stay hidden, matching the documented silent
 // contract.
 func reportSilent(data *ReportData) {
-	if data.Outcome != OutcomeBlocked || (len(data.BlockedPackages) == 0 && len(data.RuleBlockedPackages) == 0) {
+	if data.Outcome != OutcomeBlocked ||
+		(len(data.BlockedPackages) == 0 && len(data.RuleBlockedPackages) == 0 && len(data.NoVerdictBlockedPackages) == 0) {
 		return
 	}
 
 	printRuleBlockSection(data)
 	printMalwareBlockSection(data)
+	printNoVerdictBlockSection(data)
 	printAdvisoryMessage(data.AdvisoryMessage)
 }
 
@@ -244,9 +269,9 @@ func reportNormal(data *ReportData) {
 		printInsecureWarning(0)
 	}
 
-	// A package rule blocks with no analysis, so a run can block and
-	// analyze nothing.
-	if data.TotalAnalyzed == 0 && len(data.RuleBlockedPackages) == 0 {
+	// A package rule and a failed analysis block with no verdict, so a run
+	// can block and analyze nothing.
+	if data.TotalAnalyzed == 0 && len(data.RuleBlockedPackages) == 0 && len(data.NoVerdictBlockedPackages) == 0 {
 		// No packages analyzed (e.g., npm install with no new packages)
 		return
 	}
@@ -258,6 +283,7 @@ func reportNormal(data *ReportData) {
 	case OutcomeBlocked:
 		printRuleBlockSection(data)
 		printMalwareBlockSection(data)
+		printNoVerdictBlockSection(data)
 
 		if len(data.CooldownBlockedPackages) > 0 {
 			fmt.Println()
@@ -274,7 +300,8 @@ func reportNormal(data *ReportData) {
 			fmt.Println()
 		}
 
-		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.RuleBlockedPackages) == 0 && len(data.CooldownBlockedPackages) > 0
+		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.RuleBlockedPackages) == 0 &&
+			len(data.NoVerdictBlockedPackages) == 0 && len(data.CooldownBlockedPackages) > 0
 		if onlyCooldown {
 			icon = Colors.Yellow("⊘")
 			message = fmt.Sprintf("PMG: %s analyzed, %s blocked by cooldown",
@@ -394,6 +421,14 @@ func reportVerbose(data *ReportData) {
 		fmt.Println(Colors.Red("  " + PolicyRuleBlockedHeadline + ":"))
 		for _, block := range data.RuleBlockedPackages {
 			fmt.Println(PolicyRuleBlockMessage(block))
+		}
+	}
+
+	if len(data.NoVerdictBlockedPackages) > 0 {
+		fmt.Println()
+		fmt.Println(Colors.Red("  " + NoVerdictBlockedHeadline + ":"))
+		for _, block := range data.NoVerdictBlockedPackages {
+			fmt.Printf("    - %s\n", packagePurl(block))
 		}
 	}
 
@@ -636,11 +671,14 @@ func printOutcomeLine(data *ReportData) {
 		hasMalware := len(data.BlockedPackages) > 0
 		hasCooldown := len(data.CooldownBlockedPackages) > 0
 		hasRule := len(data.RuleBlockedPackages) > 0
+		hasNoVerdict := len(data.NoVerdictBlockedPackages) > 0
 		switch {
 		case hasMalware && hasCooldown:
 			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — malicious package detected + cooldown policy"))
 		case hasRule && !hasMalware:
 			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — policy"))
+		case hasNoVerdict && !hasMalware:
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — no malware verdict"))
 		case hasCooldown:
 			fmt.Printf("  %s %s\n", Colors.Yellow("⊘"), Colors.Yellow("Installation blocked — dependency cooldown policy"))
 		default:

@@ -88,7 +88,7 @@ func (i *NpmRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, _ *re
 
 	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version)
 	if err != nil {
-		return i.allowUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version, err), nil
+		return i.handleUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version, err), nil
 	}
 
 	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version, result)

@@ -22,14 +22,24 @@ func npmPackage(version string) *packagev1.PackageVersion {
 }
 
 func TestAnalysisFailureLogWritesALine(t *testing.T) {
-	var out bytes.Buffer
-	l := newAnalysisFailureLog(&out)
-	l.now = func() time.Time { return time.Date(2026, 11, 25, 5, 7, 34, 0, time.UTC) }
+	for _, tc := range []struct {
+		blocked bool
+		action  string
+	}{
+		{blocked: false, action: "Allowed"},
+		{blocked: true, action: "Blocked"},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			var out bytes.Buffer
+			l := newAnalysisFailureLog(&out)
+			l.now = func() time.Time { return time.Date(2026, 11, 25, 5, 7, 34, 0, time.UTC) }
 
-	l.Record(npmPackage("0.1.2"), status.Error(codes.DeadlineExceeded, "context deadline exceeded"))
+			l.Record(npmPackage("0.1.2"), status.Error(codes.DeadlineExceeded, "context deadline exceeded"), tc.blocked)
 
-	assert.Equal(t, "2026-11-25T05:07:34Z Allowed pkg:npm/safedep-test-pkg@0.1.2 without malware analysis: "+
-		"rpc error: code = DeadlineExceeded desc = context deadline exceeded\n", out.String())
+			assert.Equal(t, "2026-11-25T05:07:34Z "+tc.action+" pkg:npm/safedep-test-pkg@0.1.2 without malware analysis: "+
+				"rpc error: code = DeadlineExceeded desc = context deadline exceeded\n", out.String())
+		})
+	}
 }
 
 func TestAnalysisFailureLogRemovesControlCharacters(t *testing.T) {
@@ -39,7 +49,7 @@ func TestAnalysisFailureLogRemovesControlCharacters(t *testing.T) {
 
 	forged := status.Error(codes.Unavailable,
 		"bad\n2026-11-25T05:07:35Z Allowed pkg:npm/forged@1.0.0 without malware analysis\x1b[2J")
-	l.Record(npmPackage("0.1.2"), forged)
+	l.Record(npmPackage("0.1.2"), forged, false)
 
 	assert.Equal(t, 1, strings.Count(out.String(), "\n"), "the error text cannot start a new line")
 	assert.NotContains(t, out.String(), "\x1b")
@@ -54,14 +64,14 @@ func TestAnalysisFailureLogLimitsABurst(t *testing.T) {
 
 	failure := fmt.Errorf("circuit breaker is open")
 	for i := range analysisFailureMaxLines + 5 {
-		l.Record(npmPackage(fmt.Sprintf("1.0.%d", i)), failure)
+		l.Record(npmPackage(fmt.Sprintf("1.0.%d", i)), failure, false)
 	}
 
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	require.Len(t, lines, analysisFailureMaxLines)
 
 	now = now.Add(analysisFailureWindow)
-	l.Record(npmPackage("2.0.0"), failure)
+	l.Record(npmPackage("2.0.0"), failure, false)
 
 	lines = strings.Split(strings.TrimSpace(out.String()), "\n")
 	require.Len(t, lines, analysisFailureMaxLines+2)
@@ -75,7 +85,7 @@ func TestAnalysisFailureLogFlushWritesTheHeldBackCount(t *testing.T) {
 
 	failure := fmt.Errorf("circuit breaker is open")
 	for i := range analysisFailureMaxLines + 3 {
-		l.Record(npmPackage(fmt.Sprintf("1.0.%d", i)), failure)
+		l.Record(npmPackage(fmt.Sprintf("1.0.%d", i)), failure, false)
 	}
 	l.Flush()
 	l.Flush()

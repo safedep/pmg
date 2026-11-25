@@ -529,6 +529,12 @@ func (r *RuntimeConfig) CloudPolicyEnabled() bool {
 	return r.Config.Cloud.Enabled && r.Config.Cloud.Policy
 }
 
+// FailClosed reports whether PMG blocks a package that it cannot verify:
+// paranoid mode is on and insecure installation is off.
+func (r *RuntimeConfig) FailClosed() bool {
+	return r.Config.Paranoid && !r.InsecureInstallation
+}
+
 // ConfigFilePath returns the path to the active config file (the globally
 // managed file when present, otherwise the per-user file).
 func (r *RuntimeConfig) ConfigFilePath() string {

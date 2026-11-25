@@ -85,6 +85,13 @@ func TestProxyPresenterBlockMessage(t *testing.T) {
 			expected: "Failed to get user confirmation for suspicious package npm/evil@1.0.0",
 		},
 		{
+			name:     "no verdict carries no advisory",
+			reason:   proxy.BlockReasonNoVerdict,
+			blockCtx: &proxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "lodash", PackageVersion: "4.17.20"},
+			advisory: "Contact #security-help",
+			expected: "PMG could not get a malware verdict for pkg:npm/lodash@4.17.20. Paranoid mode blocks a package that has no verdict. Retry the install in a few minutes.",
+		},
+		{
 			name:   "dependency cooldown",
 			reason: proxy.BlockReasonDependencyCooldown,
 			blockCtx: &proxy.BlockContext{
@@ -263,6 +270,12 @@ func TestBlockedPackageLine(t *testing.T) {
 			reason:   proxy.BlockReasonConfirmationFailed,
 			blockCtx: npm("odd", "1.0.0", nil),
 			expected: "pkg:npm/odd@1.0.0 · suspicious",
+		},
+		{
+			name:     "a package with no verdict",
+			reason:   proxy.BlockReasonNoVerdict,
+			blockCtx: npm("lodash", "4.17.20", nil),
+			expected: "pkg:npm/lodash@4.17.20 · no malware verdict",
 		},
 		{
 			name:     "a cooldown block",

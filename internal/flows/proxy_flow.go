@@ -334,7 +334,10 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.RuleBlockedPackages = statsCollector.GetRuleBlocks()
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 	reportData.CooldownWithheldPackages = statsCollector.GetCooldownWithheld()
-	reportData.UnanalyzedPackages, reportData.UnanalyzedMore = statsCollector.GetUnanalyzedPackages()
+	reportData.NoVerdictBlockedPackages = statsCollector.GetNoVerdictBlocks()
+	if !cfg.FailClosed() {
+		reportData.UnanalyzedPackages, reportData.UnanalyzedMore = statsCollector.GetUnanalyzedPackages()
+	}
 	outcome := network.finish()
 	reportData.NetworkPolicy = outcome.Report
 	reportData.NetworkRunID = outcome.RunID

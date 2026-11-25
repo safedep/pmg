@@ -50,6 +50,9 @@ type Harness struct {
 	decisionMu sync.Mutex
 	decisions  []proxy.NetworkDecision
 
+	blockMu sync.Mutex
+	blocks  []Block
+
 	caPool *x509.CertPool
 }
 
@@ -200,7 +203,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 		confChan: confChan,
 	}
 
-	h.proxy = buildProxy(t, certMgr, registry, interceptorList, h.recordDial, h.recordDecision, o)
+	h.proxy = buildProxy(t, certMgr, registry, interceptorList, h.recordDial, h.recordDecision, h.recordBlock, o)
 
 	caPool := x509.NewCertPool()
 	caPool.AddCert(caCert.X509Cert)
@@ -220,7 +223,9 @@ func New(t *testing.T, opts ...Option) *Harness {
 	return h
 }
 
-func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *Registry, interceptorList []proxy.Interceptor, recordDial func(string), recordDecision func(proxy.NetworkDecision), o options) proxy.ProxyServer {
+func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *Registry, interceptorList []proxy.Interceptor,
+	recordDial func(string), recordDecision func(proxy.NetworkDecision), recordBlock func(proxy.BlockReason, *proxy.BlockContext),
+	o options) proxy.ProxyServer {
 	t.Helper()
 
 	cfg := proxy.DefaultProxyConfig()
@@ -236,6 +241,7 @@ func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *
 	cfg.NetworkPolicy = o.network
 	cfg.NetworkEnforce = o.networkEnforce
 	cfg.OnNetworkDecision = recordDecision
+	cfg.OnBlock = recordBlock
 	if o.redirectOnlyIP != "" {
 		cfg.AdditionalListenAddrs = []string{net.JoinHostPort(o.redirectOnlyIP, "0")}
 		cfg.RedirectOnlyAddrs = []string{o.redirectOnlyIP}
@@ -324,6 +330,26 @@ func (h *Harness) Destinations() []proxy.NetworkDecision {
 	h.decisionMu.Lock()
 	defer h.decisionMu.Unlock()
 	return append([]proxy.NetworkDecision(nil), h.decisions...)
+}
+
+// Block is one block that the proxy sent, with the reason the daemon writes to
+// its state file.
+type Block struct {
+	Reason  proxy.BlockReason
+	Context *proxy.BlockContext
+}
+
+func (h *Harness) recordBlock(reason proxy.BlockReason, blockCtx *proxy.BlockContext) {
+	h.blockMu.Lock()
+	defer h.blockMu.Unlock()
+	h.blocks = append(h.blocks, Block{Reason: reason, Context: blockCtx})
+}
+
+// Blocks returns every block that the proxy sent, in order.
+func (h *Harness) Blocks() []Block {
+	h.blockMu.Lock()
+	defer h.blockMu.Unlock()
+	return append([]Block(nil), h.blocks...)
 }
 
 func (h *Harness) recordDial(addr string) {

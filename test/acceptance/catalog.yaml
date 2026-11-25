@@ -124,6 +124,12 @@
   tier: P1
   guarantee: "When the malware analysis service cannot be reached, the report names each package that PMG did not analyze."
   labels: [install, analysis-failure, community]
+- id: npm/install/analysis-unreachable-paranoid-blocked
+  title: "paranoid mode blocks a package when the analysis service cannot be reached"
+  category: npm
+  tier: P0
+  guarantee: "In paranoid mode, when the malware analysis service cannot be reached, PMG blocks each package that has no verdict, the install fails, and the report names the package."
+  labels: [install, analysis-failure, paranoid, block, community]
 - id: npm/insecure/bypass-warns
   title: "insecure mode installs but warns that protection is bypassed"
   category: npm

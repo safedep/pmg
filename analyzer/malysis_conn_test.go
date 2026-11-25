@@ -26,14 +26,17 @@ const missingVersion = "missing"
 
 type testMalysisServer struct {
 	malysisv1grpc.UnimplementedMalwareAnalysisServiceServer
-	delay time.Duration
-	stall string
-	calls atomic.Int32
+	delay    time.Duration
+	stall    string
+	failures []codes.Code
+	calls    atomic.Int32
 }
 
 func (s *testMalysisServer) QueryPackageAnalysis(ctx context.Context,
 	req *malysisv1.QueryPackageAnalysisRequest) (*malysisv1.QueryPackageAnalysisResponse, error) {
-	s.calls.Add(1)
+	if n := int(s.calls.Add(1)); n <= len(s.failures) {
+		return nil, status.Error(s.failures[n-1], "try again")
+	}
 	delay := s.delay
 	if req.GetTarget().GetPackageVersion().GetVersion() == s.stall {
 		delay = time.Hour

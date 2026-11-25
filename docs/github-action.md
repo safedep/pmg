@@ -4,7 +4,8 @@ The PMG GitHub Action installs PMG on a Linux GitHub Actions runner and
 starts the PMG proxy for the job. Package manager commands such as `npm
 install`, `pip install`, or `poetry add` go through the proxy. The proxy
 blocks malicious packages before they run. Analysis errors do not block
-the download. See [analysis failure modes](proxy-mode.md#how-pmg-identifies-a-package).
+the download, unless `paranoid` is `true`. See
+[When the malware analysis fails](proxy-mode.md#when-the-malware-analysis-fails).
 
 ```yaml
 - uses: safedep/pmg@v2
@@ -115,7 +116,7 @@ Use exactly lowercase `true` for `cache`, `sandbox`, and `skip-event-logging`. T
 | `api-key` | SafeDep Cloud API key. Set it with `tenant-id`. Use a secret to hold the value. The action then fetches the cloud policy, and the step fails when no cloud policy applies. | unset (cloud sync disabled) |
 | `tenant-id` | SafeDep Cloud tenant ID. Without `api-key` it selects [OIDC mode](#use-github-oidc-instead-of-an-api-key). | unset |
 | `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name. OIDC mode ignores it. | `gh:<owner>/<repo>` when `api-key` is set |
-| `paranoid` | `PMG_PARANOID` | `false` |
+| `paranoid` | `PMG_PARANOID`. Blocks suspicious packages, and blocks a package with HTTP 503 when PMG cannot get a malware verdict | `false` |
 | `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
 | `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `2` |
 | `proxy-mode` | Removed. Proxy interception cannot be disabled. The values `false`, `0`, and `f`, in any letter case, stop the action. Other values cause a warning and are ignored. | unset |
@@ -309,9 +310,11 @@ At the end of the job, the post step of the action:
    the job sets `api-key` or uses OIDC mode.
 2. Proposes a network profile from the destinations the job reached. See
    [Build the profile from a run](#build-the-profile-from-a-run).
-3. Writes the job summary. The summary shows the verdict, each denied
-   connection, each destination and the proposed profile. Tables stop at 100 rows.
-   The run gets one annotation with the blocked package count.
+3. Writes the job summary. The summary shows the verdict, each blocked
+   package with the reason, each denied connection, each destination and the
+   proposed profile. Tables stop at 100 rows.
+   The run gets one annotation with the blocked package count, and one with
+   the count of packages that paranoid mode blocked with no malware verdict.
    It gets up to 10 individual denial annotations and a remaining count.
    Audit-mode matches appear as warnings.
 4. Fails the job when PMG blocked a package or denied a connection. Set

@@ -424,6 +424,29 @@ func TestReportListsUnanalyzedPackages(t *testing.T) {
 	}
 }
 
+func TestReportListsNoVerdictBlocks(t *testing.T) {
+	for _, level := range []VerbosityLevel{VerbosityLevelSilent, VerbosityLevelNormal, VerbosityLevelVerbose} {
+		t.Run(fmt.Sprint(level), func(t *testing.T) {
+			withVerbosity(t, level)
+
+			data := NewReportData()
+			data.Outcome = OutcomeBlocked
+			data.BlockedCount = 1
+			data.ParanoidMode = true
+			data.NoVerdictBlockedPackages = []*proxy.BlockContext{{
+				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "lodash", PackageVersion: "4.17.21",
+			}}
+
+			out := captureStdout(t, func() { Report(data) })
+
+			assert.Contains(t, out, NoVerdictBlockedHeadline, "a block shows in every mode")
+			assert.Contains(t, out, "pkg:npm/lodash@4.17.21")
+			assert.NotContains(t, out, MalwareBlockedHeadline, "a package with no verdict is not malicious")
+			assert.NotContains(t, out, "malicious package detected")
+		})
+	}
+}
+
 func TestReportCooldownBlockNamesThePolicy(t *testing.T) {
 	tests := []struct {
 		name     string

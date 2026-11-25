@@ -2,16 +2,24 @@ package interceptors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	"github.com/safedep/pmg/analyzer"
+	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
+	gobreaker "github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -211,4 +219,106 @@ func TestCircuitBreaker_NotFoundFollowedByRealFailures(t *testing.T) {
 	_, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "blocked", "1.0.0")
 	require.Error(t, err)
 	assert.Equal(t, 6, mock.callCount, "breaker should prevent 7th call from reaching analyzer")
+}
+
+type slowAnalyzer struct {
+	delay time.Duration
+	fail  atomic.Bool
+	calls atomic.Int32
+}
+
+func (s *slowAnalyzer) Name() string { return "slow" }
+
+func (s *slowAnalyzer) Analyze(_ context.Context, pv *packagev1.PackageVersion) (*analyzer.PackageVersionAnalysisResult, error) {
+	s.calls.Add(1)
+	time.Sleep(s.delay)
+	if s.fail.Load() {
+		return nil, status.Error(codes.Unavailable, "down")
+	}
+	return &analyzer.PackageVersionAnalysisResult{PackageVersion: pv, Action: analyzer.ActionAllow}, nil
+}
+
+func TestCircuitBreaker_HalfOpenBurst(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		paranoid    bool
+		probeFails  bool
+		wantSuccess int
+		wantErr     error
+		wantErrs    int
+	}{
+		{name: "paranoid mode waits for the probe", paranoid: true, wantSuccess: 5},
+		{name: "paranoid mode stops at once when the probe fails", paranoid: true, probeFails: true, wantErr: gobreaker.ErrOpenState, wantErrs: 4},
+		{name: "default mode fails the requests that the probe holds back", wantSuccess: 1, wantErr: gobreaker.ErrTooManyRequests, wantErrs: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rc := pmgconfig.Get()
+			saved := *rc
+			t.Cleanup(func() { *rc = saved })
+			rc.Config.Paranoid = tc.paranoid
+
+			slow := &slowAnalyzer{delay: 300 * time.Millisecond}
+			slow.fail.Store(true)
+			base := newTestBaseInterceptor(slow)
+			base.circuitBreaker = newAnalyzerCircuitBreakerWithTimeout("test-half-open", 200*time.Millisecond)
+			ctx := newTestRequestContext()
+
+			for i := range 3 {
+				_, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, fmt.Sprintf("trip-%d", i), "1.0.0")
+				require.Error(t, err)
+			}
+			require.Equal(t, gobreaker.StateOpen, base.circuitBreaker.State())
+			time.Sleep(300 * time.Millisecond)
+			slow.fail.Store(tc.probeFails)
+
+			errs := make([]error, 5)
+			var wg sync.WaitGroup
+			start := time.Now()
+			for i := range errs {
+				wg.Go(func() {
+					_, errs[i] = base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, fmt.Sprintf("burst-%d", i), "1.0.0")
+				})
+			}
+			wg.Wait()
+
+			success, matched := 0, 0
+			for _, err := range errs {
+				switch {
+				case err == nil:
+					success++
+				case errors.Is(err, tc.wantErr):
+					matched++
+				}
+			}
+			assert.Equal(t, tc.wantSuccess, success)
+			assert.Equal(t, tc.wantErrs, matched)
+			assert.Less(t, time.Since(start), 2*time.Second)
+		})
+	}
+}
+
+type unavailableClient struct {
+	malysisv1grpc.MalwareAnalysisServiceClient
+	calls atomic.Int32
+}
+
+func (c *unavailableClient) QueryPackageAnalysis(context.Context, *malysisv1.QueryPackageAnalysisRequest,
+	...grpc.CallOption) (*malysisv1.QueryPackageAnalysisResponse, error) {
+	c.calls.Add(1)
+	return nil, status.Error(codes.Unavailable, "503 Service Unavailable")
+}
+
+func TestCircuitBreaker_CountsOneResultForARetriedAnalysis(t *testing.T) {
+	client := &unavailableClient{}
+	malysis, err := analyzer.NewMalysisQueryAnalyzerWithClient(client, analyzer.MalysisQueryAnalyzerConfig{}, false)
+	require.NoError(t, err)
+	base := newTestBaseInterceptor(malysis)
+
+	_, err = base.analyzePackage(newTestRequestContext(), packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
+	require.Error(t, err)
+
+	assert.Equal(t, int32(3), client.calls.Load(), "the analyzer sends the query three times")
+	counts := base.circuitBreaker.Counts()
+	assert.Equal(t, uint32(1), counts.Requests)
+	assert.Equal(t, uint32(1), counts.TotalFailures)
 }

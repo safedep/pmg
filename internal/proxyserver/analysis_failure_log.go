@@ -32,7 +32,7 @@ func newAnalysisFailureLog(out io.Writer) *analysisFailureLog {
 	return &analysisFailureLog{out: out, now: time.Now}
 }
 
-func (l *analysisFailureLog) Record(pkg *packagev1.PackageVersion, err error) {
+func (l *analysisFailureLog) Record(pkg *packagev1.PackageVersion, err error, blocked bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -49,8 +49,12 @@ func (l *analysisFailureLog) Record(pkg *packagev1.PackageVersion, err error) {
 	}
 	l.written++
 
-	l.write(now, fmt.Sprintf("Allowed %s without malware analysis: %s",
-		ui.PackageVersionPurl(pkg), ui.RemoveControlChars(err.Error())))
+	action := "Allowed"
+	if blocked {
+		action = "Blocked"
+	}
+	l.write(now, fmt.Sprintf("%s %s without malware analysis: %s",
+		action, ui.PackageVersionPurl(pkg), ui.RemoveControlChars(err.Error())))
 }
 
 // Flush writes the count of lines that the limit held back, so the count is
@@ -66,7 +70,7 @@ func (l *analysisFailureLog) flushLocked(now time.Time) {
 	if l.suppressed == 0 {
 		return
 	}
-	l.write(now, fmt.Sprintf("pmg did not write %d more lines about packages allowed without malware analysis", l.suppressed))
+	l.write(now, fmt.Sprintf("pmg did not write %d more lines about packages without malware analysis", l.suppressed))
 	l.suppressed = 0
 }
 

@@ -28,7 +28,7 @@ inputs:
     default: ""
 
   paranoid:
-    description: Treat suspicious packages as malicious (PMG_PARANOID). Empty = use PMG default (false).
+    description: Treat suspicious packages as malicious, and block a package with no malware verdict (PMG_PARANOID). Empty = use PMG default (false).
     required: false
     default: ""
   cooldown-enabled:

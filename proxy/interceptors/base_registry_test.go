@@ -281,26 +281,62 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 	}
 }
 
-func TestAllowUnanalyzedReportsTheFailure(t *testing.T) {
-	mock := &mockAnalyzer{err: status.Error(codes.DeadlineExceeded, "context deadline exceeded")}
-	base := newTestBaseInterceptor(mock)
-	var reported []*packagev1.PackageVersion
-	base.execContext.OnAnalysisFailure = func(pkg *packagev1.PackageVersion, err error) {
-		assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
-		reported = append(reported, pkg)
+func TestHandleUnanalyzed(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		paranoid bool
+		insecure bool
+		blocked  bool
+	}{
+		{name: "default mode allows and reports"},
+		{name: "paranoid mode blocks with no verdict", paranoid: true, blocked: true},
+		{name: "insecure installation wins over paranoid mode", paranoid: true, insecure: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rc := pmgconfig.Get()
+			saved := *rc
+			t.Cleanup(func() { *rc = saved })
+			rc.Config.Paranoid = tc.paranoid
+			rc.InsecureInstallation = tc.insecure
+
+			mock := &mockAnalyzer{err: status.Error(codes.DeadlineExceeded, "context deadline exceeded")}
+			base := newTestBaseInterceptor(mock)
+			var reported []*packagev1.PackageVersion
+			base.execContext.OnAnalysisFailure = func(pkg *packagev1.PackageVersion, err error, blocked bool) {
+				assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
+				assert.Equal(t, tc.blocked, blocked)
+				reported = append(reported, pkg)
+			}
+			ctx := newTestRequestContext()
+
+			_, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
+			require.Error(t, err)
+
+			var resp *proxy.InterceptorResponse
+			for range 2 {
+				resp = base.handleUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0", err)
+			}
+
+			require.Len(t, reported, 2)
+			assert.Equal(t, "flaky", reported[0].GetPackage().GetName())
+			assert.Equal(t, packagev1.Ecosystem_ECOSYSTEM_NPM, reported[0].GetPackage().GetEcosystem())
+			unanalyzed, more := base.statsCollector.GetUnanalyzedPackages()
+			assert.Equal(t, reported[:1], unanalyzed)
+			assert.Zero(t, more)
+
+			if !tc.blocked {
+				assert.Equal(t, proxy.ActionAllow, resp.Action)
+				assert.Empty(t, base.statsCollector.GetNoVerdictBlocks())
+				assert.Zero(t, base.statsCollector.GetStats().BlockedCount)
+				return
+			}
+			assert.Equal(t, proxy.ActionBlock, resp.Action)
+			assert.Equal(t, http.StatusServiceUnavailable, resp.BlockCode)
+			assert.Equal(t, proxy.BlockReasonNoVerdict, resp.BlockReason)
+			want := &proxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "flaky", PackageVersion: "1.0.0"}
+			assert.Equal(t, want, resp.BlockContext)
+			assert.Equal(t, []*proxy.BlockContext{want}, base.statsCollector.GetNoVerdictBlocks(), "a retried download counts once")
+			assert.Equal(t, 1, base.statsCollector.GetStats().BlockedCount)
+		})
 	}
-	ctx := newTestRequestContext()
-
-	_, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
-	require.Error(t, err)
-
-	resp := base.allowUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0", err)
-	assert.Equal(t, proxy.ActionAllow, resp.Action, "an analysis failure still allows the package")
-
-	require.Len(t, reported, 1)
-	assert.Equal(t, "flaky", reported[0].GetPackage().GetName())
-	assert.Equal(t, packagev1.Ecosystem_ECOSYSTEM_NPM, reported[0].GetPackage().GetEcosystem())
-	unanalyzed, more := base.statsCollector.GetUnanalyzedPackages()
-	assert.Equal(t, reported, unanalyzed)
-	assert.Zero(t, more)
 }

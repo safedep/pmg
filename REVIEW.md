@@ -22,9 +22,11 @@ Style, names, comments and refactors are Nit at most. Report at most five Nits i
 
 1. **Fail-open.** A change in `proxy/`, `analyzer/`, `internal/flows/` or `config/` can let a
    package install when PMG cannot get a verdict. Examples are a timeout, an analyzer error, a
-   cache miss, a parse error or an unknown ecosystem. PMG must block or prompt in that case. A
-   path that allows the install is Important. A change that lets an environment variable or a user
-   config override a managed config in lockdown is also Important.
+   cache miss, a parse error or an unknown ecosystem. In paranoid mode PMG must block in that
+   case. A path that allows the install in paranoid mode is Important. In default mode PMG allows
+   the install and must report the package. A path that allows it without a report is Important.
+   A change that lets an environment variable or a user config override a managed config in
+   lockdown is also Important.
 2. **Proxy flow tests.** A security-sensitive change to the proxy flow needs a new or extended
    `TestCase` in `test/proxye2e/`. This applies to interceptors, cooldown, the malware allow,
    confirm and block decisions, the trusted and insecure bypass, and new controls. A missing case

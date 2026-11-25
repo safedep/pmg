@@ -175,23 +175,63 @@ Paranoid mode returns HTTP 403 when an enabled registry parser fails or an artif
 This check applies to GET and HEAD requests unless the user enables insecure installation.
 PMG allows npm API paths under `/-/` and PyPI root index listings without a package identity.
 Endpoints with analysis disabled, including the GitHub npm endpoints, remain outside this check.
-Analyzer errors still allow downloads in both modes.
+When PMG has the identity but the analysis fails, see [When the malware analysis fails](#when-the-malware-analysis-fails).
+
+### When the malware analysis fails
+
 PMG needs access to `community-api.safedep.io:443` for community analysis.
 With SafeDep Cloud credentials, PMG also needs `api.safedep.io:443`, or the address in `SAFEDEP_CLOUD_DATA_ADDR`.
-When a query gets no answer in 3 seconds, or the connection fails, PMG also sends the query on a new connection.
-PMG uses the first answer from the server.
-Both attempts share the 10 second limit of one analysis.
-The install report lists each package that PMG allowed without analysis.
-The proxy daemon writes a line to `proxy.log` for each such package.
-`proxy.log` gets at most 20 such lines each minute, then one line with the number of lines that it did not write.
-The install report lists at most 1000 packages, then the number of the other packages.
-Use `pmg --debug npm install` or `pmg --log pmg-debug.log npm install` to inspect the errors.
-
 The proxy daemon connects to these hosts directly.
 Another pmg process, such as `pmg cloud sync`, connects through the persistent proxy when the proxy variables are set.
 The network profile of that proxy must then allow these hosts.
 The built-in `github-actions` profile allows `community-api.safedep.io:443`, `api.safedep.io:443` and `cloud.safedep.io:443`.
 When `SAFEDEP_CLOUD_DATA_ADDR` names another address, the profile must allow that address.
+
+When a query gets no answer in 3 seconds, or the connection fails, PMG also sends the query on a new connection.
+PMG uses the first answer from the server.
+When the server answers `Unavailable` or `ResourceExhausted`, PMG sends the query again.
+A proxy in front of the service, such as Cloudflare, gives `Unavailable` for HTTP 429, 502, 503 and 504.
+PMG sends one query at most 3 times.
+After `Unavailable` it waits about 200 ms, then about 600 ms.
+After `ResourceExhausted` it waits about 1 second, then about 3 seconds.
+All attempts share the 10 second limit of one analysis.
+PMG does not start a wait that ends after the limit.
+PMG does not send the query again after `Internal`, `Unknown` or a reply that it cannot read, because these show a bug in the service.
+
+`NotFound` from the service allows the package in both modes.
+The community service answers `NotFound` for each version that it has not analyzed yet.
+A block would stop each new release.
+
+When PMG has no verdict after these attempts, the result depends on the mode.
+
+- Default mode allows the download.
+  The install report lists each package that PMG allowed without analysis.
+  The install report lists at most 1000 packages, then the number of the other packages.
+- Paranoid mode blocks the download with HTTP 503, unless the user enables insecure installation.
+  The response says that PMG could not get a malware verdict and that the user can retry the install.
+  PMG sends 503 and not 403, because an outage and not a policy blocks the package.
+  The install report, `pmg proxy stop`, its `--report` JSON and the GitHub Action job summary show the package with the reason `no malware verdict`.
+  `--fail-on-violation` counts the package as a blocked package.
+
+npm and pip send a download again after a 503, so a short outage can slow an install before it fails.
+With its default settings, npm tries the download 3 times in about 70 seconds.
+
+The proxy daemon writes a line to `proxy.log` for each package without a verdict.
+The line starts with `Allowed` in default mode and with `Blocked` in paranoid mode.
+`proxy.log` gets at most 20 such lines each minute, then one line with the number of lines that it did not write.
+Use `pmg --debug npm install` or `pmg --log pmg-debug.log npm install` to inspect the errors.
+
+After 3 failed analyses in a row, a circuit breaker stops the queries of that ecosystem for a period.
+The period is 30 seconds in default mode.
+In paranoid mode it is 10 seconds, because each package that PMG cannot analyze in that period gets a block.
+Then one query tests the service.
+In paranoid mode, the other analyses wait for the result of that query, inside their own 10 second limit.
+So a short failure does not block all the packages of a large install.
+
+The service has a known gap.
+It can send a report with an analysis status other than completed, for example when the analysis is not complete yet.
+PMG reads that report as a verdict that the package is not malicious, also in paranoid mode.
+A fix in the service closes this gap.
 
 `PMG_INSECURE_INSTALLATION=true` bypasses malware analysis and unresolved-identity blocking.
 It does not disable cooldown or network policy.

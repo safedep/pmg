@@ -134,7 +134,9 @@ Optional fields can be absent:
 {"stopped":true,"pid":1234,"blocked_count":0,"state_verified":true,"run_id":"example","observed":2}
 ```
 
-The report can also contain `network`, `cloud_sync` and `violation`.
+The report can also contain `blocked`, `network`, `cloud_sync` and `violation`.
+`blocked` lists each blocked package with its `reason`, for example
+`malware`, `policy_rule` or `no_verdict`.
 `pmg proxy status` exits `0` when a proxy runs, when none runs, and when it
 cannot read the state. Read its output, not its exit code.
 
@@ -147,8 +149,11 @@ with the same state path. Root uses root's cache directory unless
 in the foreground, or `pmg --debug --log pmg-debug.log proxy start --daemon`.
 The [event log](proxy-mode.md#troubleshooting) of that user records each
 blocked package. The daemon also writes a line to `proxy.log` for each
-package that it allows because the malware analysis failed. It writes at
-most 20 such lines each minute.
+package that has no malware verdict because the analysis failed. In default
+mode it allows the package. In paranoid mode it blocks the package with HTTP
+`503`, and `pmg proxy stop` lists the package with the reason
+`no malware verdict`. It writes at most 20 such lines each minute. See
+[When the malware analysis fails](proxy-mode.md#when-the-malware-analysis-fails).
 
 The daemon keeps one connection to the malware analysis service. A NAT or
 a firewall can drop that connection when it is idle. The community client
@@ -483,12 +488,13 @@ in time. With `--if-running`, it exits `0` when no proxy runs.
 `--fail-on-violation` makes stop a gate:
 
 - It exits non-zero when any package was blocked, or when the network
-  policy refused a connection under `enforce`.
+  policy refused a connection under `enforce`. A package that paranoid mode
+  blocked with no malware verdict counts.
 - It fails when the state file is missing or unreadable after shutdown. The check does not
   prove that the daemon wrote its final counts. A daemon killed during
   shutdown, before its final write, can report 0 blocked.
 
-The package manager's own non-zero exit, from the `403` on a blocked
+The package manager's own non-zero exit, from the `403` or `503` on a blocked
 download, is a separate signal. `--fail-on-violation` is the proxy's own
 verdict, whatever the package manager reported.
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	malysisv1pb "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
@@ -19,8 +20,9 @@ import (
 // raw upstream signal: the real analyzer's verdict-mapping (suspicious→confirm,
 // paranoid upgrade, verified→block, exclusion→allow) runs on top of it.
 type Verdict struct {
-	resp *malysisv1.QueryPackageAnalysisResponse
-	err  error
+	resp  *malysisv1.QueryPackageAnalysisResponse
+	err   error
+	delay time.Duration
 }
 
 // Clean reports no malware (allow).
@@ -77,9 +79,16 @@ func NotFound() Verdict {
 	return Verdict{err: status.Error(codes.NotFound, "package not found")}
 }
 
-// ServerError reports an upstream failure, exercising the fail-open path.
+// ServerError reports a transient upstream failure on every attempt, so the
+// analyzer retries and then fails. Default mode allows, paranoid mode blocks.
 func ServerError() Verdict {
 	return Verdict{err: status.Error(codes.Unavailable, "analysis service unavailable")}
+}
+
+// Delayed answers v after d, so that concurrent queries overlap.
+func Delayed(v Verdict, d time.Duration) Verdict {
+	v.delay = d
+	return v
 }
 
 type AnalyzedPackage struct {
@@ -169,6 +178,7 @@ func (r *AnalyzerRecorder) handle(req *malysisv1.QueryPackageAnalysisRequest) (*
 	if !ok {
 		v = Clean()
 	}
+	time.Sleep(v.delay)
 	if v.err != nil {
 		return nil, v.err
 	}

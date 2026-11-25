@@ -442,7 +442,7 @@ func buildInterceptors(
 	confirmationChan chan *interceptors.ConfirmationRequest,
 	registries []config.ProxyRegistryConfig,
 	ecosystems []packagev1.Ecosystem,
-	onAnalysisFailure func(*packagev1.PackageVersion, error),
+	onAnalysisFailure func(*packagev1.PackageVersion, error, bool),
 ) ([]pmgproxy.Interceptor, error) {
 	factory, err := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,

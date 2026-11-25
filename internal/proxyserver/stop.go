@@ -57,6 +57,7 @@ type StopReport struct {
 	Stopped       bool             `json:"stopped"`
 	PID           int              `json:"pid,omitempty"`
 	BlockedCount  int              `json:"blocked_count"`
+	Blocked       []BlockedPackage `json:"blocked,omitempty"`
 	StateVerified bool             `json:"state_verified"`
 	RunID         string           `json:"run_id,omitempty"`
 	Observed      int              `json:"observed"`
@@ -74,6 +75,7 @@ func (r StopResult) Report(violation string) StopReport {
 		Stopped:       true,
 		PID:           r.PID,
 		BlockedCount:  r.BlockedCount,
+		Blocked:       r.Blocked,
 		StateVerified: r.StateVerified,
 		RunID:         r.RunID,
 		Observed:      r.Observed,

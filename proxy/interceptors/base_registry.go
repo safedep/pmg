@@ -2,6 +2,7 @@ package interceptors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -38,8 +39,22 @@ type baseRegistryInterceptor struct {
 	inflight singleflight.Group
 }
 
+const (
+	analysisTimeout = 10 * time.Second
+
+	// An open breaker blocks every package in paranoid mode, so it probes the
+	// service again sooner. In default mode it allows them without analysis.
+	breakerOpenPeriod         = 30 * time.Second
+	paranoidBreakerOpenPeriod = 10 * time.Second
+
+	halfOpenPoll = 100 * time.Millisecond
+)
+
 func newAnalyzerCircuitBreaker(name string) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
-	return newAnalyzerCircuitBreakerWithTimeout(name, 30*time.Second)
+	if config.Get().FailClosed() {
+		return newAnalyzerCircuitBreakerWithTimeout(name, paranoidBreakerOpenPeriod)
+	}
+	return newAnalyzerCircuitBreakerWithTimeout(name, breakerOpenPeriod)
 }
 
 func newAnalyzerCircuitBreakerWithTimeout(name string, cooldown time.Duration) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
@@ -207,10 +222,10 @@ func (b *baseRegistryInterceptor) analyzePackage(
 			return cached, nil
 		}
 
-		result, err := b.circuitBreaker.Execute(func() (*analyzer.PackageVersionAnalysisResult, error) {
-			analysisCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
+		analysisCtx, cancel := context.WithTimeout(context.Background(), analysisTimeout)
+		defer cancel()
 
+		result, err := b.execute(analysisCtx, func() (*analyzer.PackageVersionAnalysisResult, error) {
 			res, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
 			if err != nil {
 				// NotFound means the package is not in the analysis DB — this is expected
@@ -250,9 +265,27 @@ func (b *baseRegistryInterceptor) analyzePackage(
 	return result, nil
 }
 
-// allowUnanalyzed reports the failure through the stats collector and
+// execute lets a request in paranoid mode wait for the probe of the half-open
+// breaker, so that one short failure does not block a whole burst.
+func (b *baseRegistryInterceptor) execute(ctx context.Context,
+	analyze func() (*analyzer.PackageVersionAnalysisResult, error)) (*analyzer.PackageVersionAnalysisResult, error) {
+	for {
+		result, err := b.circuitBreaker.Execute(analyze)
+		if !errors.Is(err, gobreaker.ErrTooManyRequests) || !config.Get().FailClosed() {
+			return result, err
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(halfOpenPoll):
+		}
+	}
+}
+
+// handleUnanalyzed reports the failure through the stats collector and
 // OnAnalysisFailure, because the logger is off without --debug.
-func (b *baseRegistryInterceptor) allowUnanalyzed(
+func (b *baseRegistryInterceptor) handleUnanalyzed(
 	ctx *proxy.RequestContext,
 	ecosystem packagev1.Ecosystem,
 	name, version string,
@@ -260,6 +293,7 @@ func (b *baseRegistryInterceptor) allowUnanalyzed(
 ) *proxy.InterceptorResponse {
 	log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, name, version, err)
 
+	failClosed := config.Get().FailClosed()
 	pkgVersion := &packagev1.PackageVersion{
 		Package: &packagev1.Package{Ecosystem: ecosystem, Name: name},
 		Version: version,
@@ -268,10 +302,26 @@ func (b *baseRegistryInterceptor) allowUnanalyzed(
 		b.statsCollector.RecordUnanalyzed(pkgVersion)
 	}
 	if b.execContext.OnAnalysisFailure != nil {
-		b.execContext.OnAnalysisFailure(pkgVersion, err)
+		b.execContext.OnAnalysisFailure(pkgVersion, err, failClosed)
 	}
 
-	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}
+	if !failClosed {
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}
+	}
+
+	log.Warnf("[%s] Paranoid mode blocked %s/%s@%s without a malware verdict", ctx.RequestID, ecosystem.String(), name, version)
+	block := &proxy.BlockContext{Ecosystem: ecosystem, PackageName: name, PackageVersion: version}
+	if b.statsCollector != nil {
+		b.statsCollector.RecordNoVerdictBlocked(block)
+	}
+
+	// 503 and not 403, because an outage and not a policy refused the package.
+	return &proxy.InterceptorResponse{
+		Action:       proxy.ActionBlock,
+		BlockCode:    http.StatusServiceUnavailable,
+		BlockReason:  proxy.BlockReasonNoVerdict,
+		BlockContext: block,
+	}
 }
 
 // handleAnalysisResult processes the analysis result and returns appropriate response action
@@ -553,8 +603,7 @@ func ambiguousRegistryIdentity(ctx *proxy.RequestContext) *proxy.InterceptorResp
 }
 
 func unresolvedRegistryIdentity(ctx *proxy.RequestContext) *proxy.InterceptorResponse {
-	rc := config.Get()
-	if rc.Config.Paranoid && !rc.InsecureInstallation {
+	if config.Get().FailClosed() {
 		log.Warnf("[%s] Paranoid mode blocked a registry request with an unresolved package identity", ctx.RequestID)
 		return &proxy.InterceptorResponse{
 			Action:       proxy.ActionBlock,

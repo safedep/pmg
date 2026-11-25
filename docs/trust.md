@@ -145,12 +145,13 @@ model consists of the following layers:
 3. The experimental sandbox provides opt-in containment on macOS and Linux. It is disabled by default. See [sandboxing](sandbox.md) for its enforcement scope and platform limits.
 
 PMG currently uses SafeDep as its threat intelligence source.
-When the analyzer fails, PMG allows the artifact through the malware check.
+When the analyzer fails, default mode allows the artifact through the malware check and reports it.
 Paranoid mode blocks suspicious verdicts.
 It also blocks most registry reads that PMG cannot identify.
-It does not turn analyzer errors into blocks.
+It also blocks an artifact with HTTP 503 when the analyzer fails.
 Other controls can still reject the request.
-See [analysis behavior](proxy-mode.md#how-pmg-identifies-a-package).
+See [How PMG identifies a package](proxy-mode.md#how-pmg-identifies-a-package) and
+[When the malware analysis fails](proxy-mode.md#when-the-malware-analysis-fails).
 
 Use [SECURITY.md](../SECURITY.md) to report a vulnerability.
 

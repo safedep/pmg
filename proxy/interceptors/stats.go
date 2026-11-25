@@ -40,6 +40,9 @@ type AnalysisStatsCollector struct {
 
 	unanalyzed     []*packagev1.PackageVersion
 	unanalyzedSeen map[string]bool
+
+	noVerdictBlocks []*proxy.BlockContext
+	noVerdictSeen   map[string]bool
 }
 
 // maxUnanalyzedPackages caps the list, because an outage in a long-running
@@ -237,10 +240,41 @@ func (c *AnalysisStatsCollector) GetCooldownWithheld() []models.CooldownWithheld
 	return result
 }
 
+// RecordNoVerdictBlocked records a package that PMG blocked because the
+// analysis failed. It keeps each version once, because npm and pip retry a 503.
+func (c *AnalysisStatsCollector) RecordNoVerdictBlocked(block *proxy.BlockContext) {
+	key := packageKey(block.Ecosystem, block.PackageName, block.PackageVersion)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.noVerdictSeen[key] {
+		return
+	}
+	if c.noVerdictSeen == nil {
+		c.noVerdictSeen = make(map[string]bool)
+	}
+	c.noVerdictSeen[key] = true
+	c.stats.BlockedCount++
+	c.noVerdictBlocks = append(c.noVerdictBlocks, block)
+}
+
+// GetNoVerdictBlocks returns the packages that PMG blocked with no verdict.
+func (c *AnalysisStatsCollector) GetNoVerdictBlocks() []*proxy.BlockContext {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return slices.Clone(c.noVerdictBlocks)
+}
+
+func packageKey(ecosystem packagev1.Ecosystem, name, version string) string {
+	return ecosystem.String() + "|" + name + "|" + version
+}
+
 // RecordUnanalyzed keeps each version once, because a package manager can
 // retry a download. Past the cap it keeps only the key, to count it.
 func (c *AnalysisStatsCollector) RecordUnanalyzed(pkg *packagev1.PackageVersion) {
-	key := pkg.GetPackage().GetEcosystem().String() + "|" + pkg.GetPackage().GetName() + "|" + pkg.GetVersion()
+	key := packageKey(pkg.GetPackage().GetEcosystem(), pkg.GetPackage().GetName(), pkg.GetVersion())
 
 	c.mu.Lock()
 	defer c.mu.Unlock()

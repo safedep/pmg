@@ -10,6 +10,8 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/internal/ui"
+	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/safedep/pmg/sandbox/propose"
 )
@@ -65,6 +67,7 @@ func Markdown(in Input) string {
 	b.WriteString(verdict(in))
 	b.WriteString("\n\n")
 	writeOverview(&b, in)
+	writeBlocked(&b, in)
 	writeDenials(&b, in)
 	writeDestinations(&b, in)
 	writeProposal(&b, in)
@@ -123,6 +126,39 @@ func writeOverview(b *strings.Builder, in Input) {
 	b.WriteString("| Packages blocked | Network mode | Network profile | Destinations observed |\n")
 	b.WriteString("|---|---|---|---|\n")
 	fmt.Fprintf(b, "| %s | %s | %s | %d |\n\n", blocked, cell(mode), profileCell, in.Stop.Observed)
+}
+
+func writeBlocked(b *strings.Builder, in Input) {
+	blocked := in.Stop.Blocked
+	if len(blocked) == 0 {
+		return
+	}
+	b.WriteString("### Blocked packages\n\n")
+	b.WriteString("| Package | Reason |\n|---|---|\n")
+	for i, p := range blocked {
+		if i == maxTableRows {
+			fmt.Fprintf(b, "\n%d more package(s) are not shown.\n", len(blocked)-maxTableRows)
+			break
+		}
+		if p.Context == nil {
+			continue
+		}
+		fmt.Fprintf(b, "| %s | %s |\n", code(ui.BlockedPackageName(p.Context)), cell(ui.BlockedPackageReason(p.Reason, p.Context)))
+	}
+	if n := countNoVerdict(blocked); n > 0 {
+		fmt.Fprintf(b, "\nPMG could not get a malware verdict for %d package(s). Paranoid mode blocks a package that has no verdict. Re-run the job in a few minutes.\n", n)
+	}
+	b.WriteString("\n")
+}
+
+func countNoVerdict(blocked []proxyserver.BlockedPackage) int {
+	n := 0
+	for _, p := range blocked {
+		if p.Reason == pmgproxy.BlockReasonNoVerdict {
+			n++
+		}
+	}
+	return n
 }
 
 func writeDenials(b *strings.Builder, in Input) {

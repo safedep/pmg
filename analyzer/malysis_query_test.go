@@ -22,9 +22,19 @@ type stubMalwareAnalysisServiceClient struct {
 
 	resp *malysisv1.QueryPackageAnalysisResponse
 	err  error
+
+	// errs are returned one per call before resp and err.
+	errs  []error
+	calls int
 }
 
 func (s *stubMalwareAnalysisServiceClient) QueryPackageAnalysis(ctx context.Context, req *malysisv1.QueryPackageAnalysisRequest, opts ...grpc.CallOption) (*malysisv1.QueryPackageAnalysisResponse, error) {
+	s.calls++
+	if len(s.errs) > 0 {
+		err := s.errs[0]
+		s.errs = s.errs[1:]
+		return nil, err
+	}
 	return s.resp, s.err
 }
 

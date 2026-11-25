@@ -146,9 +146,8 @@ func (i *GoRegistryInterceptor) handleArtifact(
 }
 
 // handleZipDownload runs dependency cooldown, then trusted/insecure
-// fast-allow, then malware analysis. memoize is false when the outcome is a
-// fail-open allow after an analyzer error, so a retried request gets another
-// chance to be analyzed. It is also false when a package rule decided the
+// fast-allow, then malware analysis. memoize is false after an analyzer
+// error, so a retried request gets another chance to be analyzed. It is also false when a package rule decided the
 // outcome, because pmg keeps no rule result.
 func (i *GoRegistryInterceptor) handleZipDownload(
 	ctx *proxy.RequestContext,
@@ -171,7 +170,7 @@ func (i *GoRegistryInterceptor) handleZipDownload(
 
 	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version)
 	if err != nil {
-		return i.allowUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, err), false, nil
+		return i.handleUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, err), false, nil
 	}
 
 	resp, ruleDecided, err := i.handleVerdict(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, result)

@@ -1,0 +1,18 @@
+# guarantee: in paranoid mode, when PMG cannot reach the malware analysis
+# service, PMG blocks each package that has no verdict, the install fails, and
+# the report names the package and the reason. HTTPS_PROXY names a closed port,
+# so the analysis client fails to connect. NO_PROXY sends the registry traffic
+# of PMG direct, and PMG gives npm its own proxy variables, so npm still reaches
+# the registry. --fetch-retries=0 stops npm from sending the download again
+# after the 503.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env HTTPS_PROXY=http://127.0.0.1:1
+env NO_PROXY=registry.npmjs.org
+
+exec pmg npm init -y
+! exec pmg --paranoid npm --no-cache --prefer-online --fetch-retries=0 install lodash@4.17.21
+stdout 'Blocked with no malware verdict'
+stdout 'pkg:npm/lodash@4.17.21'
+! stdout 'PMG allowed these packages without analysis'

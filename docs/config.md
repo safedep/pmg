@@ -191,7 +191,10 @@ PMG_PROXY_INSTALL_ONLY=true pmg npm install express
 Paranoid mode blocks suspicious packages instead of asking for confirmation.
 It also blocks registry GET and HEAD requests when an enabled registry parser fails.
 It also blocks artifact requests with an incomplete package identity.
-See [registry identity policy](proxy-mode.md#how-pmg-identifies-a-package) for exceptions and analyzer-error behavior.
+It also blocks a package when PMG cannot get a malware verdict, for example when the malware analysis service is down.
+PMG sends HTTP 503 for that block, so the user can retry the install.
+Insecure installation turns off these blocks.
+See [registry identity policy](proxy-mode.md#how-pmg-identifies-a-package) for exceptions, and [When the malware analysis fails](proxy-mode.md#when-the-malware-analysis-fails).
 
 **Precedence (highest to lowest):**
 
