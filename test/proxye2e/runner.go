@@ -3,6 +3,7 @@ package proxye2e
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	specv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/policy/spec/v1"
 	"github.com/safedep/pmg/config"
@@ -42,6 +43,10 @@ type TestCase struct {
 	// runner writes it as the policy cache of that user, which a sudo run also
 	// reads.
 	SudoPolicy *specv1.ResolvedPolicy
+
+	// SudoPolicyOlder sets the fetch of SudoPolicy a day before the fetch of
+	// Policy. Otherwise both caches have the same fetch time.
+	SudoPolicyOlder bool
 
 	Setup  func(h *Harness)
 	Exec   func(h *Harness) ExecResult
@@ -112,11 +117,15 @@ func loadPolicy(t *testing.T, tc TestCase) cloudpolicy.Source {
 	})
 
 	cfg := config.Get()
+	fetchedAt := time.Now()
 	if tc.Policy != nil {
-		writePolicy(t, cfg.CloudPolicyCacheDir(), tc.Policy)
+		writePolicy(t, cfg.CloudPolicyCacheDir(), tc.Policy, fetchedAt)
 	}
 	if tc.SudoPolicy != nil {
-		writePolicy(t, sudoCache, tc.SudoPolicy)
+		if tc.SudoPolicyOlder {
+			fetchedAt = fetchedAt.Add(-24 * time.Hour)
+		}
+		writePolicy(t, sudoCache, tc.SudoPolicy, fetchedAt)
 	}
 
 	rt := &cloudpolicy.Runtime{}
@@ -154,7 +163,7 @@ func applyConfig(t *testing.T, override func(rc *config.RuntimeConfig)) {
 	}
 }
 
-func writePolicy(t *testing.T, dir string, policy *specv1.ResolvedPolicy) {
+func writePolicy(t *testing.T, dir string, policy *specv1.ResolvedPolicy, fetchedAt time.Time) {
 	t.Helper()
 	machineID, err := cloudpolicytest.MachineID(policyEndpointID)
 	require.NoError(t, err)
@@ -164,4 +173,5 @@ func writePolicy(t *testing.T, dir string, policy *specv1.ResolvedPolicy) {
 		Revision:              48,
 		DefaultPolicyRevision: 12,
 	}))
+	require.NoError(t, cloudpolicytest.SetFetchedAt(dir, fetchedAt))
 }

@@ -107,7 +107,7 @@ func TestLoadUnderSudoAppliesTheCacheWithTheLaterFetch(t *testing.T) {
 		MachineID: testMachineID(t),
 		Revision:  10,
 	}))
-	setFetchedAt(t, homeCache, time.Now().Add(-24*time.Hour))
+	require.NoError(t, cloudpolicytest.SetFetchedAt(homeCache, time.Now().Add(-24*time.Hour)))
 	writeCache(t, cfg, cloudpolicytest.Policy(blockEvil()), 11)
 
 	st := Load(cfg, testTenant)
