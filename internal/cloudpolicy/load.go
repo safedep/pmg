@@ -127,15 +127,21 @@ func (s *Status) CacheMoved() bool {
 // stateDigest returns the digest that state.json in dir names, or "" when
 // the folder has no readable state.
 func stateDigest(dir string) string {
+	return cacheState(dir).Digest
+}
+
+// cacheState returns the state of the cache in dir, or a zero state when
+// the cache has none.
+func cacheState(dir string) configsync.State {
 	store, err := configsync.NewStore(dir)
 	if err != nil {
-		return ""
+		return configsync.State{}
 	}
 	state, err := store.State()
 	if err != nil {
-		return ""
+		return configsync.State{}
 	}
-	return state.Digest
+	return *state
 }
 
 // RejectedRevision returns the revision of the policy that pmg did not
@@ -365,9 +371,10 @@ func machineID(cfg *config.RuntimeConfig) (string, error) {
 // cacheDirs returns the cache folders that pmg reads, in order. The first
 // cache that loads wins. Under sudo, pmg also reads the cache of the invoking
 // user, read-only, because root usually has no cloud login and its own cache
-// stays empty. Without PMG_STATE_DIR, that cache comes first. With
-// PMG_STATE_DIR, the state directory cache comes first, because the default
-// cache of the invoking user can hold an old policy that nothing updates.
+// stays empty. The cache with the later fetch comes first, because a fetch
+// writes one cache only and the other one can hold an old policy. If the
+// fetch times are equal, the cache of the invoking user comes first, except
+// with PMG_STATE_DIR.
 func cacheDirs(cfg *config.RuntimeConfig) []string {
 	own := cfg.CloudPolicyCacheDir()
 	if !platform.IsSudo() {
@@ -383,10 +390,24 @@ func cacheDirs(cfg *config.RuntimeConfig) []string {
 	if dir == own {
 		return []string{own}
 	}
+	dirs := []string{dir, own}
 	if cfg.StateDirOverridden() {
-		return []string{own, dir}
+		dirs = []string{own, dir}
 	}
-	return []string{dir, own}
+	// A fetch time in the future is not real, so it does not move a cache
+	// to the front.
+	now := time.Now()
+	fetchedAt := func(dir string) time.Time {
+		at := cacheState(dir).FetchedAt
+		if at.After(now) {
+			return time.Time{}
+		}
+		return at
+	}
+	if fetchedAt(dirs[1]).After(fetchedAt(dirs[0])) {
+		dirs[0], dirs[1] = dirs[1], dirs[0]
+	}
+	return dirs
 }
 
 func loginTenant() string {

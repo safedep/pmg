@@ -6,25 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { cloudMode, exchange, isForkPullRequest } = require('./workload');
-
-function withEnv(vars, fn) {
-  const saved = {};
-  for (const [name, value] of Object.entries(vars)) {
-    saved[name] = process.env[name];
-    process.env[name] = value;
-  }
-  try {
-    return fn();
-  } finally {
-    for (const [name, value] of Object.entries(saved)) {
-      if (value === undefined) {
-        delete process.env[name];
-      } else {
-        process.env[name] = value;
-      }
-    }
-  }
-}
+const { withEnv } = require('./testenv');
 
 test('cloudMode', async (t) => {
   for (const [name, env, want] of [

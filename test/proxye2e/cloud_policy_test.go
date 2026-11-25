@@ -571,8 +571,8 @@ func TestCloudPolicy_GoZipReuseKeepsNoRuleResult(t *testing.T) {
 }
 
 // A sudo run reads the policy cache of the user who ran sudo as well as its
-// own. With PMG_STATE_DIR, the state directory cache comes first, and the
-// cache of that user stays the fallback.
+// own. The cache with the later fetch comes first. If the fetch times are
+// equal, the cache of that user comes first, except with PMG_STATE_DIR.
 func TestCloudPolicy_StateDirUnderSudo(t *testing.T) {
 	install := func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.2.4") }
 	setup := func(h *Harness) { addEvil(h, Clean()) }
@@ -607,6 +607,17 @@ func TestCloudPolicy_StateDirUnderSudo(t *testing.T) {
 			Exec:       install,
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assertRuleBlocked(t, h, res, "r_user", true)
+			},
+		},
+		{
+			Name:            "without PMG_STATE_DIR a later fetch of root wins over an older sudo user policy",
+			Policy:          cpt.Policy(cpt.Block("r_own", "pkg:npm/evil", "", "root cache")),
+			SudoPolicy:      cpt.Policy(cpt.Block("r_user", "pkg:npm/evil", "", "sudo user")),
+			SudoPolicyOlder: true,
+			Setup:           setup,
+			Exec:            install,
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRuleBlocked(t, h, res, "r_own", true)
 			},
 		},
 	})
