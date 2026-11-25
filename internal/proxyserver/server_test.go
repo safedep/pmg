@@ -24,7 +24,7 @@ func TestBuildInterceptorsWiresCustomRegistries(t *testing.T) {
 		{Name: "company-go", Ecosystem: "go", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://goproxy.test/go"}}},
 	}
 
-	got, err := buildInterceptors(nil, nil, nil, nil, registries, interceptors.SupportedEcosystems())
+	got, err := buildInterceptors(nil, nil, nil, nil, registries, interceptors.SupportedEcosystems(), nil)
 	require.NoError(t, err)
 	require.Len(t, got, len(interceptors.SupportedEcosystems())+1)
 

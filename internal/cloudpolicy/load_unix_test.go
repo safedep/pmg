@@ -3,11 +3,14 @@
 package cloudpolicy
 
 import (
+	"os"
 	"os/user"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/cloudpolicy/cloudpolicytest"
 	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,6 +21,18 @@ func TestCacheDirsUnderSudo(t *testing.T) {
 	invoking, err := user.Current()
 	require.NoError(t, err)
 	stateDir := filepath.Join(t.TempDir(), "state")
+	// The test home holds no cache, so the order does not depend on the
+	// caches of the host.
+	home := t.TempDir()
+	homeCache := filepath.Join(platform.HomeDirs(home).Config, "safedep", "pmg", "cloud-policy")
+	origHome := platform.SudoUserHomeDir
+	t.Cleanup(func() { platform.SudoUserHomeDir = origHome })
+	platform.SudoUserHomeDir = func() (string, error) {
+		if os.Getenv("SUDO_USER") == invoking.Username {
+			return home, nil
+		}
+		return origHome()
+	}
 
 	tests := []struct {
 		name       string
@@ -40,7 +55,7 @@ func TestCacheDirsUnderSudo(t *testing.T) {
 			privileged: true,
 			sudoUser:   invoking.Username,
 			want: []string{
-				filepath.Join(platform.HomeDirs(invoking.HomeDir).Config, "safedep", "pmg", "cloud-policy"),
+				homeCache,
 				cfg.CloudPolicyCacheDir(),
 			},
 		},
@@ -51,7 +66,7 @@ func TestCacheDirsUnderSudo(t *testing.T) {
 			stateDir:   stateDir,
 			want: []string{
 				filepath.Join(stateDir, "cloud-policy"),
-				filepath.Join(platform.HomeDirs(invoking.HomeDir).Config, "safedep", "pmg", "cloud-policy"),
+				homeCache,
 			},
 		},
 		{
@@ -72,6 +87,47 @@ func TestCacheDirsUnderSudo(t *testing.T) {
 			config.Reload()
 
 			assert.Equal(t, tt.want, cacheDirs(config.Get()))
+		})
+	}
+}
+
+func TestLoadUnderSudoAppliesTheCacheWithTheLaterFetch(t *testing.T) {
+	tests := []struct {
+		name         string
+		ownAt        time.Time
+		homeAt       time.Time
+		wantRevision uint64
+	}{
+		{"an older home cache loses", time.Now(), time.Now().Add(-24 * time.Hour), 11},
+		{"a newer home cache wins", time.Now().Add(-24 * time.Hour), time.Now(), 10},
+		{"a home cache with a fetch in the future loses", time.Now(), time.Now().Add(24 * time.Hour), 11},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newTestConfig(t)
+			home := t.TempDir()
+			homeCache := filepath.Join(platform.HomeDirs(home).Config, "safedep", "pmg", "cloud-policy")
+
+			origPrivileged, origHome := platform.IsPrivileged, platform.SudoUserHomeDir
+			t.Cleanup(func() { platform.IsPrivileged, platform.SudoUserHomeDir = origPrivileged, origHome })
+			platform.IsPrivileged = func() bool { return true }
+			platform.SudoUserHomeDir = func() (string, error) { return home, nil }
+			t.Setenv("SUDO_USER", "runner")
+
+			require.NoError(t, cloudpolicytest.Write(homeCache, cloudpolicytest.Policy(blockEvil()), cloudpolicytest.Header{
+				Tenant:    testTenant,
+				MachineID: testMachineID(t),
+				Revision:  10,
+			}))
+			require.NoError(t, cloudpolicytest.SetFetchedAt(homeCache, tt.homeAt))
+			writeCache(t, cfg, cloudpolicytest.Policy(blockEvil()), 11)
+			require.NoError(t, cloudpolicytest.SetFetchedAt(cfg.CloudPolicyCacheDir(), tt.ownAt))
+
+			st := Load(cfg, testTenant)
+
+			require.NotNil(t, st.Applied)
+			assert.Equal(t, tt.wantRevision, st.Applied.Revision)
 		})
 	}
 }

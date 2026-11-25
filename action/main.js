@@ -5,6 +5,7 @@
 // daemon at the end of the job.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const lib = require('./lib');
@@ -42,6 +43,7 @@ function main() {
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
   const binDir = outputs['bin-dir'];
   const bin = path.join(binDir, 'pmg');
+  exportJobDirs(jobContainer, lib.input('config-file'));
   // Before any script changes the job, so a refused second step leaves the
   // configuration of the first step in place.
   if (serverMode) {
@@ -83,6 +85,46 @@ function main() {
 
   const verify = spawnSync('sh', ['-c', 'pmg version && printf "%s\\n" "npm resolves to: $(command -v npm || printf "%s" "<not installed>")"'], { stdio: 'inherit', env: lib.helperEnv() });
   return verify.status === 0 ? 0 : 1;
+}
+
+// exportJobDirs puts the config and state of PMG under RUNNER_TEMP. Two
+// runner agents on one host can run jobs at the same time as one user, and a
+// crashed job can leave a proxy or a sync queue. Each runner agent has its
+// own RUNNER_TEMP, and the runner empties it after each job. A directory
+// that the workflow sets stays, except a config directory when the job sets
+// config-file, so the staged file does not change the config of later jobs.
+// The cache stays shared, because it holds only regenerable data. A job
+// container has its own filesystem, and the proxy CA must stay in
+// /github/home there, so Docker actions can read it.
+function exportJobDirs(jobContainer, configFile) {
+  if (jobContainer) {
+    return;
+  }
+  for (const [name, dir] of [['PMG_CONFIG_DIR', 'config'], ['PMG_STATE_DIR', 'state']]) {
+    if (!process.env[name] || (name === 'PMG_CONFIG_DIR' && configFile !== '')) {
+      if (name === 'PMG_CONFIG_DIR' && configFile === '') {
+        warnUnusedConfig(process.env.PMG_CONFIG_DIR || path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'safedep', 'pmg'));
+      }
+      process.env[name] = path.join(process.env.RUNNER_TEMP, 'pmg', dir);
+      lib.appendFile('GITHUB_ENV', `${name}=${process.env[name]}`);
+    }
+    fs.mkdirSync(process.env[name], { recursive: true });
+  }
+}
+
+// unusedConfig returns the files in dir that PMG reads from a config
+// directory: the config file and the sandbox profiles, presets and overlays.
+function unusedConfig(dir) {
+  return ['config.yml', 'sandbox'].filter((name) => fs.existsSync(path.join(dir, name)));
+}
+
+// warnUnusedConfig tells the user that a config, which applied to PMG on
+// this runner before, does not apply to the job.
+function warnUnusedConfig(dir) {
+  const files = unusedConfig(dir);
+  if (files.length > 0) {
+    lib.warning(`PMG does not read ${files.join(' and ')} in ${dir} in this job, because each job has its own config directory. Use the config-file input or the managed config in /etc/safedep/pmg. Delete the files to stop this warning.`);
+  }
 }
 
 // cloudInputs gives the cloud inputs of config.sh. In OIDC mode the access
@@ -198,6 +240,12 @@ function runnerCannotEnforce(err) {
   return err instanceof lib.ScriptError && err.codes.some((code) => runnerErrorCodes.includes(code));
 }
 
+// enforcedElsewhere is true when a daemon that this job did not start
+// enforces. refuseSecondProxy already refused a daemon of this job.
+function enforcedElsewhere(err) {
+  return err instanceof lib.ScriptError && err.codes.includes('EnforceAlreadyActive');
+}
+
 function failedPolicyFetch(err) {
   return err instanceof lib.ScriptError && err.status === policyFetchStatus;
 }
@@ -238,6 +286,9 @@ function startProxy(binDir, profile, enforceInput, jobContainer, cred) {
     } catch (err) {
       if (failedPolicyFetch(err)) {
         throw err;
+      }
+      if (enforcedElsewhere(err)) {
+        throw new Error('Another PMG daemon on this host already enforces, such as the daemon of a job of another runner agent. PMG enforces for one daemon on each host. Run one runner agent on each host, or set enforce to false.');
       }
       // Only a runner that cannot enforce falls back. A policy error, such
       // as a typo in an enforce-* input or in config-file, fails as
@@ -289,7 +340,6 @@ function runStartScript(binDir, enforce, jobContainer, env) {
       ...env,
       PMG_BIN_DIR: binDir,
       PMG_ROOT_STATE: rootStatePath(),
-      INPUT_CONFIG_FILE: lib.input('config-file'),
       ...Object.fromEntries(enforceInputs.map((name) => [`INPUT_${name.toUpperCase().replace(/-/g, '_')}`, lib.input(name)])),
     }, { captureStderr: true }));
   }
@@ -392,4 +442,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkInputs, enforceMode, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };
+module.exports = { checkInputs, enforceMode, enforcedElsewhere, exportJobDirs, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce, unusedConfig };

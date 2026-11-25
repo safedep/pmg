@@ -9,7 +9,7 @@ if [ -n "$INPUT_CONFIG_FILE" ]; then
     printf '%s\n' "::error::config-file not found: $src" >&2
     exit 1
   fi
-  dest_dir="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg"
+  dest_dir="${PMG_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg}"
   mkdir -p "$dest_dir"
   cp "$src" "$dest_dir/config.yml"
   printf '%s\n' "Staged $src -> $dest_dir/config.yml"
