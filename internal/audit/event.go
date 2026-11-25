@@ -54,6 +54,7 @@ type EventType string
 const (
 	EventTypeMalwareBlocked        EventType = "malware_blocked"
 	EventTypeMalwareConfirmed      EventType = "malware_confirmed"
+	EventTypeNoVerdictBlocked      EventType = "no_verdict_blocked"
 	EventTypeInstallAllowed        EventType = "install_allowed"
 	EventTypeInstallTrustedAllowed EventType = "install_trusted_allowed"
 	EventTypeInstallStarted        EventType = "install_started"

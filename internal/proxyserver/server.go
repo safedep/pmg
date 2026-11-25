@@ -133,7 +133,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 
 	statePath := opts.StatePath
 	if existing, err := readState(statePath); err == nil && existing.IsRunning() {
-		return fmt.Errorf("proxy already running (pid %d, addr %s) — run 'pmg proxy stop' first", existing.PID, existing.Addr)
+		return fmt.Errorf("proxy already running (pid %d, addr %s). Run 'pmg proxy stop' first", existing.PID, existing.Addr)
 	}
 
 	startTime := time.Now()

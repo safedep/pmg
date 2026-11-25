@@ -294,7 +294,7 @@ func reportNormal(data *ReportData) {
 			n := len(data.CooldownBlockedPackages)
 			fmt.Printf("%s %s\n",
 				Colors.Yellow("⊘"),
-				Colors.Yellow(fmt.Sprintf("Dependency cooldown — %s blocked", pluralizePackages(n))))
+				Colors.Yellow(fmt.Sprintf("Dependency cooldown blocked %s", pluralizePackages(n))))
 			printCooldownPackagesList(data.CooldownBlockedPackages)
 			fmt.Println()
 		}
@@ -465,7 +465,7 @@ func reportVerbose(data *ReportData) {
 			}
 			fmt.Printf("    %s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("%s@%s", pkg.Name, pkg.Version)))
 			fmt.Printf("      %s\n", Colors.Dim(fmt.Sprintf(
-				"Published %s ago%s — cooldown: %d days, available in %s",
+				"Published %s ago%s. Cooldown of %d days. Available in %s",
 				pluralizeDays(pkg.DaysAgo), dateStr, pkg.CooldownDays, pluralizeDays(pkg.DaysLeft),
 			)))
 			if line := CooldownPolicyLine(pkg.CooldownDays, pkg.PolicyRevision); line != "" {
@@ -681,15 +681,15 @@ func printOutcomeLine(data *ReportData) {
 		hasNoVerdict := len(data.NoVerdictBlockedPackages) > 0
 		switch {
 		case hasMalware && hasCooldown:
-			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — malicious package detected + cooldown policy"))
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked by a malicious package and the cooldown policy"))
 		case hasRule && !hasMalware:
-			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — policy"))
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked by policy"))
 		case hasNoVerdict && !hasMalware:
-			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — no malware verdict"))
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked with no malware verdict"))
 		case hasCooldown:
-			fmt.Printf("  %s %s\n", Colors.Yellow("⊘"), Colors.Yellow("Installation blocked — dependency cooldown policy"))
+			fmt.Printf("  %s %s\n", Colors.Yellow("⊘"), Colors.Yellow("Installation blocked by the dependency cooldown policy"))
 		default:
-			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — malicious package detected"))
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked by a malicious package"))
 		}
 	case OutcomeUserCancelled:
 		fmt.Printf("  %s %s\n", Colors.Yellow("✗"), Colors.Yellow("Installation cancelled by user"))

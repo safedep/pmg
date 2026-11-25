@@ -10,6 +10,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/interceptors"
 	"github.com/stretchr/testify/assert"
@@ -721,6 +722,12 @@ func assertNoVerdictBlock(t *testing.T, h *Harness, r RequestOutcome, ecosystem 
 	want := &proxy.BlockContext{Ecosystem: ecosystem, PackageName: name, PackageVersion: version}
 	assert.Equal(t, []Block{{Reason: proxy.BlockReasonNoVerdict, Context: want}}, h.Blocks())
 	assert.Equal(t, 1, h.Stats().BlockedCount)
+
+	events := h.Audit.Events(audit.EventTypeNoVerdictBlocked)
+	require.NotEmpty(t, events)
+	assert.Equal(t, name, events[0].PackageVersion.GetPackage().GetName())
+	assert.Equal(t, version, events[0].PackageVersion.GetVersion())
+	assert.Error(t, events[0].Error)
 }
 
 func assertUnanalyzed(t *testing.T, h *Harness, ecosystem packagev1.Ecosystem, name, version string) {

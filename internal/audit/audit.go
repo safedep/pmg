@@ -102,6 +102,26 @@ func LogMalwareBlocked(pv *packagev1.PackageVersion, reason, analysisID, referen
 	}
 }
 
+// LogNoVerdictBlocked records that paranoid mode blocked a package with no
+// malware verdict. pv is nil when the request has no package identity.
+func LogNoVerdictBlocked(pv *packagev1.PackageVersion, err error) {
+	message := "Blocked a request with no malware verdict"
+	if pv != nil {
+		message = fmt.Sprintf("Blocked installation of %s@%s with no malware verdict", pkgName(pv), pkgVersion(pv))
+	}
+
+	event := AuditEvent{
+		Type:           EventTypeNoVerdictBlocked,
+		Message:        message,
+		PackageVersion: pv,
+		Error:          err,
+	}
+	if err != nil {
+		event.Details = map[string]any{"error": err.Error()}
+	}
+	logEvent(event)
+}
+
 // LogMalwareConfirmed records that the user confirmed installation of a flagged package.
 func LogMalwareConfirmed(pv *packagev1.PackageVersion, analysisID string, isMalware, isVerified bool) {
 	logEvent(AuditEvent{

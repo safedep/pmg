@@ -34,6 +34,9 @@ func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.Pmg
 		// not a per-package event. It is emitted as part of EventTypeSessionComplete when
 		// the session's insecureBypassed counter is > 0.
 		return nil
+	case EventTypeNoVerdictBlocked:
+		// Local only until the cloud schema has a no-verdict decision.
+		return nil
 	case EventTypeDependencyCooldown:
 		return []*controltowerv1.PmgEvent{newCooldownBlockedEvent(event)}
 	case EventTypeNetworkPolicy:

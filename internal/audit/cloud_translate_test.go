@@ -573,6 +573,7 @@ func TestTranslateUnsupportedEventReturnsEmpty(t *testing.T) {
 		EventTypeInstallStarted,
 		EventTypeInstallAllowed,
 		EventTypeInstallInsecureBypass,
+		EventTypeNoVerdictBlocked,
 	}
 
 	for _, et := range unsupported {

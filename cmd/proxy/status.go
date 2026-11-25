@@ -54,7 +54,7 @@ func statusText(st proxyserver.StatusInfo) string {
 	case st.Unreadable:
 		return "PMG proxy: state file is not readable by this user (an enforcing proxy runs as root, re-run with sudo)\n"
 	case !st.Running:
-		return fmt.Sprintf("PMG proxy: stopped (stale state for pid %d — run 'pmg proxy stop' to clean up)\n", st.PID)
+		return fmt.Sprintf("PMG proxy: stopped (stale state for pid %d, run 'pmg proxy stop' to clean up)\n", st.PID)
 	}
 
 	var b strings.Builder

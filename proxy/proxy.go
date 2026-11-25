@@ -21,6 +21,7 @@ import (
 
 	"github.com/elazarl/goproxy"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/netpolicy"
 )
@@ -681,6 +682,7 @@ func (ps *proxyServer) registerHandlers() {
 				if !ps.config.FailClosed {
 					continue
 				}
+				audit.LogNoVerdictBlocked(nil, fmt.Errorf("interceptor %s: %w", interceptor.Name(), err))
 				resp = &InterceptorResponse{Action: ActionBlock, BlockCode: http.StatusServiceUnavailable, BlockReason: BlockReasonNoVerdict}
 			}
 

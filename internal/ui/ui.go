@@ -223,7 +223,7 @@ func printCooldownPackagesList(packages []models.CooldownBlock) {
 		}
 
 		fmt.Printf("    %s\n", Colors.Dim(fmt.Sprintf(
-			"Published %s ago%s — available in %s",
+			"Published %s ago%s. Available in %s",
 			pluralizeDays(pkg.DaysAgo), dateStr, pluralizeDays(pkg.DaysLeft),
 		)))
 		if line := CooldownPolicyLine(pkg.CooldownDays, pkg.PolicyRevision); line != "" {

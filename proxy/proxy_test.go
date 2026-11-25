@@ -1,15 +1,19 @@
 package proxy
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -216,6 +220,9 @@ func TestInterceptorErrorInFailClosedMode(t *testing.T) {
 			}))
 			defer upstream.Close()
 
+			events := &auditRecorder{}
+			t.Cleanup(audit.UseSinksForTest(events))
+
 			reasons := make(chan BlockReason, 1)
 			cfg := DefaultProxyConfig()
 			cfg.EnableMITM = false
@@ -237,9 +244,34 @@ func TestInterceptorErrorInFailClosedMode(t *testing.T) {
 			assert.Equal(t, tc.wantStatus, resp.StatusCode)
 			if tc.failClosed {
 				assert.Equal(t, tc.wantReason, <-reasons)
+				recorded := events.all()
+				require.Len(t, recorded, 1)
+				assert.Equal(t, audit.EventTypeNoVerdictBlocked, recorded[0].Type)
+				assert.ErrorContains(t, recorded[0].Error, "failing")
 			} else {
 				assert.Empty(t, reasons)
+				assert.Empty(t, events.all())
 			}
 		})
 	}
+}
+
+type auditRecorder struct {
+	mu     sync.Mutex
+	events []audit.AuditEvent
+}
+
+func (r *auditRecorder) Handle(_ context.Context, event audit.AuditEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+	return nil
+}
+
+func (r *auditRecorder) Close() error { return nil }
+
+func (r *auditRecorder) all() []audit.AuditEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.events)
 }

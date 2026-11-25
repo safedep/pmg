@@ -215,6 +215,10 @@ When PMG has no verdict after these attempts, the result depends on the mode.
   `--fail-on-violation` counts the package as a blocked package.
   When a later download of the same version gets a verdict, PMG removes the block from these reports and from the count.
   Paranoid mode also blocks with HTTP 503 when an interceptor fails or the service sends an unknown action.
+  PMG writes each block to the local event log as event type `no_verdict_blocked`, with the error.
+  PMG does not send this event to SafeDep Cloud yet.
+  A block after an interceptor failure has no package name, so the reports and `--fail-on-violation` do not show it.
+  The event log has it.
 
 npm and pip send a download again after a 503, so a short outage can slow an install before it fails.
 With its default settings, npm tries the download 3 times in about 70 seconds.

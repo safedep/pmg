@@ -327,6 +327,7 @@ func (b *baseRegistryInterceptor) handleUnanalyzed(
 	if b.statsCollector != nil {
 		b.statsCollector.RecordNoVerdictBlocked(block)
 	}
+	audit.LogNoVerdictBlocked(pkgVersion, err)
 
 	// 503 and not 403, because an outage and not a policy refused the package.
 	return &proxy.InterceptorResponse{

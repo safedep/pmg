@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -158,6 +159,44 @@ func TestPublicAPISilentWhenNotInitialized(t *testing.T) {
 	LogProxyHostObserved(HostObservation{Hostname: "host", Method: "GET"}, "reason", nil)
 	LogSandboxOverride("profile", nil)
 	LogError("err", nil)
+	LogNoVerdictBlocked(nil, nil)
+}
+
+func TestLogNoVerdictBlocked(t *testing.T) {
+	cases := []struct {
+		name        string
+		pv          *packagev1.PackageVersion
+		wantMessage string
+	}{
+		{
+			name:        "package",
+			pv:          testPackageVersion("left-pad", "1.3.0", "npm"),
+			wantMessage: "Blocked installation of left-pad@1.3.0 with no malware verdict",
+		},
+		{
+			name:        "request with no package identity",
+			wantMessage: "Blocked a request with no malware verdict",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &mockSink{}
+			a := newAuditor(s)
+			setGlobal(a)
+			defer resetGlobal()
+			a.startSession("npm", nil)
+
+			LogNoVerdictBlocked(tc.pv, errors.New("unavailable"))
+
+			events := s.getEvents()
+			require.Len(t, events, 1)
+			assert.Equal(t, EventTypeNoVerdictBlocked, events[0].Type)
+			assert.Equal(t, tc.wantMessage, events[0].Message)
+			assert.Equal(t, "unavailable", events[0].Details["error"])
+			assert.Zero(t, a.getSession().blockedCount, "a heal can undo the block, so the session summary does not count it")
+		})
+	}
 }
 
 func TestLogInstallStartedInitializesSession(t *testing.T) {
