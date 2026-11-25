@@ -146,7 +146,18 @@ with the same state path. Root uses root's cache directory unless
 `PMG_STATE_DIR` or `PMG_CACHE_DIR` changes it. For diagnostics, run `pmg --debug proxy start`
 in the foreground, or `pmg --debug --log pmg-debug.log proxy start --daemon`.
 The [event log](proxy-mode.md#troubleshooting) of that user records each
-blocked package.
+blocked package. The daemon also writes a line to `proxy.log` for each
+package that it allows because the malware analysis failed. It writes at
+most 20 such lines each minute.
+
+The daemon keeps one connection to the malware analysis service. A NAT or
+a firewall can drop that connection when it is idle. The community client
+sends a keepalive ping every 30 seconds, so the daemon finds a dead
+connection in at most 40 seconds. When a query gets no answer in 3
+seconds, the daemon also sends it on a new connection. The authenticated
+client (with SafeDep Cloud credentials) sends the query on a new
+connection, but it does not send keepalive pings yet, because
+`cloud.NewDataPlaneClient` in the dry library takes no dial options.
 
 The daemon reads all configuration at start. It applies the shared
 [trust](trusted-packages.md), paranoid and [cooldown](dependency-cooldown.md)

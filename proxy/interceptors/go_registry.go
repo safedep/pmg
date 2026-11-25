@@ -171,8 +171,7 @@ func (i *GoRegistryInterceptor) handleZipDownload(
 
 	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version)
 	if err != nil {
-		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, name, version, err)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, false, nil
+		return i.allowUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, err), false, nil
 	}
 
 	resp, ruleDecided, err := i.handleVerdict(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, result)

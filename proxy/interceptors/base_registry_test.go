@@ -13,6 +13,8 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type identityTestParser struct {
@@ -277,4 +279,28 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAllowUnanalyzedReportsTheFailure(t *testing.T) {
+	mock := &mockAnalyzer{err: status.Error(codes.DeadlineExceeded, "context deadline exceeded")}
+	base := newTestBaseInterceptor(mock)
+	var reported []*packagev1.PackageVersion
+	base.execContext.OnAnalysisFailure = func(pkg *packagev1.PackageVersion, err error) {
+		assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
+		reported = append(reported, pkg)
+	}
+	ctx := newTestRequestContext()
+
+	_, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
+	require.Error(t, err)
+
+	resp := base.allowUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0", err)
+	assert.Equal(t, proxy.ActionAllow, resp.Action, "an analysis failure still allows the package")
+
+	require.Len(t, reported, 1)
+	assert.Equal(t, "flaky", reported[0].GetPackage().GetName())
+	assert.Equal(t, packagev1.Ecosystem_ECOSYSTEM_NPM, reported[0].GetPackage().GetEcosystem())
+	unanalyzed, more := base.statsCollector.GetUnanalyzedPackages()
+	assert.Equal(t, reported, unanalyzed)
+	assert.Zero(t, more)
 }

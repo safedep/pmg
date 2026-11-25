@@ -292,6 +292,11 @@ func (h *Harness) CooldownBlocks() []models.CooldownBlock { return h.stats.GetCo
 
 func (h *Harness) RuleBlocks() []*proxy.BlockContext { return h.stats.GetRuleBlocks() }
 
+func (h *Harness) Unanalyzed() []*packagev1.PackageVersion {
+	packages, _ := h.stats.GetUnanalyzedPackages()
+	return packages
+}
+
 func (h *Harness) CooldownWithheld() []models.CooldownWithheld {
 	return h.stats.GetCooldownWithheld()
 }

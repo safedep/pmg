@@ -44,13 +44,15 @@ var _ PackageVersionAnalyzer = &malysisQueryAnalyzer{}
 // NewMalysisQueryAnalyzer creates an unauthenticated analyzer that queries the
 // SafeDep community malware analysis service.
 func NewMalysisQueryAnalyzer(config MalysisQueryAnalyzerConfig) (*malysisQueryAnalyzer, error) {
-	client, err := drygrpc.GrpcClient("pmg-malysis-query",
-		communityMalysisHost, communityMalysisPort, "", http.Header{}, []grpc.DialOption{})
+	conn, err := newReconnectingConn(func() (closableConn, error) {
+		return drygrpc.GrpcClient("pmg-malysis-query",
+			communityMalysisHost, communityMalysisPort, "", http.Header{}, []grpc.DialOption{malysisKeepalive})
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
-	return NewMalysisQueryAnalyzerWithClient(malysisv1grpc.NewMalwareAnalysisServiceClient(client), config, false)
+	return NewMalysisQueryAnalyzerWithClient(malysisv1grpc.NewMalwareAnalysisServiceClient(conn), config, false)
 }
 
 // NewMalysisQueryAnalyzerWithClient builds an analyzer over a caller-supplied
@@ -78,13 +80,18 @@ func NewMalysisQueryAnalyzerWithClient(client malysisv1grpc.MalwareAnalysisServi
 // malicious package exclusions returned in the response.
 func NewMalysisAuthenticatedQueryAnalyzer(config MalysisQueryAnalyzerConfig,
 	creds *cloud.Credentials) (*malysisQueryAnalyzer, error) {
-	cloudClient, err := cloud.NewDataPlaneClient("pmg-malysis-query", creds)
+	conn, err := newReconnectingConn(func() (closableConn, error) {
+		cloudClient, err := cloud.NewDataPlaneClient("pmg-malysis-query", creds)
+		if err != nil {
+			return nil, err
+		}
+		return cloudClient.Connection(), nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create authenticated gRPC client: %w", err)
 	}
 
-	return NewMalysisQueryAnalyzerWithClient(
-		malysisv1grpc.NewMalwareAnalysisServiceClient(cloudClient.Connection()), config, true)
+	return NewMalysisQueryAnalyzerWithClient(malysisv1grpc.NewMalwareAnalysisServiceClient(conn), config, true)
 }
 
 func (a *malysisQueryAnalyzer) Name() string {
