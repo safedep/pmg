@@ -25,6 +25,9 @@ Style, names, comments and refactors are Nit at most. Report at most five Nits i
    cache miss, a parse error or an unknown ecosystem. In paranoid mode PMG must block in that
    case. A path that allows the install in paranoid mode is Important. In default mode PMG allows
    the install and must report the package. A path that allows it without a report is Important.
+   Two answers are verdicts and are not Important in either mode. `NotFound` means the service
+   has not analyzed the version, and a block would stop each new release. A report that is not
+   completed counts as not malicious, a known gap of the service.
    A change that lets an environment variable or a user config override a managed config in
    lockdown is also Important.
 2. **Proxy flow tests.** A security-sensitive change to the proxy flow needs a new or extended
