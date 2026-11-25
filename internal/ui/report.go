@@ -96,8 +96,7 @@ type ReportData struct {
 	// Rendered as a hint when the install fails.
 	CooldownWithheldPackages []models.CooldownWithheld
 
-	// Packages that PMG allowed because the analysis failed (proxy mode
-	// only)
+	// UnanalyzedPackages is set in proxy mode only.
 	UnanalyzedPackages []*packagev1.PackageVersion
 	UnanalyzedMore     int
 
@@ -304,8 +303,6 @@ func reportNormal(data *ReportData) {
 	fmt.Printf("%s %s\n", icon, Colors.Dim(message))
 }
 
-// UnanalyzedHeadline is the headline printed when PMG allowed packages
-// because the analysis failed.
 const UnanalyzedHeadline = "Malware analysis failed. PMG allowed these packages without analysis"
 
 func printUnanalyzedWarning(packages []*packagev1.PackageVersion, more int) {

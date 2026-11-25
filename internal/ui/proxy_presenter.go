@@ -194,9 +194,8 @@ func PackageVersionPurl(pkg *packagev1.PackageVersion) string {
 	return RemoveControlChars(purl)
 }
 
-// RemoveControlChars removes control characters from text that an admin, a
-// config file or a remote service wrote, so the text cannot move the cursor,
-// change the terminal or start a new log line.
+// RemoveControlChars removes control characters from text that PMG did not
+// write, so the text cannot change the terminal or start a new log line.
 func RemoveControlChars(text string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

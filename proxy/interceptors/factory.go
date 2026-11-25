@@ -37,8 +37,7 @@ type InterceptorContext struct {
 	// process, cloudpolicy.Global.
 	Policy cloudpolicy.Source
 
-	// OnAnalysisFailure is called for each package that PMG allows because
-	// the analysis failed. The proxy daemon writes a line for it to its log.
+	// OnAnalysisFailure is called for each package allowed without analysis.
 	OnAnalysisFailure func(pkg *packagev1.PackageVersion, err error)
 }
 

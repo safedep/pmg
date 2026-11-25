@@ -31,10 +31,8 @@ type StopResult struct {
 	BlockedCount int
 	// Blocked lists each package that the daemon blocked.
 	Blocked []BlockedPackage
-	// Unanalyzed names each package that the daemon allowed because the
-	// analysis failed.
-	Unanalyzed []string
-	// UnanalyzedMore counts the distinct packages past the cap of the list.
+	// Unanalyzed lists each package that the daemon allowed without analysis.
+	Unanalyzed     []string
 	UnanalyzedMore int
 	// StateVerified is false when the final state could not be read after
 	// shutdown (e.g. the proxy crashed), which callers may treat as fail-closed.
@@ -67,9 +65,7 @@ type StopReport struct {
 	Observed      int              `json:"observed"`
 	Network       *NetworkState    `json:"network,omitempty"`
 	CloudSync     *CloudSyncResult `json:"cloud_sync,omitempty"`
-	// Unanalyzed names the packages that the proxy allowed because the
-	// analysis failed. UnanalyzedCount also counts the packages past the
-	// cap of the list.
+	// UnanalyzedCount also counts the packages past the cap of Unanalyzed.
 	Unanalyzed      []string `json:"unanalyzed,omitempty"`
 	UnanalyzedCount int      `json:"unanalyzed_count,omitempty"`
 	// Violation names what --fail-on-violation fails on. It is set whether

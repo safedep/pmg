@@ -16,12 +16,8 @@ const (
 	analysisFailureMaxLines = 20
 )
 
-// analysisFailureLog writes one line for each package that the daemon allows
-// because the analysis failed. The daemon passes stderr, which is the proxy
-// log of a detached daemon, because the logger is off without --debug. When
-// the analysis service is down, every download fails, so the log writes at
-// most analysisFailureMaxLines lines in each analysisFailureWindow and then
-// writes how many lines it did not write.
+// analysisFailureLog writes to the proxy log, because the logger is off
+// without --debug. An outage fails every download, so the lines are limited.
 type analysisFailureLog struct {
 	out io.Writer
 	now func() time.Time

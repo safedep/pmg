@@ -42,8 +42,8 @@ type AnalysisStatsCollector struct {
 	unanalyzedSeen map[string]bool
 }
 
-// maxUnanalyzedPackages caps the list of packages allowed without analysis.
-// The daemon runs for a long time, and an outage can fail every download.
+// maxUnanalyzedPackages caps the list, because an outage in a long-running
+// daemon can fail every download.
 const maxUnanalyzedPackages = 1000
 
 // NewAnalysisStatsCollector creates a new stats collector
@@ -237,10 +237,8 @@ func (c *AnalysisStatsCollector) GetCooldownWithheld() []models.CooldownWithheld
 	return result
 }
 
-// RecordUnanalyzed records a package that PMG allowed because the analysis
-// failed. A package manager can retry a download, so each version is kept
-// once. It does not count toward analyzed or allowed totals. After
-// maxUnanalyzedPackages, it keeps only the key of each version, to count it.
+// RecordUnanalyzed keeps each version once, because a package manager can
+// retry a download. Past the cap it keeps only the key, to count it.
 func (c *AnalysisStatsCollector) RecordUnanalyzed(pkg *packagev1.PackageVersion) {
 	key := pkg.GetPackage().GetEcosystem().String() + "|" + pkg.GetPackage().GetName() + "|" + pkg.GetVersion()
 
@@ -259,9 +257,7 @@ func (c *AnalysisStatsCollector) RecordUnanalyzed(pkg *packagev1.PackageVersion)
 	}
 }
 
-// GetUnanalyzedPackages returns the packages that PMG allowed because the
-// analysis failed, in the order they failed, and how many more it did not
-// keep.
+// GetUnanalyzedPackages returns the kept packages and how many more failed.
 func (c *AnalysisStatsCollector) GetUnanalyzedPackages() ([]*packagev1.PackageVersion, int) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

@@ -66,8 +66,7 @@ func startMalysisServer(t *testing.T, delay time.Duration) (*testMalysisServer, 
 }
 
 // blackholeProxy forwards TCP to target until drop is set. Then it discards
-// all bytes in both directions, as a NAT does after it drops a connection
-// with no reset.
+// all bytes, as a NAT does after it drops a connection with no reset.
 type blackholeProxy struct {
 	target string
 	drop   atomic.Bool

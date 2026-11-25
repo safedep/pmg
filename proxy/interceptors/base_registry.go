@@ -250,9 +250,8 @@ func (b *baseRegistryInterceptor) analyzePackage(
 	return result, nil
 }
 
-// allowUnanalyzed allows a package that has no verdict because the analysis
-// failed. The logger is off without --debug, so the stats collector and
-// OnAnalysisFailure carry the failure to the operator.
+// allowUnanalyzed reports the failure through the stats collector and
+// OnAnalysisFailure, because the logger is off without --debug.
 func (b *baseRegistryInterceptor) allowUnanalyzed(
 	ctx *proxy.RequestContext,
 	ecosystem packagev1.Ecosystem,

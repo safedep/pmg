@@ -178,8 +178,6 @@ func blockedReport(res proxyserver.StopResult) string {
 	return b.String()
 }
 
-// unanalyzedReport lists each package that the proxy allowed because the
-// analysis failed. Empty when every analysis succeeded.
 func unanalyzedReport(res proxyserver.StopResult) string {
 	if len(res.Unanalyzed) == 0 {
 		return ""

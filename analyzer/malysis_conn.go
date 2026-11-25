@@ -14,19 +14,16 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// malysisKeepalive makes gRPC ping an idle connection. A NAT or a firewall
-// can drop an idle connection with no reset. Without the ping, the next query
-// waits on the dead connection until its deadline, and the package is allowed
-// without a verdict. The ping also keeps the NAT entry alive. Cloudflare ends
-// the HTTP/2 connection, so the pings never reach the origin server.
+// malysisKeepalive finds an idle connection that a NAT dropped with no reset,
+// and keeps the NAT entry alive.
 var malysisKeepalive = grpc.WithKeepaliveParams(keepalive.ClientParameters{
 	Time:                30 * time.Second,
 	Timeout:             10 * time.Second,
 	PermitWithoutStream: true,
 })
 
-// malysisHedgeDelay is how long a query waits for an answer before it also
-// goes on a new connection. Normal answers take 0.7 to 1.8 seconds.
+// malysisHedgeDelay is how long a query waits before it also goes on a spare
+// connection. Normal answers take 0.7 to 1.8 seconds.
 const malysisHedgeDelay = 3 * time.Second
 
 type closableConn interface {
@@ -36,19 +33,8 @@ type closableConn interface {
 
 type dialFunc func() (closableConn, error)
 
-// reconnectingConn hedges a unary call on a new connection. Keepalive finds a
-// dead idle connection only after up to 40 seconds, and the authenticated
-// client has no keepalive. A call on a dead connection gets no answer, so
-// after hedgeDelay, or at once when the call fails fast, the same call also
-// goes on a spare connection. The first answer from the server wins. Each
-// attempt keeps the full deadline of the caller, so a slow but healthy
-// server still answers.
-//
-// The spare exists only while hedged calls use it. It becomes the current
-// connection when the server answers on it first. It is closed when the
-// current connection answers first, when it fails while its caller waits, or
-// when the last call on it ends. Without the last two rules, a dead spare
-// would stay for the next hedge.
+// reconnectingConn also sends a unary call on a spare connection when the call
+// gets no answer in hedgeDelay. The first answer wins.
 type reconnectingConn struct {
 	dial       dialFunc
 	hedgeDelay time.Duration
@@ -148,10 +134,7 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 				return res.err
 			}
 
-			// An attempt that ended with the caller's own deadline says
-			// nothing about the spare that other calls share. gRPC can end
-			// an attempt at the deadline before ctx.Err() is set, so the
-			// check reads the deadline.
+			// gRPC can end an attempt at the deadline before ctx.Err() is set.
 			err = res.err
 			if deadline, ok := ctx.Deadline(); ctx.Err() != nil || ok && !time.Now().Before(deadline) {
 				return err
@@ -162,8 +145,7 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 			case !hedged:
 				hedge()
 			case status.Code(res.err) == codes.Canceled && res.conn != current && !slices.Contains(running, current):
-				// Another call closed this connection. The call follows the
-				// current connection until its context ends.
+				// Another call closed this connection.
 				start(current)
 			}
 		}
@@ -183,11 +165,8 @@ func (c *reconnectingConn) current() closableConn {
 	return c.conn
 }
 
-// next gives the connection for the second attempt of a call that started on
-// old. When another call already replaced old, it is the current connection.
-// Otherwise it is the spare, which all calls on old share, so a burst of
-// calls on a dead connection opens one new connection. isSpare tells the
-// call to leave the spare when it ends.
+// next gives the current connection when another call already replaced old.
+// Otherwise it gives the spare, which all calls on old share.
 func (c *reconnectingConn) next(old closableConn) (conn closableConn, isSpare bool, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -206,9 +185,7 @@ func (c *reconnectingConn) next(old closableConn) (conn closableConn, isSpare bo
 	return c.spare, true, nil
 }
 
-// promote makes the spare the current connection after the server answered
-// on it before it answered on old. Closing old ends the calls that still wait
-// on it with Canceled, and they go on the new connection.
+// promote makes the spare current after it answered first, and closes old.
 func (c *reconnectingConn) promote(old, answered closableConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -223,8 +200,6 @@ func (c *reconnectingConn) promote(old, answered closableConn) {
 	}
 }
 
-// closeSpare closes conn when it is still the spare. The calls that the close
-// cancels go on the current connection, and find no spare to close again.
 func (c *reconnectingConn) closeSpare(conn closableConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -234,8 +209,7 @@ func (c *reconnectingConn) closeSpare(conn closableConn) {
 	}
 }
 
-// leaveSpare ends the use of the spare by one call. The last call on the
-// spare closes it, so an idle spare never waits for the next hedge.
+// leaveSpare closes the spare when its last call ends.
 func (c *reconnectingConn) leaveSpare(conn closableConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -258,9 +232,8 @@ func (c *reconnectingConn) closeSpareLocked() {
 	}
 }
 
-// isServerAnswer reports whether err is an answer from the server. NotFound
-// and the other codes do not change on a new connection. DeadlineExceeded,
-// Unavailable and Canceled can come from a dead or closed connection.
+// isServerAnswer reports whether err came from the server, not from a dead or
+// closed connection.
 func isServerAnswer(err error) bool {
 	switch status.Code(err) {
 	case codes.DeadlineExceeded, codes.Unavailable, codes.Canceled:
