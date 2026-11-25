@@ -5,7 +5,10 @@ package cloudpolicytest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
@@ -141,6 +144,26 @@ func Write(dir string, policy *specv1.ResolvedPolicy, header Header) error {
 		return err
 	}
 	return Commit(dir, header.Tenant, raw, header.Revision)
+}
+
+// SetFetchedAt moves fetched_at of the cache in dir, as a cache that no
+// fetch reached since at has it.
+func SetFetchedAt(dir string, at time.Time) error {
+	path := filepath.Join(dir, "state.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var state configsync.State
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	state.FetchedAt = at
+	data, err = json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }
 
 // MachineID returns the machine id that pmg sends with the endpoint id
