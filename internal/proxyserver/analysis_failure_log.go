@@ -38,12 +38,9 @@ func (l *analysisFailureLog) Record(pkg *packagev1.PackageVersion, err error) {
 
 	now := l.now()
 	if now.Sub(l.windowStart) >= analysisFailureWindow {
-		if l.suppressed > 0 {
-			l.write(now, fmt.Sprintf("pmg did not write %d more lines about packages allowed without malware analysis", l.suppressed))
-		}
+		l.flushLocked(now)
 		l.windowStart = now
 		l.written = 0
-		l.suppressed = 0
 	}
 
 	if l.written >= analysisFailureMaxLines {
@@ -54,6 +51,23 @@ func (l *analysisFailureLog) Record(pkg *packagev1.PackageVersion, err error) {
 
 	l.write(now, fmt.Sprintf("Allowed %s without malware analysis: %s",
 		ui.PackageVersionPurl(pkg), ui.RemoveControlChars(err.Error())))
+}
+
+// Flush writes the count of lines that the limit held back, so the count is
+// not lost when no later failure comes.
+func (l *analysisFailureLog) Flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.flushLocked(l.now())
+}
+
+func (l *analysisFailureLog) flushLocked(now time.Time) {
+	if l.suppressed == 0 {
+		return
+	}
+	l.write(now, fmt.Sprintf("pmg did not write %d more lines about packages allowed without malware analysis", l.suppressed))
+	l.suppressed = 0
 }
 
 func (l *analysisFailureLog) write(now time.Time, line string) {

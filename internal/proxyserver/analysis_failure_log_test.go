@@ -68,3 +68,19 @@ func TestAnalysisFailureLogLimitsABurst(t *testing.T) {
 	assert.Contains(t, lines[analysisFailureMaxLines], "pmg did not write 5 more lines")
 	assert.Contains(t, lines[analysisFailureMaxLines+1], "pkg:npm/safedep-test-pkg@2.0.0")
 }
+
+func TestAnalysisFailureLogFlushWritesTheHeldBackCount(t *testing.T) {
+	var out bytes.Buffer
+	l := newAnalysisFailureLog(&out)
+
+	failure := fmt.Errorf("circuit breaker is open")
+	for i := range analysisFailureMaxLines + 3 {
+		l.Record(npmPackage(fmt.Sprintf("1.0.%d", i)), failure)
+	}
+	l.Flush()
+	l.Flush()
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	require.Len(t, lines, analysisFailureMaxLines+1)
+	assert.Contains(t, lines[analysisFailureMaxLines], "pmg did not write 3 more lines")
+}

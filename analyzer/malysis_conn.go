@@ -124,8 +124,6 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 			if isServerAnswer(res.err) {
 				if spare != nil && res.conn == spare {
 					c.promote(first, spare)
-				} else if spare != nil {
-					c.closeSpare(spare)
 				}
 				if res.err == nil {
 					proto.Reset(out)

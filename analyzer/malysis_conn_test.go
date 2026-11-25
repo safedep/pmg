@@ -27,14 +27,19 @@ const missingVersion = "missing"
 type testMalysisServer struct {
 	malysisv1grpc.UnimplementedMalwareAnalysisServiceServer
 	delay time.Duration
+	stall string
 	calls atomic.Int32
 }
 
 func (s *testMalysisServer) QueryPackageAnalysis(ctx context.Context,
 	req *malysisv1.QueryPackageAnalysisRequest) (*malysisv1.QueryPackageAnalysisResponse, error) {
 	s.calls.Add(1)
+	delay := s.delay
+	if req.GetTarget().GetPackageVersion().GetVersion() == s.stall {
+		delay = time.Hour
+	}
 	select {
-	case <-time.After(s.delay):
+	case <-time.After(delay):
 	case <-ctx.Done():
 		return nil, status.FromContextError(ctx.Err()).Err()
 	}
@@ -48,11 +53,15 @@ func (s *testMalysisServer) QueryPackageAnalysis(ctx context.Context,
 
 func startMalysisServer(t *testing.T, delay time.Duration) (*testMalysisServer, string) {
 	t.Helper()
+	return serveMalysis(t, &testMalysisServer{delay: delay})
+}
+
+func serveMalysis(t *testing.T, srv *testMalysisServer) (*testMalysisServer, string) {
+	t.Helper()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	srv := &testMalysisServer{delay: delay}
 	server := grpc.NewServer()
 	malysisv1grpc.RegisterMalwareAnalysisServiceServer(server, srv)
 	served := make(chan error, 1)
@@ -373,14 +382,44 @@ func TestReconnectingConnClosesASpareWhenItsLastCallerCancels(t *testing.T) {
 	proxy1.drop.Store(true)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(300*time.Millisecond, cancel)
-	_, err = query(ctx, conn, "1.0.0")
-	assert.Equal(t, codes.Canceled, status.Code(err))
+	done := make(chan error, 1)
+	go func() {
+		_, err := query(ctx, conn, "1.0.0")
+		done <- err
+	}()
+	require.Eventually(t, func() bool {
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+		return conn.spareCalls == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	cancel()
+	assert.Equal(t, codes.Canceled, status.Code(<-done))
 	assert.Equal(t, int32(2), dialer.dials.Load())
 
 	_, _, err = queryWithin(t, conn, "2.0.0", 5*time.Second)
 	require.NoError(t, err, "the next hedge opens a new spare")
 	assert.Equal(t, int32(3), dialer.dials.Load())
+}
+
+func TestReconnectingConnKeepsTheSpareForACallThatStillNeedsIt(t *testing.T) {
+	_, addr0 := serveMalysis(t, &testMalysisServer{delay: 300 * time.Millisecond, stall: "stalled"})
+	_, addr1 := startMalysisServer(t, 500*time.Millisecond)
+	conn, _ := newTestConn(t, 100*time.Millisecond, addr0, addr1)
+
+	stalled := make(chan error, 1)
+	go func() {
+		_, _, err := queryWithin(t, conn, "stalled", 3*time.Second)
+		stalled <- err
+	}()
+	require.Eventually(t, func() bool {
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+		return conn.spareCalls == 1
+	}, 5*time.Second, 10*time.Millisecond)
+
+	_, _, err := queryWithin(t, conn, "1.0.0", 3*time.Second)
+	require.NoError(t, err, "the current connection answers first")
+	assert.NoError(t, <-stalled, "the stalled call still gets its answer on the spare")
 }
 
 func TestReconnectingConnFollowsTwoPromotions(t *testing.T) {
