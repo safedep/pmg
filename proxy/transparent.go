@@ -103,11 +103,7 @@ func isTemporaryAcceptError(err error) bool {
 	if errors.Is(err, net.ErrClosed) {
 		return false
 	}
-	var ne net.Error
-	if errors.As(err, &ne) && ne.Timeout() {
-		return true
-	}
-	return platform.IsTransientAcceptError(err)
+	return isTimeout(err) || platform.IsTransientAcceptError(err)
 }
 
 // Accept returns the next connection the http.Server should serve. The sniff

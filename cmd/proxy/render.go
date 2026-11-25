@@ -93,3 +93,11 @@ func certificateRejectedNotice(line string) {
 		log.Warnf("%s: the client does not trust the PMG CA", line)
 	}
 }
+
+// upstreamFailedNotice writes a failed upstream request to stderr, which is
+// the daemon's log file.
+func upstreamFailedNotice(line string) {
+	if _, err := fmt.Fprint(os.Stderr, warningLines([]string{line})); err != nil {
+		log.Warnf("%s", line)
+	}
+}
