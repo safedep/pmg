@@ -33,10 +33,6 @@ type State struct {
 	// shutdown for the stop report.
 	Blocked []BlockedPackage `json:"blocked,omitempty"`
 
-	// Unanalyzed is written at shutdown for the stop report.
-	Unanalyzed     []string `json:"unanalyzed,omitempty"`
-	UnanalyzedMore int      `json:"unanalyzed_more,omitempty"`
-
 	// ConfigPath and ConfigSource say which file the daemon loaded. A root
 	// daemon reads a different file than the user who started it edits.
 	ConfigPath   string `json:"config_path,omitempty"`

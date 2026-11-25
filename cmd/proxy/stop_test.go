@@ -163,11 +163,6 @@ func TestStopReport(t *testing.T) {
 			res:       proxyserver.StopResult{PID: 7},
 			violation: "Proxy shut down but the blocked-package count could not be verified",
 		},
-		{
-			name: "packages allowed without analysis are not a violation",
-			res: proxyserver.StopResult{PID: 7, StateVerified: true,
-				Unanalyzed: []string{"pkg:npm/safedep-test-pkg@0.1.2"}, UnanalyzedMore: 4},
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -184,8 +179,6 @@ func TestStopReport(t *testing.T) {
 			assert.Equal(t, tc.res.BlockedCount, got.BlockedCount)
 			assert.Equal(t, tc.res.RunID, got.RunID)
 			assert.Equal(t, tc.res.Observed, got.Observed)
-			assert.Equal(t, tc.res.Unanalyzed, got.Unanalyzed)
-			assert.Equal(t, len(tc.res.Unanalyzed)+tc.res.UnanalyzedMore, got.UnanalyzedCount)
 			if tc.violation == "" {
 				assert.Empty(t, got.Violation)
 			} else {
@@ -235,14 +228,6 @@ func TestStateDirHint(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestUnanalyzedReport(t *testing.T) {
-	assert.Equal(t, "", unanalyzedReport(proxyserver.StopResult{}))
-	assert.Equal(t, "Allowed without malware analysis:\n  pkg:npm/safedep-test-pkg@0.1.2\n",
-		unanalyzedReport(proxyserver.StopResult{Unanalyzed: []string{"pkg:npm/safedep-test-pkg@0.1.2"}}))
-	assert.Equal(t, "Allowed without malware analysis:\n  pkg:npm/safedep-test-pkg@0.1.2\n  and 4 more\n",
-		unanalyzedReport(proxyserver.StopResult{Unanalyzed: []string{"pkg:npm/safedep-test-pkg@0.1.2"}, UnanalyzedMore: 4}))
 }
 
 func TestBlockedReport(t *testing.T) {

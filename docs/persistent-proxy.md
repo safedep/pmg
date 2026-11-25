@@ -134,10 +134,7 @@ Optional fields can be absent:
 {"stopped":true,"pid":1234,"blocked_count":0,"state_verified":true,"run_id":"example","observed":2}
 ```
 
-The report can also contain `network`, `cloud_sync`, `unanalyzed`,
-`unanalyzed_count` and `violation`. `unanalyzed` lists up to 1000 packages
-that the proxy allowed because the malware analysis failed.
-`unanalyzed_count` counts all of them.
+The report can also contain `network`, `cloud_sync` and `violation`.
 `pmg proxy status` exits `0` when a proxy runs, when none runs, and when it
 cannot read the state. Read its output, not its exit code.
 

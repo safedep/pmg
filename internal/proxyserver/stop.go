@@ -31,9 +31,6 @@ type StopResult struct {
 	BlockedCount int
 	// Blocked lists each package that the daemon blocked.
 	Blocked []BlockedPackage
-	// Unanalyzed lists each package that the daemon allowed without analysis.
-	Unanalyzed     []string
-	UnanalyzedMore int
 	// StateVerified is false when the final state could not be read after
 	// shutdown (e.g. the proxy crashed), which callers may treat as fail-closed.
 	StateVerified bool
@@ -65,9 +62,6 @@ type StopReport struct {
 	Observed      int              `json:"observed"`
 	Network       *NetworkState    `json:"network,omitempty"`
 	CloudSync     *CloudSyncResult `json:"cloud_sync,omitempty"`
-	// UnanalyzedCount also counts the packages past the cap of Unanalyzed.
-	Unanalyzed      []string `json:"unanalyzed,omitempty"`
-	UnanalyzedCount int      `json:"unanalyzed_count,omitempty"`
 	// Violation names what --fail-on-violation fails on. It is set whether
 	// or not the flag is on.
 	Violation string `json:"violation,omitempty"`
@@ -77,17 +71,15 @@ type StopReport struct {
 // computed.
 func (r StopResult) Report(violation string) StopReport {
 	return StopReport{
-		Stopped:         true,
-		PID:             r.PID,
-		BlockedCount:    r.BlockedCount,
-		StateVerified:   r.StateVerified,
-		RunID:           r.RunID,
-		Observed:        r.Observed,
-		Network:         r.Network,
-		CloudSync:       r.CloudSync,
-		Unanalyzed:      r.Unanalyzed,
-		UnanalyzedCount: len(r.Unanalyzed) + r.UnanalyzedMore,
-		Violation:       violation,
+		Stopped:       true,
+		PID:           r.PID,
+		BlockedCount:  r.BlockedCount,
+		StateVerified: r.StateVerified,
+		RunID:         r.RunID,
+		Observed:      r.Observed,
+		Network:       r.Network,
+		CloudSync:     r.CloudSync,
+		Violation:     violation,
 	}
 }
 
@@ -144,16 +136,14 @@ func Stop(statePath string) (StopResult, error) {
 	}
 
 	return StopResult{
-		PID:            state.PID,
-		BlockedCount:   final.BlockedCount,
-		Blocked:        final.Blocked,
-		Unanalyzed:     final.Unanalyzed,
-		UnanalyzedMore: final.UnanalyzedMore,
-		StateVerified:  readErr == nil,
-		CloudSync:      final.CloudSync,
-		Network:        final.Network,
-		Enforce:        final.Enforce,
-		RunID:          final.RunID,
-		Observed:       final.ObservedDestinations,
+		PID:           state.PID,
+		BlockedCount:  final.BlockedCount,
+		Blocked:       final.Blocked,
+		StateVerified: readErr == nil,
+		CloudSync:     final.CloudSync,
+		Network:       final.Network,
+		Enforce:       final.Enforce,
+		RunID:         final.RunID,
+		Observed:      final.ObservedDestinations,
 	}, nil
 }

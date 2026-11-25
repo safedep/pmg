@@ -29,7 +29,6 @@ import (
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/netenforce"
-	"github.com/safedep/pmg/internal/ui"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -369,11 +368,6 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
 	state.Blocked = blocks.List()
-	unanalyzed, unanalyzedMore := statsCollector.GetUnanalyzedPackages()
-	for _, pkg := range unanalyzed {
-		state.Unanalyzed = append(state.Unanalyzed, ui.PackageVersionPurl(pkg))
-	}
-	state.UnanalyzedMore = unanalyzedMore
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}
