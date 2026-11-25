@@ -250,6 +250,31 @@ func (b *baseRegistryInterceptor) analyzePackage(
 	return result, nil
 }
 
+// allowUnanalyzed allows a package that has no verdict because the analysis
+// failed. The logger is off without --debug, so the stats collector and
+// OnAnalysisFailure carry the failure to the operator.
+func (b *baseRegistryInterceptor) allowUnanalyzed(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	name, version string,
+	err error,
+) *proxy.InterceptorResponse {
+	log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, name, version, err)
+
+	pkgVersion := &packagev1.PackageVersion{
+		Package: &packagev1.Package{Ecosystem: ecosystem, Name: name},
+		Version: version,
+	}
+	if b.statsCollector != nil {
+		b.statsCollector.RecordUnanalyzed(pkgVersion)
+	}
+	if b.execContext.OnAnalysisFailure != nil {
+		b.execContext.OnAnalysisFailure(pkgVersion, err)
+	}
+
+	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}
+}
+
 // handleAnalysisResult processes the analysis result and returns appropriate response action
 // This method is ecosystem agnostic and handles the analysis result uniformly
 func (b *baseRegistryInterceptor) handleAnalysisResult(

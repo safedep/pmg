@@ -29,6 +29,7 @@ import (
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/netenforce"
+	"github.com/safedep/pmg/internal/ui"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -217,6 +218,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	ecosystems, notices := proxiedEcosystems(caDir, truststore.GoTrustsCA)
 	interceptorList, err := buildInterceptors(
 		malysisAnalyzer, cache, statsCollector, confirmationChan, cfg.Config.Proxy.Registries, ecosystems,
+		newAnalysisFailureLog(os.Stderr).Record,
 	)
 	if err != nil {
 		return err
@@ -367,6 +369,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
 	state.Blocked = blocks.List()
+	for _, pkg := range statsCollector.GetUnanalyzedPackages() {
+		state.Unanalyzed = append(state.Unanalyzed, ui.PackageVersionPurl(pkg))
+	}
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}
@@ -439,13 +444,14 @@ func buildInterceptors(
 	confirmationChan chan *interceptors.ConfirmationRequest,
 	registries []config.ProxyRegistryConfig,
 	ecosystems []packagev1.Ecosystem,
+	onAnalysisFailure func(*packagev1.PackageVersion, error),
 ) ([]pmgproxy.Interceptor, error) {
 	factory, err := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,
 		cache,
 		statsCollector,
 		confirmationChan,
-		interceptors.InterceptorContext{Policy: cloudpolicy.Global()},
+		interceptors.InterceptorContext{Policy: cloudpolicy.Global(), OnAnalysisFailure: onAnalysisFailure},
 		registries,
 	)
 	if err != nil {

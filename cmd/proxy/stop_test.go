@@ -230,6 +230,12 @@ func TestStateDirHint(t *testing.T) {
 	}
 }
 
+func TestUnanalyzedReport(t *testing.T) {
+	assert.Equal(t, "", unanalyzedReport(proxyserver.StopResult{}))
+	assert.Equal(t, "Allowed without malware analysis:\n  pkg:npm/safedep-test-pkg@0.1.2\n",
+		unanalyzedReport(proxyserver.StopResult{Unanalyzed: []string{"pkg:npm/safedep-test-pkg@0.1.2"}}))
+}
+
 func TestBlockedReport(t *testing.T) {
 	assert.Equal(t, "", blockedReport(proxyserver.StopResult{BlockedCount: 2}), "a daemon that predates the list prints nothing")
 	assert.Equal(t, "Blocked packages:\n"+

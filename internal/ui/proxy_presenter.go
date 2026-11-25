@@ -177,12 +177,17 @@ func BlockedPackageLine(reason proxy.BlockReason, blockCtx *proxy.BlockContext) 
 // selectors. An admin writes a selector in the decoded form, for example
 // pkg:npm/@types/ms, so the message decodes the wire form for display only.
 func packagePurl(blockCtx *proxy.BlockContext) string {
-	purl, err := pb.Purl(&packagev1.PackageVersion{
+	return PackageVersionPurl(&packagev1.PackageVersion{
 		Package: &packagev1.Package{Ecosystem: blockCtx.Ecosystem, Name: blockCtx.PackageName},
 		Version: blockCtx.PackageVersion,
 	})
+}
+
+// PackageVersionPurl names a package version as a decoded PURL for display.
+func PackageVersionPurl(pkg *packagev1.PackageVersion) string {
+	purl, err := pb.Purl(pkg)
 	if err != nil {
-		purl = fmt.Sprintf("%s/%s@%s", ecosystemLabel(blockCtx.Ecosystem), blockCtx.PackageName, blockCtx.PackageVersion)
+		purl = fmt.Sprintf("%s/%s@%s", ecosystemLabel(pkg.GetPackage().GetEcosystem()), pkg.GetPackage().GetName(), pkg.GetVersion())
 	} else if decoded, decodeErr := url.PathUnescape(purl); decodeErr == nil {
 		purl = decoded
 	}

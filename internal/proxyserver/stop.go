@@ -31,6 +31,9 @@ type StopResult struct {
 	BlockedCount int
 	// Blocked lists each package that the daemon blocked.
 	Blocked []BlockedPackage
+	// Unanalyzed names each package that the daemon allowed because the
+	// analysis failed.
+	Unanalyzed []string
 	// StateVerified is false when the final state could not be read after
 	// shutdown (e.g. the proxy crashed), which callers may treat as fail-closed.
 	StateVerified bool
@@ -139,6 +142,7 @@ func Stop(statePath string) (StopResult, error) {
 		PID:           state.PID,
 		BlockedCount:  final.BlockedCount,
 		Blocked:       final.Blocked,
+		Unanalyzed:    final.Unanalyzed,
 		StateVerified: readErr == nil,
 		CloudSync:     final.CloudSync,
 		Network:       final.Network,

@@ -178,8 +178,11 @@ Endpoints with analysis disabled, including the GitHub npm endpoints, remain out
 Analyzer errors still allow downloads in both modes.
 PMG needs access to `community-api.safedep.io:443` for community analysis.
 With SafeDep Cloud credentials, PMG also needs `api.safedep.io:443`, or the address in `SAFEDEP_CLOUD_DATA_ADDR`.
-Analyzer failures appear in diagnostic logs, not an install warning.
-Use `pmg --debug npm install` or `pmg --log pmg-debug.log npm install` to inspect them.
+When a query times out or the connection fails, PMG sends the query once more on a new connection.
+Both attempts share the 10 second limit of one analysis.
+The install report lists each package that PMG allowed without analysis.
+The proxy daemon writes a line to `proxy.log` for each such package, and `pmg proxy stop` lists them.
+Use `pmg --debug npm install` or `pmg --log pmg-debug.log npm install` to inspect the errors.
 
 The proxy daemon connects to these hosts directly.
 Another pmg process, such as `pmg cloud sync`, connects through the persistent proxy when the proxy variables are set.

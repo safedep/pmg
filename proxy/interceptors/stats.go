@@ -1,10 +1,12 @@
 package interceptors
 
 import (
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
 	"github.com/safedep/pmg/proxy"
@@ -35,6 +37,8 @@ type AnalysisStatsCollector struct {
 	// left. Metadata for one package can be fetched several times during an
 	// install, so recording must deduplicate rather than append.
 	cooldownWithheld map[string]map[string]int
+
+	unanalyzed []*packagev1.PackageVersion
 }
 
 // NewAnalysisStatsCollector creates a new stats collector
@@ -226,4 +230,30 @@ func (c *AnalysisStatsCollector) GetCooldownWithheld() []models.CooldownWithheld
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
+}
+
+// RecordUnanalyzed records a package that PMG allowed because the analysis
+// failed. A package manager can retry a download, so each version is kept
+// once. It does not count toward analyzed or allowed totals.
+func (c *AnalysisStatsCollector) RecordUnanalyzed(pkg *packagev1.PackageVersion) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if slices.ContainsFunc(c.unanalyzed, func(p *packagev1.PackageVersion) bool {
+		return p.GetPackage().GetEcosystem() == pkg.GetPackage().GetEcosystem() &&
+			p.GetPackage().GetName() == pkg.GetPackage().GetName() &&
+			p.GetVersion() == pkg.GetVersion()
+	}) {
+		return
+	}
+	c.unanalyzed = append(c.unanalyzed, pkg)
+}
+
+// GetUnanalyzedPackages returns the packages that PMG allowed because the
+// analysis failed, in the order they failed.
+func (c *AnalysisStatsCollector) GetUnanalyzedPackages() []*packagev1.PackageVersion {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return slices.Clone(c.unanalyzed)
 }

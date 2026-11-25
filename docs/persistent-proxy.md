@@ -146,7 +146,9 @@ with the same state path. Root uses root's cache directory unless
 `PMG_STATE_DIR` or `PMG_CACHE_DIR` changes it. For diagnostics, run `pmg --debug proxy start`
 in the foreground, or `pmg --debug --log pmg-debug.log proxy start --daemon`.
 The [event log](proxy-mode.md#troubleshooting) of that user records each
-blocked package.
+blocked package. The daemon also writes a line to `proxy.log` for each
+package that it allows because the malware analysis failed. It writes at
+most 20 such lines each minute.
 
 The daemon reads all configuration at start. It applies the shared
 [trust](trusted-packages.md), paranoid and [cooldown](dependency-cooldown.md)

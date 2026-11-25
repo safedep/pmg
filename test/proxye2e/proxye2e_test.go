@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy/interceptors"
 	"github.com/stretchr/testify/assert"
@@ -452,9 +453,64 @@ func TestProxyFlow_Npm(t *testing.T) {
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.False(t, res.Blocked())
 				assert.True(t, h.Registry.DownloadedTarball("flaky", "1.0.0"))
+				assertUnanalyzed(t, h, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
 			},
 		},
 	})
+}
+
+func TestProxyFlow_AnalyzerErrorFailsOpenInEveryEcosystem(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name: "pypi analyzer error fails open and reports the package",
+			Setup: func(h *Harness) {
+				h.Registry.AddPypi(PypiPackage{Name: "flaky", Versions: []PypiVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetPypi("flaky", "1.0.0", ServerError())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().Install("flaky", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assertUnanalyzed(t, h, packagev1.Ecosystem_ECOSYSTEM_PYPI, "flaky", "1.0.0")
+			},
+		},
+		{
+			Name: "go analyzer error fails open and reports the module",
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/flaky",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/flaky", "v1.0.0", ServerError())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("example.com/flaky", "v1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedGoZip("example.com/flaky", "v1.0.0"))
+				assertUnanalyzed(t, h, packagev1.Ecosystem_ECOSYSTEM_GO, "example.com/flaky", "v1.0.0")
+			},
+		},
+		{
+			Name: "cargo analyzer error fails open and reports the crate",
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "flaky", Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetCargo("flaky", "1.0.0", ServerError())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("flaky", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedCrate("flaky", "1.0.0"))
+				assertUnanalyzed(t, h, packagev1.Ecosystem_ECOSYSTEM_CARGO, "flaky", "1.0.0")
+			},
+		},
+	})
+}
+
+func assertUnanalyzed(t *testing.T, h *Harness, ecosystem packagev1.Ecosystem, name, version string) {
+	t.Helper()
+	unanalyzed := h.Unanalyzed()
+	require.Len(t, unanalyzed, 1)
+	assert.Equal(t, ecosystem, unanalyzed[0].GetPackage().GetEcosystem())
+	assert.Equal(t, name, unanalyzed[0].GetPackage().GetName())
+	assert.Equal(t, version, unanalyzed[0].GetVersion())
+	assert.Zero(t, h.Stats().TotalAnalyzed, "a failed analysis is not counted as analyzed")
 }
 
 // A host the interceptors observe but never MITM (test.pypi.org) is tunneled via

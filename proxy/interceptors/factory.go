@@ -36,6 +36,10 @@ type InterceptorContext struct {
 	// can swap in a new policy with no restart. nil means the policy of the
 	// process, cloudpolicy.Global.
 	Policy cloudpolicy.Source
+
+	// OnAnalysisFailure is called for each package that PMG allows because
+	// the analysis failed. The proxy daemon writes a line for it to its log.
+	OnAnalysisFailure func(pkg *packagev1.PackageVersion, err error)
 }
 
 // currentPolicy returns the policy of src, or the policy of the process when

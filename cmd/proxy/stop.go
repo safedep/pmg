@@ -96,7 +96,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if _, werr := fmt.Fprint(os.Stdout, blockedReport(res)+networkReport(res)+observationLine(res)); werr != nil {
+	if _, werr := fmt.Fprint(os.Stdout, blockedReport(res)+unanalyzedReport(res)+networkReport(res)+observationLine(res)); werr != nil {
 		ui.ErrorExit(werr)
 	}
 
@@ -173,6 +173,20 @@ func blockedReport(res proxyserver.StopResult) string {
 			continue
 		}
 		b.WriteString("  " + ui.BlockedPackageLine(p.Reason, p.Context) + "\n")
+	}
+	return b.String()
+}
+
+// unanalyzedReport lists each package that the proxy allowed because the
+// analysis failed. Empty when every analysis succeeded.
+func unanalyzedReport(res proxyserver.StopResult) string {
+	if len(res.Unanalyzed) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Allowed without malware analysis:\n")
+	for _, purl := range res.Unanalyzed {
+		b.WriteString("  " + purl + "\n")
 	}
 	return b.String()
 }

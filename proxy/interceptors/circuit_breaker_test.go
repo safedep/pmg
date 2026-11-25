@@ -212,3 +212,25 @@ func TestCircuitBreaker_NotFoundFollowedByRealFailures(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 6, mock.callCount, "breaker should prevent 7th call from reaching analyzer")
 }
+
+func TestAllowUnanalyzedReportsTheFailure(t *testing.T) {
+	mock := &mockAnalyzer{err: status.Error(codes.DeadlineExceeded, "context deadline exceeded")}
+	base := newTestBaseInterceptor(mock)
+	var reported []*packagev1.PackageVersion
+	base.execContext.OnAnalysisFailure = func(pkg *packagev1.PackageVersion, err error) {
+		assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
+		reported = append(reported, pkg)
+	}
+	ctx := newTestRequestContext()
+
+	_, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
+	require.Error(t, err)
+
+	resp := base.allowUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0", err)
+	assert.Equal(t, proxy.ActionAllow, resp.Action, "an analysis failure still allows the package")
+
+	require.Len(t, reported, 1)
+	assert.Equal(t, "flaky", reported[0].GetPackage().GetName())
+	assert.Equal(t, packagev1.Ecosystem_ECOSYSTEM_NPM, reported[0].GetPackage().GetEcosystem())
+	assert.Equal(t, reported, base.statsCollector.GetUnanalyzedPackages())
+}
