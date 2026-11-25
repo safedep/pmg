@@ -75,6 +75,19 @@ func TestSummary(t *testing.T) {
 	}
 	noVerdict.Violation = "2 package(s) were blocked by the proxy"
 
+	defaultBlocks := clean()
+	defaultBlocks.BlockedCount = 3
+	defaultBlocks.Blocked = []proxyserver.BlockedPackage{
+		{Reason: pmgproxy.BlockReasonMalware, Context: &pmgproxy.BlockContext{
+			Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "safedep-test-pkg", PackageVersion: "0.1.3"}},
+		{Reason: pmgproxy.BlockReasonPolicyRule, Context: &pmgproxy.BlockContext{
+			Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI, PackageName: "left-pad", PackageVersion: "1.0.0",
+			PolicyRule: &pmgproxy.PolicyRuleBlock{File: "/home/runner/work/app/app/.pmg/config.yml"}}},
+		{Reason: pmgproxy.BlockReasonDependencyCooldown, Context: &pmgproxy.BlockContext{
+			Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "fresh", PackageVersion: "2.0.0", CooldownDays: 2}},
+	}
+	defaultBlocks.Violation = "3 package(s) were blocked by the proxy"
+
 	unverified := clean()
 	unverified.StateVerified = false
 	unverified.Violation = "Proxy shut down but the blocked-package count could not be verified"
@@ -166,6 +179,12 @@ func TestSummary(t *testing.T) {
 				"::error title=PMG::PMG blocked 2 package(s). See the job summary.",
 				"::error title=PMG::PMG blocked 1 package(s) with no malware verdict. Re-run the job in a few minutes.",
 			},
+		},
+		{
+			name:   "default mode run that blocked packages names each one",
+			golden: "default-mode-blocks.md",
+			in:     Input{Stop: defaultBlocks, FailOnViolation: true},
+			cmds:   []string{"::error title=PMG::PMG blocked 3 package(s). See the job summary."},
 		},
 		{
 			name:   "unverified final state",
