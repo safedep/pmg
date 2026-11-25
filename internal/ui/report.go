@@ -99,6 +99,7 @@ type ReportData struct {
 	// Packages that PMG allowed because the analysis failed (proxy mode
 	// only)
 	UnanalyzedPackages []*packagev1.PackageVersion
+	UnanalyzedMore     int
 
 	// NetworkPolicy holds the connections a deny rule matched. nil when no
 	// policy ran.
@@ -223,7 +224,7 @@ func reportNormal(data *ReportData) {
 
 	printNetworkPolicy(data.NetworkPolicy)
 	printNetworkObservation(data)
-	printUnanalyzedWarning(data.UnanalyzedPackages)
+	printUnanalyzedWarning(data.UnanalyzedPackages, data.UnanalyzedMore)
 
 	if data.Outcome == OutcomeError {
 		// The child's own error output and PMG's exit line render elsewhere.
@@ -307,7 +308,7 @@ func reportNormal(data *ReportData) {
 // because the analysis failed.
 const UnanalyzedHeadline = "Malware analysis failed. PMG allowed these packages without analysis"
 
-func printUnanalyzedWarning(packages []*packagev1.PackageVersion) {
+func printUnanalyzedWarning(packages []*packagev1.PackageVersion, more int) {
 	if len(packages) == 0 {
 		return
 	}
@@ -315,6 +316,9 @@ func printUnanalyzedWarning(packages []*packagev1.PackageVersion) {
 	fmt.Printf("%s %s\n", Colors.Yellow("⚠"), Colors.Yellow(UnanalyzedHeadline))
 	for _, pkg := range packages {
 		fmt.Printf("    %s\n", PackageVersionPurl(pkg))
+	}
+	if more > 0 {
+		fmt.Printf("    and %d more\n", more)
 	}
 }
 
@@ -384,7 +388,7 @@ func reportVerbose(data *ReportData) {
 
 	if len(data.UnanalyzedPackages) > 0 {
 		fmt.Println()
-		printUnanalyzedWarning(data.UnanalyzedPackages)
+		printUnanalyzedWarning(data.UnanalyzedPackages, data.UnanalyzedMore)
 	}
 
 	// Show blocked/confirmed package details in verbose mode

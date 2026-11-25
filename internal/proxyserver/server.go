@@ -369,9 +369,11 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
 	state.Blocked = blocks.List()
-	for _, pkg := range statsCollector.GetUnanalyzedPackages() {
+	unanalyzed, unanalyzedMore := statsCollector.GetUnanalyzedPackages()
+	for _, pkg := range unanalyzed {
 		state.Unanalyzed = append(state.Unanalyzed, ui.PackageVersionPurl(pkg))
 	}
+	state.UnanalyzedMore = unanalyzedMore
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}

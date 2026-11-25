@@ -134,7 +134,10 @@ Optional fields can be absent:
 {"stopped":true,"pid":1234,"blocked_count":0,"state_verified":true,"run_id":"example","observed":2}
 ```
 
-The report can also contain `network`, `cloud_sync` and `violation`.
+The report can also contain `network`, `cloud_sync`, `unanalyzed`,
+`unanalyzed_count` and `violation`. `unanalyzed` lists up to 1000 packages
+that the proxy allowed because the malware analysis failed.
+`unanalyzed_count` counts all of them.
 `pmg proxy status` exits `0` when a proxy runs, when none runs, and when it
 cannot read the state. Read its output, not its exit code.
 
@@ -149,6 +152,15 @@ The [event log](proxy-mode.md#troubleshooting) of that user records each
 blocked package. The daemon also writes a line to `proxy.log` for each
 package that it allows because the malware analysis failed. It writes at
 most 20 such lines each minute.
+
+The daemon keeps one connection to the malware analysis service. A NAT or
+a firewall can drop that connection when it is idle. The community client
+sends a keepalive ping every 30 seconds, so the daemon finds a dead
+connection in at most 40 seconds. When a query gets no answer in 3
+seconds, the daemon also sends it on a new connection. The authenticated
+client (with SafeDep Cloud credentials) sends the query on a new
+connection, but it does not send keepalive pings yet, because
+`cloud.NewDataPlaneClient` in the dry library takes no dial options.
 
 The daemon reads all configuration at start. It applies the shared
 [trust](trusted-packages.md), paranoid and [cooldown](dependency-cooldown.md)

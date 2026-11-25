@@ -409,6 +409,7 @@ func TestReportListsUnanalyzedPackages(t *testing.T) {
 				Package: &packagev1.Package{Name: "safedep-test-pkg", Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM},
 				Version: "0.1.2",
 			}}
+			data.UnanalyzedMore = 4
 
 			out := captureStdout(t, func() { Report(data) })
 
@@ -418,6 +419,7 @@ func TestReportListsUnanalyzedPackages(t *testing.T) {
 			}
 			assert.Contains(t, out, UnanalyzedHeadline)
 			assert.Contains(t, out, "pkg:npm/safedep-test-pkg@0.1.2")
+			assert.Contains(t, out, "and 4 more")
 		})
 	}
 }

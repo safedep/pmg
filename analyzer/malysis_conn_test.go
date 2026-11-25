@@ -3,28 +3,288 @@ package analyzer
 import (
 	"context"
 	"errors"
+	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
+	malysisv1pb "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
+	"github.com/safedep/dry/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
-type stubConn struct {
-	err       error
-	calls     int
-	closed    bool
-	remaining time.Duration
+const missingVersion = "missing"
+
+type testMalysisServer struct {
+	malysisv1grpc.UnimplementedMalwareAnalysisServiceServer
+	delay time.Duration
+	calls atomic.Int32
 }
 
-func (s *stubConn) Invoke(ctx context.Context, _ string, _, _ any, _ ...grpc.CallOption) error {
-	s.calls++
-	if deadline, ok := ctx.Deadline(); ok {
-		s.remaining = time.Until(deadline)
+func (s *testMalysisServer) QueryPackageAnalysis(ctx context.Context,
+	req *malysisv1.QueryPackageAnalysisRequest) (*malysisv1.QueryPackageAnalysisResponse, error) {
+	s.calls.Add(1)
+	select {
+	case <-time.After(s.delay):
+	case <-ctx.Done():
+		return nil, status.FromContextError(ctx.Err()).Err()
 	}
+
+	version := req.GetTarget().GetPackageVersion().GetVersion()
+	if version == missingVersion {
+		return nil, status.Error(codes.NotFound, "package not found")
+	}
+	return &malysisv1.QueryPackageAnalysisResponse{AnalysisId: "analysis-" + version}, nil
+}
+
+func startMalysisServer(t *testing.T, delay time.Duration) (*testMalysisServer, string) {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	srv := &testMalysisServer{delay: delay}
+	server := grpc.NewServer()
+	malysisv1grpc.RegisterMalwareAnalysisServiceServer(server, srv)
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(ln) }()
+	t.Cleanup(func() {
+		server.Stop()
+		assert.NoError(t, <-served)
+	})
+
+	return srv, ln.Addr().String()
+}
+
+// blackholeProxy forwards TCP to target until drop is set. Then it discards
+// all bytes in both directions, as a NAT does after it drops a connection
+// with no reset.
+type blackholeProxy struct {
+	target string
+	drop   atomic.Bool
+}
+
+func startBlackholeProxy(t *testing.T, target string) (*blackholeProxy, string) {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, ln.Close()) })
+
+	p := &blackholeProxy{target: target}
+	go func() {
+		for {
+			client, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go p.serve(client)
+		}
+	}()
+
+	return p, ln.Addr().String()
+}
+
+func (p *blackholeProxy) serve(client net.Conn) {
+	server, err := net.Dial("tcp", p.target)
+	if err != nil {
+		closeConn(client)
+		return
+	}
+	go p.pipe(server, client)
+	p.pipe(client, server)
+}
+
+func (p *blackholeProxy) pipe(dst, src net.Conn) {
+	defer closeConn(dst)
+
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := src.Read(buf)
+		if err != nil {
+			return
+		}
+		if p.drop.Load() {
+			continue
+		}
+		if _, err := dst.Write(buf[:n]); err != nil {
+			return
+		}
+	}
+}
+
+func closeConn(c net.Conn) {
+	if err := c.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		log.Warnf("failed to close a proxy connection: %v", err)
+	}
+}
+
+// testDialer opens the first connection to first and every later connection
+// to next.
+type testDialer struct {
+	t     *testing.T
+	first string
+	next  string
+	dials atomic.Int32
+}
+
+func (d *testDialer) dial() (closableConn, error) {
+	addr := d.next
+	if d.dials.Add(1) == 1 {
+		addr = d.first
+	}
+
+	conn, err := grpc.NewClient("passthrough:///"+addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	d.t.Cleanup(func() {
+		if err := conn.Close(); status.Code(err) != codes.Canceled {
+			assert.NoError(d.t, err)
+		}
+	})
+	return conn, nil
+}
+
+func newTestConn(t *testing.T, first, next string, hedgeDelay time.Duration) (*reconnectingConn, *testDialer) {
+	t.Helper()
+
+	dialer := &testDialer{t: t, first: first, next: next}
+	conn, err := newReconnectingConn(dialer.dial)
+	require.NoError(t, err)
+	conn.hedgeDelay = hedgeDelay
+	return conn, dialer
+}
+
+func query(ctx context.Context, conn grpc.ClientConnInterface, version string) (*malysisv1.QueryPackageAnalysisResponse, error) {
+	return malysisv1grpc.NewMalwareAnalysisServiceClient(conn).QueryPackageAnalysis(ctx,
+		&malysisv1.QueryPackageAnalysisRequest{Target: &malysisv1pb.PackageAnalysisTarget{
+			PackageVersion: &packagev1.PackageVersion{Version: version},
+		}})
+}
+
+func queryWithin(t *testing.T, conn grpc.ClientConnInterface, version string, timeout time.Duration) (*malysisv1.QueryPackageAnalysisResponse, time.Duration, error) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	start := time.Now()
+	resp, err := query(ctx, conn, version)
+	return resp, time.Since(start), err
+}
+
+// deadConn starts a server behind a proxy, opens the first connection
+// through the proxy, and then drops that connection.
+func deadConn(t *testing.T, hedgeDelay time.Duration) (*reconnectingConn, *testDialer, *testMalysisServer) {
+	t.Helper()
+
+	srv, addr := startMalysisServer(t, 0)
+	proxy, proxyAddr := startBlackholeProxy(t, addr)
+	conn, dialer := newTestConn(t, proxyAddr, addr, hedgeDelay)
+
+	_, _, err := queryWithin(t, conn, "warm", 5*time.Second)
+	require.NoError(t, err)
+	proxy.drop.Store(true)
+
+	return conn, dialer, srv
+}
+
+func TestReconnectingConnWaitsForASlowAnswer(t *testing.T) {
+	_, addr := startMalysisServer(t, 600*time.Millisecond)
+	conn, _ := newTestConn(t, addr, addr, 100*time.Millisecond)
+
+	resp, _, err := queryWithin(t, conn, "1.0.0", time.Second)
+	require.NoError(t, err, "a slow answer inside the deadline of the caller is a verdict")
+	assert.Equal(t, "analysis-1.0.0", resp.GetAnalysisId())
+}
+
+func TestReconnectingConnReturnsNotFoundAtOnce(t *testing.T) {
+	srv, addr := startMalysisServer(t, 0)
+	conn, dialer := newTestConn(t, addr, addr, time.Minute)
+
+	_, _, err := queryWithin(t, conn, missingVersion, 5*time.Second)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+	assert.Equal(t, int32(1), srv.calls.Load())
+	assert.Equal(t, int32(1), dialer.dials.Load())
+}
+
+func TestReconnectingConnRecoversFromADeadConnection(t *testing.T) {
+	const hedgeDelay = 300 * time.Millisecond
+	conn, dialer, _ := deadConn(t, hedgeDelay)
+
+	resp, elapsed, err := queryWithin(t, conn, "1.0.0", 10*time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, "analysis-1.0.0", resp.GetAnalysisId())
+	assert.Less(t, elapsed, hedgeDelay+2*time.Second)
+	assert.Equal(t, int32(2), dialer.dials.Load())
+
+	_, elapsed, err = queryWithin(t, conn, "2.0.0", 10*time.Second)
+	require.NoError(t, err)
+	assert.Less(t, elapsed, hedgeDelay, "the new connection is the current one")
+	assert.Equal(t, int32(2), dialer.dials.Load())
+}
+
+func TestReconnectingConnOpensOneConnectionForABurst(t *testing.T) {
+	conn, dialer, _ := deadConn(t, 300*time.Millisecond)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 30)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, errs[i] = queryWithin(t, conn, "1.0.0", 10*time.Second)
+		}()
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		assert.NoError(t, err, "call %d", i)
+	}
+	assert.Equal(t, int32(2), dialer.dials.Load(), "one dead connection is replaced once")
+}
+
+func TestReconnectingConnRetriesCanceledOnTheCurrentConnection(t *testing.T) {
+	conn, dialer, _ := deadConn(t, time.Minute)
+	old := conn.current()
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := queryWithin(t, conn, "1.0.0", 30*time.Second)
+		done <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	fresh, err := conn.next(old)
+	require.NoError(t, err)
+	conn.promote(old, fresh)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err, "the call that the closed connection canceled goes on the current connection")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "the call waited for the hedge delay")
+	}
+	assert.Equal(t, int32(2), dialer.dials.Load())
+}
+
+type stubConn struct {
+	err   error
+	calls atomic.Int32
+}
+
+func (s *stubConn) Invoke(context.Context, string, any, any, ...grpc.CallOption) error {
+	s.calls.Add(1)
 	return s.err
 }
 
@@ -32,10 +292,7 @@ func (s *stubConn) NewStream(context.Context, *grpc.StreamDesc, string, ...grpc.
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubConn) Close() error {
-	s.closed = true
-	return nil
-}
+func (s *stubConn) Close() error { return nil }
 
 type stubDialer struct {
 	conns []*stubConn
@@ -51,139 +308,62 @@ func (d *stubDialer) dial() (closableConn, error) {
 	return conn, nil
 }
 
-func TestReconnectingConnInvoke(t *testing.T) {
-	deadlineErr := status.Error(codes.DeadlineExceeded, "context deadline exceeded")
-	unavailableErr := status.Error(codes.Unavailable, "connection closed")
-	notFoundErr := status.Error(codes.NotFound, "package not found")
+func TestReconnectingConnFastFailures(t *testing.T) {
+	unavailable := status.Error(codes.Unavailable, "connection closed")
 
 	cases := []struct {
-		name      string
-		errs      []error
-		wantCode  codes.Code
-		wantDials int
-		wantCalls []int
+		name        string
+		conns       []*stubConn
+		wantCode    codes.Code
+		wantDials   int
+		wantCurrent int
 	}{
 		{
-			name:      "success uses one connection",
-			errs:      []error{nil, nil},
-			wantCode:  codes.OK,
-			wantDials: 1,
-			wantCalls: []int{1, 0},
-		},
-		{
-			name:      "DeadlineExceeded retries once on a new connection",
-			errs:      []error{deadlineErr, nil},
-			wantCode:  codes.OK,
-			wantDials: 2,
-			wantCalls: []int{1, 1},
-		},
-		{
-			name:      "Unavailable retries once on a new connection",
-			errs:      []error{unavailableErr, nil},
-			wantCode:  codes.OK,
-			wantDials: 2,
-			wantCalls: []int{1, 1},
-		},
-		{
-			name:      "NotFound is an answer and is not retried",
-			errs:      []error{notFoundErr, nil},
-			wantCode:  codes.NotFound,
-			wantDials: 1,
-			wantCalls: []int{1, 0},
+			name:        "a fast failure goes on a new connection with no wait",
+			conns:       []*stubConn{{err: unavailable}, {}},
+			wantCode:    codes.OK,
+			wantDials:   2,
+			wantCurrent: 1,
 		},
 		{
 			name:      "a second failure returns the error",
-			errs:      []error{deadlineErr, unavailableErr},
+			conns:     []*stubConn{{err: unavailable}, {err: unavailable}},
 			wantCode:  codes.Unavailable,
 			wantDials: 2,
-			wantCalls: []int{1, 1},
+		},
+		{
+			name:      "a failed dial returns the first error",
+			conns:     []*stubConn{{err: unavailable}},
+			wantCode:  codes.Unavailable,
+			wantDials: 1,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dialer := &stubDialer{}
-			for _, err := range tc.errs {
-				dialer.conns = append(dialer.conns, &stubConn{err: err})
-			}
-
+			dialer := &stubDialer{conns: tc.conns}
 			conn, err := newReconnectingConn(dialer.dial)
 			require.NoError(t, err)
+			conn.hedgeDelay = time.Minute
 
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			err = conn.Invoke(ctx, "/malysis/Query", nil, nil)
+			_, elapsed, err := queryWithin(t, conn, "1.0.0", 10*time.Second)
 			assert.Equal(t, tc.wantCode, status.Code(err))
 			assert.Equal(t, tc.wantDials, dialer.dials)
-			for i, want := range tc.wantCalls {
-				assert.Equal(t, want, dialer.conns[i].calls, "calls on connection %d", i)
-			}
-			assert.Equal(t, tc.wantDials > 1, dialer.conns[0].closed, "the failed connection is closed")
+			assert.Less(t, elapsed, time.Second)
+			assert.Same(t, tc.conns[tc.wantCurrent], conn.current())
 		})
 	}
 }
 
-func TestReconnectingConnSplitsTheDeadline(t *testing.T) {
-	first := &stubConn{err: status.Error(codes.DeadlineExceeded, "context deadline exceeded")}
-	second := &stubConn{}
-	dialer := &stubDialer{conns: []*stubConn{first, second}}
-
-	conn, err := newReconnectingConn(dialer.dial)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	require.NoError(t, conn.Invoke(ctx, "/malysis/Query", nil, nil))
-	assert.LessOrEqual(t, first.remaining, 5*time.Second)
-	assert.Greater(t, second.remaining, 5*time.Second, "the retry gets the time that the first attempt did not use")
-}
-
 func TestReconnectingConnDoesNotRetryWhenTheCallerGaveUp(t *testing.T) {
-	dialer := &stubDialer{conns: []*stubConn{
-		{err: status.Error(codes.Canceled, "context canceled")},
-		{},
-	}}
-
+	dialer := &stubDialer{conns: []*stubConn{{err: status.Error(codes.Canceled, "context canceled")}, {}}}
 	conn, err := newReconnectingConn(dialer.dial)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err = conn.Invoke(ctx, "/malysis/Query", nil, nil)
+	_, err = query(ctx, conn, "1.0.0")
 	assert.Equal(t, codes.Canceled, status.Code(err))
 	assert.Equal(t, 1, dialer.dials)
-}
-
-func TestReconnectingConnReplacesADeadConnectionOnce(t *testing.T) {
-	dead := &stubConn{}
-	fresh := &stubConn{}
-	dialer := &stubDialer{conns: []*stubConn{dead, fresh}}
-
-	conn, err := newReconnectingConn(dialer.dial)
-	require.NoError(t, err)
-
-	for range 2 {
-		got, err := conn.replace(dead)
-		require.NoError(t, err)
-		assert.Same(t, fresh, got)
-	}
-	assert.Equal(t, 2, dialer.dials)
-	assert.True(t, dead.closed)
-	assert.False(t, fresh.closed)
-}
-
-func TestReconnectingConnKeepsTheConnectionWhenTheDialFails(t *testing.T) {
-	first := &stubConn{err: status.Error(codes.Unavailable, "connection closed")}
-	dialer := &stubDialer{conns: []*stubConn{first}}
-
-	conn, err := newReconnectingConn(dialer.dial)
-	require.NoError(t, err)
-
-	err = conn.Invoke(context.Background(), "/malysis/Query", nil, nil)
-	assert.Equal(t, codes.Unavailable, status.Code(err))
-	assert.Same(t, first, conn.current())
-	assert.False(t, first.closed)
 }

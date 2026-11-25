@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -187,6 +188,9 @@ func unanalyzedReport(res proxyserver.StopResult) string {
 	b.WriteString("Allowed without malware analysis:\n")
 	for _, purl := range res.Unanalyzed {
 		b.WriteString("  " + purl + "\n")
+	}
+	if res.UnanalyzedMore > 0 {
+		b.WriteString("  and " + strconv.Itoa(res.UnanalyzedMore) + " more\n")
 	}
 	return b.String()
 }

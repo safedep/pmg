@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"fmt"
 	"testing"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -9,24 +10,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func unanalyzedPkg(version string) *packagev1.PackageVersion {
+	return &packagev1.PackageVersion{
+		Package: &packagev1.Package{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, Name: "flaky"},
+		Version: version,
+	}
+}
+
 func TestRecordUnanalyzedKeepsEachVersionOnce(t *testing.T) {
 	collector := NewAnalysisStatsCollector()
-	pkg := func(version string) *packagev1.PackageVersion {
-		return &packagev1.PackageVersion{
-			Package: &packagev1.Package{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, Name: "flaky"},
-			Version: version,
-		}
-	}
 
-	collector.RecordUnanalyzed(pkg("1.0.0"))
-	collector.RecordUnanalyzed(pkg("1.0.0"))
-	collector.RecordUnanalyzed(pkg("2.0.0"))
+	collector.RecordUnanalyzed(unanalyzedPkg("1.0.0"))
+	collector.RecordUnanalyzed(unanalyzedPkg("1.0.0"))
+	collector.RecordUnanalyzed(unanalyzedPkg("2.0.0"))
 
-	unanalyzed := collector.GetUnanalyzedPackages()
+	unanalyzed, more := collector.GetUnanalyzedPackages()
 	require.Len(t, unanalyzed, 2, "a retried download is kept once")
 	assert.Equal(t, "1.0.0", unanalyzed[0].GetVersion())
 	assert.Equal(t, "2.0.0", unanalyzed[1].GetVersion())
+	assert.Zero(t, more)
 	assert.Equal(t, AnalysisStats{}, collector.GetStats(), "a failed analysis is not counted as analyzed")
+}
+
+func TestRecordUnanalyzedCapsTheList(t *testing.T) {
+	collector := NewAnalysisStatsCollector()
+
+	for i := range maxUnanalyzedPackages + 3 {
+		collector.RecordUnanalyzed(unanalyzedPkg(fmt.Sprintf("1.0.%d", i)))
+	}
+	collector.RecordUnanalyzed(unanalyzedPkg("1.0.0"))
+
+	unanalyzed, more := collector.GetUnanalyzedPackages()
+	assert.Len(t, unanalyzed, maxUnanalyzedPackages)
+	assert.Equal(t, 3, more, "a listed version is not counted again")
 }
 
 func TestRecordRuleBlockedCountsNoAnalysis(t *testing.T) {
