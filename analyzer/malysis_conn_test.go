@@ -287,6 +287,32 @@ func TestReconnectingConnRetriesCanceledOnTheCurrentConnection(t *testing.T) {
 	assert.Equal(t, int32(2), dialer.dials.Load())
 }
 
+func TestReconnectingConnRetryFollowsAPromotion(t *testing.T) {
+	conn, dialer, _ := deadConn(t, time.Minute, 0)
+	old := conn.current()
+
+	done := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, err := query(withoutHedge(ctx), conn, "1.0.0")
+		done <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	fresh, _, err := conn.next(old)
+	require.NoError(t, err)
+	conn.promote(old, fresh)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err, "a retry that the closed connection canceled goes on the current connection")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "the retry waited on a closed connection")
+	}
+	assert.Equal(t, int32(2), dialer.dials.Load())
+}
+
 func TestReconnectingConnKeepsTheSpareWhenShortCallersTimeOut(t *testing.T) {
 	conn, dialer, _ := deadConn(t, 100*time.Millisecond, 800*time.Millisecond)
 

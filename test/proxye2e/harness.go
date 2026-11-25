@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -483,8 +484,10 @@ func readOutcome(resp *http.Response, out RequestOutcome) RequestOutcome {
 	}
 
 	out.StatusCode = resp.StatusCode
-	out.Blocked = resp.StatusCode == http.StatusForbidden
 	out.Body = string(body)
+	// An upstream 503 is not a block, so a 503 counts only with the PMG message.
+	out.Blocked = resp.StatusCode == http.StatusForbidden ||
+		resp.StatusCode == http.StatusServiceUnavailable && strings.Contains(out.Body, ui.NoVerdictRetry)
 	out.Headers = resp.Header.Clone()
 	return out
 }

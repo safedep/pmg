@@ -718,6 +718,7 @@ func lastRequest(t *testing.T, res ExecResult) RequestOutcome {
 func assertNoVerdictBlock(t *testing.T, h *Harness, r RequestOutcome, ecosystem packagev1.Ecosystem, name, version string) {
 	t.Helper()
 	assert.Equal(t, http.StatusServiceUnavailable, r.StatusCode)
+	assert.True(t, r.Blocked)
 	assert.Contains(t, r.Body, "could not get a malware verdict")
 	want := &proxy.BlockContext{Ecosystem: ecosystem, PackageName: name, PackageVersion: version}
 	assert.Equal(t, []Block{{Reason: proxy.BlockReasonNoVerdict, Context: want}}, h.Blocks())

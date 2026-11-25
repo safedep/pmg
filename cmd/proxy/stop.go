@@ -106,7 +106,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 		ui.ErrorExit(verr)
 	}
 
-	summary := fmt.Sprintf("PMG proxy stopped. It blocked %d package(s).\n", res.BlockedCount)
+	summary := fmt.Sprintf("PMG proxy stopped, %d package(s) blocked\n", res.BlockedCount)
 	if !res.StateVerified {
 		summary = fmt.Sprintf("PMG proxy (pid %d) stopped (final state unavailable)\n", res.PID)
 	}

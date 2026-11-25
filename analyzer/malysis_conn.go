@@ -73,7 +73,7 @@ type attemptResult struct {
 func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
 	out, ok := reply.(proto.Message)
 	if !ok || ctx.Value(noHedgeKey{}) != nil {
-		return c.current().Invoke(ctx, method, args, reply, opts...)
+		return c.invokeCurrent(ctx, method, args, reply, opts...)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -158,6 +158,20 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 	}
 
 	return err
+}
+
+// invokeCurrent follows the current connection when another call closed the
+// one that this call used.
+func (c *reconnectingConn) invokeCurrent(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
+	conn := c.current()
+	for {
+		err := conn.Invoke(ctx, method, args, reply, opts...)
+		next := c.current()
+		if status.Code(err) != codes.Canceled || ctx.Err() != nil || next == conn {
+			return err
+		}
+		conn = next
+	}
 }
 
 func (c *reconnectingConn) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string,
