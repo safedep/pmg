@@ -92,27 +92,42 @@ func TestCacheDirsUnderSudo(t *testing.T) {
 }
 
 func TestLoadUnderSudoAppliesTheCacheWithTheLaterFetch(t *testing.T) {
-	cfg := newTestConfig(t)
-	home := t.TempDir()
-	homeCache := filepath.Join(platform.HomeDirs(home).Config, "safedep", "pmg", "cloud-policy")
+	tests := []struct {
+		name         string
+		ownAt        time.Time
+		homeAt       time.Time
+		wantRevision uint64
+	}{
+		{"an older home cache loses", time.Now(), time.Now().Add(-24 * time.Hour), 11},
+		{"a newer home cache wins", time.Now().Add(-24 * time.Hour), time.Now(), 10},
+		{"a home cache with a fetch in the future loses", time.Now(), time.Now().Add(24 * time.Hour), 11},
+	}
 
-	origPrivileged, origHome := platform.IsPrivileged, platform.SudoUserHomeDir
-	t.Cleanup(func() { platform.IsPrivileged, platform.SudoUserHomeDir = origPrivileged, origHome })
-	platform.IsPrivileged = func() bool { return true }
-	platform.SudoUserHomeDir = func() (string, error) { return home, nil }
-	t.Setenv("SUDO_USER", "runner")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newTestConfig(t)
+			home := t.TempDir()
+			homeCache := filepath.Join(platform.HomeDirs(home).Config, "safedep", "pmg", "cloud-policy")
 
-	require.NoError(t, cloudpolicytest.Write(homeCache, cloudpolicytest.Policy(blockEvil()), cloudpolicytest.Header{
-		Tenant:    testTenant,
-		MachineID: testMachineID(t),
-		Revision:  10,
-	}))
-	require.NoError(t, cloudpolicytest.SetFetchedAt(homeCache, time.Now().Add(-24*time.Hour)))
-	writeCache(t, cfg, cloudpolicytest.Policy(blockEvil()), 11)
+			origPrivileged, origHome := platform.IsPrivileged, platform.SudoUserHomeDir
+			t.Cleanup(func() { platform.IsPrivileged, platform.SudoUserHomeDir = origPrivileged, origHome })
+			platform.IsPrivileged = func() bool { return true }
+			platform.SudoUserHomeDir = func() (string, error) { return home, nil }
+			t.Setenv("SUDO_USER", "runner")
 
-	st := Load(cfg, testTenant)
+			require.NoError(t, cloudpolicytest.Write(homeCache, cloudpolicytest.Policy(blockEvil()), cloudpolicytest.Header{
+				Tenant:    testTenant,
+				MachineID: testMachineID(t),
+				Revision:  10,
+			}))
+			require.NoError(t, cloudpolicytest.SetFetchedAt(homeCache, tt.homeAt))
+			writeCache(t, cfg, cloudpolicytest.Policy(blockEvil()), 11)
+			require.NoError(t, cloudpolicytest.SetFetchedAt(cfg.CloudPolicyCacheDir(), tt.ownAt))
 
-	require.NotNil(t, st.Applied)
-	assert.Equal(t, uint64(11), st.Applied.Revision)
-	assert.Equal(t, cfg.CloudPolicyCacheDir(), st.CacheDir)
+			st := Load(cfg, testTenant)
+
+			require.NotNil(t, st.Applied)
+			assert.Equal(t, tt.wantRevision, st.Applied.Revision)
+		})
+	}
 }

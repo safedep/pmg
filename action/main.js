@@ -102,7 +102,7 @@ function exportJobDirs(jobContainer, configFile) {
   }
   for (const [name, dir] of [['PMG_CONFIG_DIR', 'config'], ['PMG_STATE_DIR', 'state']]) {
     if (!process.env[name] || (name === 'PMG_CONFIG_DIR' && configFile !== '')) {
-      if (name === 'PMG_CONFIG_DIR') {
+      if (name === 'PMG_CONFIG_DIR' && configFile === '') {
         warnUnusedConfig(process.env.PMG_CONFIG_DIR || path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'safedep', 'pmg'));
       }
       process.env[name] = path.join(process.env.RUNNER_TEMP, 'pmg', dir);
@@ -123,7 +123,7 @@ function unusedConfig(dir) {
 function warnUnusedConfig(dir) {
   const files = unusedConfig(dir);
   if (files.length > 0) {
-    lib.warning(`PMG does not read ${files.join(' and ')} in ${dir} in this job, because each job has its own config directory. Use the config-file input or the managed config in /etc/safedep/pmg.`);
+    lib.warning(`PMG does not read ${files.join(' and ')} in ${dir} in this job, because each job has its own config directory. Use the config-file input or the managed config in /etc/safedep/pmg. Delete the files to stop this warning.`);
   }
 }
 

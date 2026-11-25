@@ -140,6 +140,23 @@ test('exportJobDirs', async (t) => {
     assert.deepStrictEqual(dirs, { config: undefined, state: undefined });
     assert.deepStrictEqual(exported, {});
   });
+
+  for (const [configFile, want] of [['', true], ['pmg.yml', false]]) {
+    await t.test(`warns about a home config.yml: ${want} with config-file '${configFile}'`, (t) => {
+      const tmp = tempDir(t);
+      fs.mkdirSync(path.join(tmp, 'safedep', 'pmg'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'safedep', 'pmg', 'config.yml'), '');
+      const out = [];
+      const write = process.stdout.write;
+      process.stdout.write = (s) => out.push(String(s));
+      try {
+        withEnv({ RUNNER_TEMP: tmp, GITHUB_ENV: undefined, XDG_CONFIG_HOME: tmp, PMG_CONFIG_DIR: undefined, PMG_STATE_DIR: undefined }, () => exportJobDirs(false, configFile));
+      } finally {
+        process.stdout.write = write;
+      }
+      assert.strictEqual(out.join('').includes('::warning::PMG does not read config.yml'), want);
+    });
+  }
 });
 
 // fakePMG writes a pmg that prints status as pmg proxy status does.

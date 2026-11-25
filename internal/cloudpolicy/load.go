@@ -138,7 +138,7 @@ func cacheState(dir string) configsync.State {
 		return configsync.State{}
 	}
 	state, err := store.State()
-	if err != nil || state == nil {
+	if err != nil {
 		return configsync.State{}
 	}
 	return *state
@@ -394,7 +394,17 @@ func cacheDirs(cfg *config.RuntimeConfig) []string {
 	if cfg.StateDirOverridden() {
 		dirs = []string{own, dir}
 	}
-	if cacheState(dirs[1]).FetchedAt.After(cacheState(dirs[0]).FetchedAt) {
+	// A fetch time in the future is not real, so it does not move a cache
+	// to the front.
+	now := time.Now()
+	fetchedAt := func(dir string) time.Time {
+		at := cacheState(dir).FetchedAt
+		if at.After(now) {
+			return time.Time{}
+		}
+		return at
+	}
+	if fetchedAt(dirs[1]).After(fetchedAt(dirs[0])) {
 		dirs[0], dirs[1] = dirs[1], dirs[0]
 	}
 	return dirs
