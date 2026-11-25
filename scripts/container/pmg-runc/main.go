@@ -250,6 +250,8 @@ func inject(bundle, id string) error {
 		if err := writeFile(bundleFile, merge(own, ca), 0o644); err != nil {
 			return err
 		}
+	} else {
+		logf("%s has no readable CA bundle, so it gets the runner bundle", id)
 	}
 	bind(filepath.Join(dir, "ca.pem"), inDir+"/ca.pem")
 	bind(bundleFile, inDir+"/ca-bundle.pem")
@@ -324,10 +326,21 @@ func imageBundle(root string) []byte {
 }
 
 // imageFile returns file p of the image. It returns nil when the file is
-// missing, empty or not readable.
+// missing, empty or not readable. It logs each read error other than a
+// missing file, because the container then does not get the CAs of that file.
 func imageFile(root, p string) []byte {
 	own, err := readInRoot(root, p)
-	if err != nil || len(bytes.TrimSpace(own)) == 0 {
+	switch {
+	case errors.Is(err, unix.ENOSYS):
+		logf("cannot read %s of the image: pmg-runc needs openat2, which Linux 5.6 or later has", p)
+		return nil
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, unix.ENOTDIR):
+		return nil
+	case err != nil:
+		logf("cannot read %s of the image: %v", p, err)
+		return nil
+	}
+	if len(bytes.TrimSpace(own)) == 0 {
 		return nil
 	}
 	return own

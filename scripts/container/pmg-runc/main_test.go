@@ -141,6 +141,18 @@ func TestInjectKeepsImageBundleAndEnv(t *testing.T) {
 	assert.FileExists(t, statePath("c1"))
 }
 
+func TestInjectLogsUnreadableImageFiles(t *testing.T) {
+	f := newFixture(t, `{"root":{"path":"rootfs"},"process":{"env":["CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt"]},"mounts":[{"destination":"/dev","type":"tmpfs","source":"tmpfs"}]}`)
+	writeTestFile(t, filepath.Join(f.root, "etc/ssl/certs/ca-certificates.crt"), string(make([]byte, maxCAFile+1)))
+
+	require.NoError(t, inject(f.bundle, "c1"))
+
+	log := readString(t, logFile)
+	assert.Contains(t, log, "cannot read /etc/ssl/certs/ca-certificates.crt of the image")
+	assert.Contains(t, log, "c1 has no readable CA bundle, so it gets the runner bundle")
+	assert.Equal(t, filepath.Join(f.ca, "ca-bundle.pem"), readSpec(t, filepath.Join(f.bundle, "config.json")).mountSources()["/dev/pmg-ca/ca-bundle.pem"])
+}
+
 func TestInjectFollowsSymlinksInsideRoot(t *testing.T) {
 	f := newFixture(t, baseSpec)
 	writeTestFile(t, filepath.Join(f.root, "etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"), imageCAs)
