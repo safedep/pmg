@@ -116,6 +116,9 @@ func apply(c call) error {
 		if err := os.Remove(statePath(c.id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove state of %s: %w", c.id, err)
 		}
+	default:
+		// The other commands, such as start, kill and state, need no change.
+		// main runs the real runc with the same arguments.
 	}
 	return nil
 }
