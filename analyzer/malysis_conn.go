@@ -47,8 +47,8 @@ type dialFunc func() (closableConn, error)
 // The spare exists only while hedged calls use it. It becomes the current
 // connection when the server answers on it first. It is closed when the
 // current connection answers first, when it fails while its caller waits, or
-// when the last call on it ends at its deadline with no answer. Without the
-// last two rules, a dead spare would stay for the next hedge.
+// when the last call on it ends. Without the last two rules, a dead spare
+// would stay for the next hedge.
 type reconnectingConn struct {
 	dial       dialFunc
 	hedgeDelay time.Duration
@@ -102,10 +102,9 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 	hedged := false
 
 	var spare closableConn
-	timedOut := false
 	defer func() {
 		if spare != nil {
-			c.leaveSpare(spare, timedOut)
+			c.leaveSpare(spare)
 		}
 	}()
 
@@ -154,11 +153,7 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 			// an attempt at the deadline before ctx.Err() is set, so the
 			// check reads the deadline.
 			err = res.err
-			if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
-				timedOut = true
-				return err
-			}
-			if ctx.Err() != nil {
+			if deadline, ok := ctx.Deadline(); ctx.Err() != nil || ok && !time.Now().Before(deadline) {
 				return err
 			}
 			c.closeSpare(res.conn)
@@ -239,9 +234,9 @@ func (c *reconnectingConn) closeSpare(conn closableConn) {
 	}
 }
 
-// leaveSpare ends the use of the spare by one call. A call that reached its
-// deadline with no answer closes the spare when no other call waits on it.
-func (c *reconnectingConn) leaveSpare(conn closableConn, timedOut bool) {
+// leaveSpare ends the use of the spare by one call. The last call on the
+// spare closes it, so an idle spare never waits for the next hedge.
+func (c *reconnectingConn) leaveSpare(conn closableConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -250,7 +245,7 @@ func (c *reconnectingConn) leaveSpare(conn closableConn, timedOut bool) {
 	}
 
 	c.spareCalls--
-	if timedOut && c.spareCalls == 0 {
+	if c.spareCalls == 0 {
 		c.closeSpareLocked()
 	}
 }

@@ -362,6 +362,28 @@ func TestReconnectingConnClosesASpareThatGaveNoAnswer(t *testing.T) {
 	assert.Equal(t, int32(3), dialer.dials.Load())
 }
 
+func TestReconnectingConnClosesASpareWhenItsLastCallerCancels(t *testing.T) {
+	_, addr := startMalysisServer(t, 0)
+	proxy0, addr0 := startBlackholeProxy(t, addr)
+	proxy1, addr1 := startBlackholeProxy(t, addr)
+	conn, dialer := newTestConn(t, 100*time.Millisecond, addr0, addr1, addr)
+
+	_, _, err := queryWithin(t, conn, "warm", 5*time.Second)
+	require.NoError(t, err)
+	proxy0.drop.Store(true)
+	proxy1.drop.Store(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(300*time.Millisecond, cancel)
+	_, err = query(ctx, conn, "1.0.0")
+	assert.Equal(t, codes.Canceled, status.Code(err))
+	assert.Equal(t, int32(2), dialer.dials.Load())
+
+	_, _, err = queryWithin(t, conn, "2.0.0", 5*time.Second)
+	require.NoError(t, err, "the next hedge opens a new spare")
+	assert.Equal(t, int32(3), dialer.dials.Load())
+}
+
 func TestReconnectingConnFollowsTwoPromotions(t *testing.T) {
 	_, addr := startMalysisServer(t, 0)
 	proxy0, addr0 := startBlackholeProxy(t, addr)
