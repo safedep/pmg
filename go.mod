@@ -105,7 +105,8 @@ require (
 tool github.com/cilium/ebpf/cmd/bpf2go
 
 // The post-quantum key share makes the TLS ClientHello about 1.5 KB. Some
-// network paths drop it with no error (#624). This default applies to the pmg
-// binary only. Set GODEBUG=tlsmlkem=1 to send the post-quantum key share again.
+// network paths drop it with no error (#624). This default applies to the main
+// packages of this module and workspace, not to other Go programs. Set
+// GODEBUG=tlsmlkem=1 to send the post-quantum key share again.
 // Keep in sync with go.work.
 godebug tlsmlkem=0

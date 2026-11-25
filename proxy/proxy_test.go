@@ -67,9 +67,17 @@ func TestUpstreamHandshakeTimeoutIsReportedOnce(t *testing.T) {
 	_, err = ps.upstreamRoundTrip(req)
 	require.Error(t, err)
 	assert.True(t, isTimeout(err), "error %v must be a timeout", err)
-	assert.Len(t, accepted, 1, "a handshake timeout must not be retried")
-	for len(accepted) > 0 {
-		require.NoError(t, (<-accepted).Close())
+	select {
+	case conn := <-accepted:
+		require.NoError(t, conn.Close())
+	case <-time.After(time.Second):
+		require.Fail(t, "the proxy did not connect upstream")
+	}
+	select {
+	case conn := <-accepted:
+		require.NoError(t, conn.Close())
+		assert.Fail(t, "a handshake timeout must not be retried")
+	case <-time.After(200 * time.Millisecond):
 	}
 	require.Len(t, reported, 1)
 	assert.Contains(t, reported[0], "upstream GET pypi.org failed after")
