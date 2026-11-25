@@ -65,7 +65,6 @@ func Markdown(in Input) string {
 	b.WriteString(verdict(in))
 	b.WriteString("\n\n")
 	writeOverview(&b, in)
-	writeUnanalyzed(&b, in)
 	writeDenials(&b, in)
 	writeDestinations(&b, in)
 	writeProposal(&b, in)
@@ -124,26 +123,6 @@ func writeOverview(b *strings.Builder, in Input) {
 	b.WriteString("| Packages blocked | Network mode | Network profile | Destinations observed |\n")
 	b.WriteString("|---|---|---|---|\n")
 	fmt.Fprintf(b, "| %s | %s | %s | %d |\n\n", blocked, cell(mode), profileCell, in.Stop.Observed)
-}
-
-// writeUnanalyzed lists the packages that PMG allowed because the malware
-// analysis failed. PMG allows them by design, so they are no violation, but
-// the job must show them.
-func writeUnanalyzed(b *strings.Builder, in Input) {
-	count := in.Stop.UnanalyzedCount
-	if count == 0 {
-		return
-	}
-	b.WriteString("### Packages allowed without malware analysis\n\n")
-	fmt.Fprintf(b, "The malware analysis failed for %d package(s), and PMG allowed them. Check them, or run the job again.\n\n", count)
-	shown := in.Stop.Unanalyzed[:min(len(in.Stop.Unanalyzed), maxTableRows)]
-	for _, purl := range shown {
-		fmt.Fprintf(b, "- %s\n", code(purl))
-	}
-	if more := count - len(shown); more > 0 {
-		fmt.Fprintf(b, "\n%d more package(s) are not shown.\n", more)
-	}
-	b.WriteString("\n")
 }
 
 func writeDenials(b *strings.Builder, in Input) {

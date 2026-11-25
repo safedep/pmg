@@ -67,10 +67,6 @@ func TestSummary(t *testing.T) {
 	unverified.StateVerified = false
 	unverified.Violation = "Proxy shut down but the blocked-package count could not be verified"
 
-	unanalyzed := clean()
-	unanalyzed.Unanalyzed = []string{"pkg:npm/safedep-test-pkg@0.1.2", "pkg:npm/left`pad@1.0.0"}
-	unanalyzed.UnanalyzedCount = 5
-
 	injected := bootstrap()
 	injected.Destinations = append(injected.Destinations,
 		destination("x|<img src=y>`", 443, "a\n[x](https://e)", propose.VerdictInvalid, ""))
@@ -171,14 +167,6 @@ func TestSummary(t *testing.T) {
 			golden: "builtin-profile-proposal.md",
 			in:     Input{Stop: clean(), Proposal: bootstrap(), Profile: "github-actions", FailOnViolation: true},
 			cmds:   []string{"::notice title=PMG::PMG proposes 1 network rule(s) for .pmg/network.yml. See the job summary."},
-		},
-		{
-			name:   "packages allowed without malware analysis",
-			golden: "unanalyzed.md",
-			in:     Input{Stop: unanalyzed, FailOnViolation: true},
-			cmds: []string{
-				"::warning title=PMG::PMG allowed 5 package(s) without malware analysis, because the analysis failed. See the job summary.",
-			},
 		},
 		{
 			name:   "network text cannot break the table or the code block",
