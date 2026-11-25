@@ -1,8 +1,6 @@
 # guarantee: in paranoid mode the persistent proxy refuses a download when it
 # cannot identify the package from the URL.
 
-[windows] skip 'pmg proxy start --daemon is not supported on Windows'
-
 env HOME=$WORK/home
 mkdir $WORK/home
 
@@ -11,11 +9,36 @@ stdout 'PMG could not identify the package from the URL'
 
 -- check.sh --
 set -eu
-pmg proxy start --daemon --port 0 --paranoid --state "$PWD/proxy-state.json"
-trap 'pmg proxy stop --state "$PWD/proxy-state.json"' EXIT
-eval "$(pmg proxy env --export --state "$PWD/proxy-state.json")"
-status=$(curl --silent --show-error --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
-  --output response.txt --write-out '%{http_code}' \
-  https://files.pythonhosted.org/packages/invalid.whl)
+state="$PWD/proxy-state.json"
+
+pmg proxy start --port 0 --paranoid --state "$state" >proxy.log 2>&1 &
+proxy_pid=$!
+cleanup() {
+  pmg proxy stop --if-running --state "$state" >/dev/null 2>&1 || true
+  wait "$proxy_pid" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+i=0
+while ! pmg proxy status --state "$state" 2>/dev/null | grep -q 'PMG proxy: running'; do
+  i=$((i + 1))
+  if [ "$i" -ge 100 ]; then
+    echo "proxy did not become ready" >&2
+    cat proxy.log >&2 || true
+    exit 1
+  fi
+  sleep 0.1
+done
+
+eval "$(pmg proxy env --export --state "$state")"
+# Windows Schannel checks CRL/OCSP by default, which fails for PMG's local CA.
+set -- --silent --show-error --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
+  --output response.txt --write-out '%{http_code}'
+if curl --version | grep -qi schannel; then
+  set -- "$@" --ssl-no-revoke
+fi
+status=$(curl "$@" https://files.pythonhosted.org/packages/invalid.whl)
 test "$status" = 403
 cat response.txt
+pmg proxy stop --state "$state" >/dev/null
+wait "$proxy_pid"

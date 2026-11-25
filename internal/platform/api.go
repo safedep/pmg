@@ -54,6 +54,11 @@ func IsTransientAcceptError(err error) bool { return isTransientAcceptError(err)
 // errors.ErrUnsupported, because SHELL answers the question there.
 func ParentProcessName() (string, error) { return parentProcessName() }
 
+// IsProcessAlive reports whether pid is a live process. Unix probes with
+// signal 0 and treats a Linux zombie as exited. Windows opens the process and
+// checks GetExitCodeProcess against STILL_ACTIVE.
+func IsProcessAlive(pid int) bool { return isProcessAlive(pid) }
+
 // IsZombieProcess reports whether pid has exited and waits for its parent to
 // reap it. Linux reads the state from /proc. A read or parse failure, and
 // every other platform, reports false.

@@ -313,6 +313,18 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		state.Enforce.Warnings = append(state.Enforce.Warnings, namespaces.warnings()...)
 	}
 
+	stopReqCh, closeStopReq, err := listenStopRequest()
+	if err != nil {
+		if enforceHandle != nil {
+			if cerr := enforceHandle.Close(); cerr != nil {
+				log.Warnf("failed to detach enforcement after stop listener failure: %v", cerr)
+			}
+		}
+		stopServer()
+		return fmt.Errorf("create proxy stop listener: %w", err)
+	}
+	defer closeStopReq()
+
 	if err := writeState(statePath, state); err != nil {
 		if enforceHandle != nil {
 			if cerr := enforceHandle.Close(); cerr != nil {
@@ -334,7 +346,11 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	<-sigCh
+	defer signal.Stop(sigCh)
+	select {
+	case <-sigCh:
+	case <-stopReqCh:
+	}
 
 	// Drain in-flight requests before closing the confirmation channel, so no
 	// request handler can send on a closed channel (panic) during shutdown.
