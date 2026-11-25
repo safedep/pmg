@@ -5,6 +5,7 @@
 // daemon at the end of the job.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const lib = require('./lib');
@@ -101,10 +102,28 @@ function exportJobDirs(jobContainer, configFile) {
   }
   for (const [name, dir] of [['PMG_CONFIG_DIR', 'config'], ['PMG_STATE_DIR', 'state']]) {
     if (!process.env[name] || (name === 'PMG_CONFIG_DIR' && configFile !== '')) {
+      if (name === 'PMG_CONFIG_DIR') {
+        warnUnusedConfig(process.env.PMG_CONFIG_DIR || path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'safedep', 'pmg'));
+      }
       process.env[name] = path.join(process.env.RUNNER_TEMP, 'pmg', dir);
       lib.appendFile('GITHUB_ENV', `${name}=${process.env[name]}`);
     }
     fs.mkdirSync(process.env[name], { recursive: true });
+  }
+}
+
+// unusedConfig returns the files in dir that PMG reads from a config
+// directory: the config file and the sandbox profiles, presets and overlays.
+function unusedConfig(dir) {
+  return ['config.yml', 'sandbox'].filter((name) => fs.existsSync(path.join(dir, name)));
+}
+
+// warnUnusedConfig tells the user that a config, which applied to PMG on
+// this runner before, does not apply to the job.
+function warnUnusedConfig(dir) {
+  const files = unusedConfig(dir);
+  if (files.length > 0) {
+    lib.warning(`PMG does not read ${files.join(' and ')} in ${dir} in this job, because each job has its own config directory. Use the config-file input or the managed config in /etc/safedep/pmg.`);
   }
 }
 
@@ -423,4 +442,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkInputs, enforceMode, enforcedElsewhere, exportJobDirs, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };
+module.exports = { checkInputs, enforceMode, enforcedElsewhere, exportJobDirs, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce, unusedConfig };

@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir, withEnv } = require('./testenv');
-const { checkInputs, enforceMode, enforcedElsewhere, exportJobDirs, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce } = require('./main');
+const { checkInputs, enforceMode, enforcedElsewhere, exportJobDirs, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce, unusedConfig } = require('./main');
 
 test('resolveServerMode', async (t) => {
   for (const [name, env, profile, want] of [
@@ -87,6 +87,17 @@ test('enforcedElsewhere is true only for a daemon that already enforces', async 
   }
 });
 
+test('unusedConfig names the config file and the sandbox files', async (t) => {
+  await t.test('an empty directory', (t) => assert.deepStrictEqual(unusedConfig(tempDir(t)), []));
+  await t.test('a missing directory', (t) => assert.deepStrictEqual(unusedConfig(path.join(tempDir(t), 'none')), []));
+  await t.test('config and sandbox files', (t) => {
+    const dir = tempDir(t);
+    fs.writeFileSync(path.join(dir, 'config.yml'), 'paranoid: true\n');
+    fs.mkdirSync(path.join(dir, 'sandbox', 'profiles'), { recursive: true });
+    assert.deepStrictEqual(unusedConfig(dir), ['config.yml', 'sandbox']);
+  });
+});
+
 test('exportJobDirs', async (t) => {
   // runExport runs exportJobDirs in a fresh RUNNER_TEMP and returns the
   // directories, the exported variables and RUNNER_TEMP.
@@ -94,7 +105,7 @@ test('exportJobDirs', async (t) => {
     const tmp = tempDir(t);
     const envFile = path.join(tmp, 'env');
     fs.writeFileSync(envFile, '');
-    const dirs = withEnv({ RUNNER_TEMP: tmp, GITHUB_ENV: envFile, PMG_CONFIG_DIR: configDir, PMG_STATE_DIR: undefined }, () => {
+    const dirs = withEnv({ RUNNER_TEMP: tmp, GITHUB_ENV: envFile, XDG_CONFIG_HOME: tmp, PMG_CONFIG_DIR: configDir, PMG_STATE_DIR: undefined }, () => {
       exportJobDirs(jobContainer, configFile);
       return { config: process.env.PMG_CONFIG_DIR, state: process.env.PMG_STATE_DIR };
     });

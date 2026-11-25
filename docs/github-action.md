@@ -652,7 +652,8 @@ The action keeps a directory that the workflow sets.
 When the job sets `config-file`, the action uses its own config directory, so the staged file does not change the config of later jobs.
 Under kernel enforcement, the root daemon gets a copy of `config.yml` from `PMG_CONFIG_DIR`, and uses the directories of root.
 The action keeps the proxy state for each job with PMG v0.35.0 or later. An older `version` keeps it in the shared cache directory.
-A config in `~/.config/safedep/pmg` does not apply. Use `config-file` or the [managed config](config.md#globally-managed-configuration).
+The `config.yml` and the sandbox profiles, presets and overlays in `~/.config/safedep/pmg` do not apply, and the action prints a warning when it finds them.
+Use `config-file` or the [managed config](config.md#globally-managed-configuration).
 The cache directory stays shared.
 
 On a persistent runner, the action leaves installed shims.
