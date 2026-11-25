@@ -217,6 +217,7 @@ When PMG has no verdict after these attempts, the result depends on the mode.
   Paranoid mode also blocks with HTTP 503 when an interceptor fails or the service sends an unknown action.
   PMG writes each block to the local event log as event type `no_verdict_blocked`, with the error.
   PMG does not send this event to SafeDep Cloud yet.
+  The session summary in SafeDep Cloud marks the run as blocked, but its blocked count leaves out these packages.
   A block after an interceptor failure has no package name, so the reports and `--fail-on-violation` do not show it.
   The event log has it.
 

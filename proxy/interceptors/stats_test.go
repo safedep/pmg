@@ -72,6 +72,7 @@ func TestNoVerdictBlocksCapAndHeal(t *testing.T) {
 	assert.Len(t, blocks, maxUnanalyzedPackages)
 	assert.Equal(t, 3, more)
 	assert.Equal(t, maxUnanalyzedPackages+3, collector.GetStats().BlockedCount, "a retried version counts once")
+	assert.Equal(t, maxUnanalyzedPackages+3, collector.GetStats().NoVerdictBlockedCount)
 
 	collector.ClearNoVerdictBlock(packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
 	collector.ClearNoVerdictBlock(packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
@@ -81,6 +82,7 @@ func TestNoVerdictBlocksCapAndHeal(t *testing.T) {
 	assert.Len(t, blocks, maxUnanalyzedPackages-1)
 	assert.Equal(t, 2, more)
 	assert.Equal(t, maxUnanalyzedPackages+1, collector.GetStats().BlockedCount, "a heal counts once, in the list or past it")
+	assert.Equal(t, maxUnanalyzedPackages+1, collector.GetStats().NoVerdictBlockedCount)
 	assert.False(t, collector.HasNoVerdictBlock(block("1.0.0")))
 	assert.True(t, collector.HasNoVerdictBlock(block("1.0.1")))
 }

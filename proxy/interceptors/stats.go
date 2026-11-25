@@ -20,6 +20,10 @@ type AnalysisStats struct {
 	BlockedCount         int
 	UserCancelledCount   int
 	CooldownBlockedCount int
+
+	// NoVerdictBlockedCount is the part of BlockedCount that paranoid mode
+	// blocked with no verdict.
+	NoVerdictBlockedCount int
 }
 
 // AnalysisStatsCollector tracks analysis statistics during proxy execution.
@@ -256,6 +260,7 @@ func (c *AnalysisStatsCollector) RecordNoVerdictBlocked(block *proxy.BlockContex
 	}
 	c.noVerdictSeen[key] = true
 	c.stats.BlockedCount++
+	c.stats.NoVerdictBlockedCount++
 	if len(c.noVerdictBlocks) < maxUnanalyzedPackages {
 		c.noVerdictBlocks = append(c.noVerdictBlocks, block)
 	}
@@ -274,6 +279,7 @@ func (c *AnalysisStatsCollector) ClearNoVerdictBlock(ecosystem packagev1.Ecosyst
 	}
 	delete(c.noVerdictSeen, key)
 	c.stats.BlockedCount--
+	c.stats.NoVerdictBlockedCount--
 	c.noVerdictBlocks = slices.DeleteFunc(c.noVerdictBlocks, func(b *proxy.BlockContext) bool { return blockKey(b) == key })
 }
 

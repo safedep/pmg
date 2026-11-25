@@ -289,7 +289,9 @@ func TestReconnectingConnRetriesCanceledOnTheCurrentConnection(t *testing.T) {
 
 func TestReconnectingConnRetryFollowsAPromotion(t *testing.T) {
 	conn, dialer, _ := deadConn(t, time.Minute, 0)
-	old := conn.current()
+	entered := make(chan struct{}, 1)
+	old := &enteredConn{closableConn: conn.current(), entered: entered}
+	conn.conn = old
 
 	done := make(chan error, 1)
 	go func() {
@@ -298,7 +300,7 @@ func TestReconnectingConnRetryFollowsAPromotion(t *testing.T) {
 		_, err := query(withoutHedge(ctx), conn, "1.0.0")
 		done <- err
 	}()
-	time.Sleep(200 * time.Millisecond)
+	<-entered
 
 	fresh, _, err := conn.next(old)
 	require.NoError(t, err)
@@ -490,6 +492,20 @@ func TestReconnectingConnFollowsTwoPromotions(t *testing.T) {
 		require.Fail(t, "the call waited on a closed connection")
 	}
 	assert.Equal(t, int32(3), dialer.dials.Load())
+}
+
+// enteredConn signals when a call starts on it.
+type enteredConn struct {
+	closableConn
+	entered chan<- struct{}
+}
+
+func (c *enteredConn) Invoke(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
+	select {
+	case c.entered <- struct{}{}:
+	default:
+	}
+	return c.closableConn.Invoke(ctx, method, args, reply, opts...)
 }
 
 type stubConn struct {

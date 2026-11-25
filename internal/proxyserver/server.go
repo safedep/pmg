@@ -478,26 +478,32 @@ func proxiedEcosystems(caDir string, goTrustsCA func(caDir string) error) ([]pac
 }
 
 // logSessionSummary emits an aggregate session-complete audit event for the
-// daemon's lifetime, mapping the proxy stats collector onto SessionData. The
-// outcome is blocked when anything was blocked, otherwise success.
+// daemon's lifetime.
 func logSessionSummary(cfg *config.RuntimeConfig, stats interceptors.AnalysisStats, duration time.Duration) {
+	audit.LogSessionSummary(daemonSessionData(cfg, stats, duration))
+}
+
+// daemonSessionData maps the proxy stats onto SessionData. The outcome is
+// blocked when anything was blocked. The count leaves out the no-verdict
+// blocks, as the one-shot flow does, because the cloud gets no event for them.
+func daemonSessionData(cfg *config.RuntimeConfig, stats interceptors.AnalysisStats, duration time.Duration) audit.SessionData {
 	outcome := audit.OutcomeSuccess
 	if stats.BlockedCount > 0 {
 		outcome = audit.OutcomeBlocked
 	}
 
-	audit.LogSessionSummary(audit.SessionData{
+	return audit.SessionData{
 		FlowType:             audit.FlowTypeProxy,
 		Outcome:              outcome,
 		TotalAnalyzed:        uint32(stats.TotalAnalyzed),
 		AllowedCount:         uint32(stats.AllowedCount),
-		BlockedCount:         uint32(stats.BlockedCount),
+		BlockedCount:         uint32(stats.BlockedCount - stats.NoVerdictBlockedCount),
 		ConfirmedCount:       uint32(stats.ConfirmedCount),
 		CooldownBlockedCount: uint32(stats.CooldownBlockedCount),
 		Duration:             duration,
 		SandboxEnabled:       cfg.Config.Sandbox.Enabled,
 		ParanoidMode:         cfg.Config.Paranoid,
-	})
+	}
 }
 
 // cloudFlush drains whatever the periodic sync left and returns the outcome
