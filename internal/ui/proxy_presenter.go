@@ -30,6 +30,11 @@ type ProxyPresenter struct {
 // BlockMessage renders the response body for a blocked proxy request
 // from the interceptor's structured block decision.
 func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.BlockContext) string {
+	if reason == proxy.BlockReasonNoVerdict {
+		// An outage and not a policy blocked the package, so the advisory
+		// message is not appended.
+		return noVerdictMessage(blockCtx)
+	}
 	if blockCtx == nil {
 		return ""
 	}
@@ -55,11 +60,6 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 		// message is intentionally not appended.
 		return fmt.Sprintf("Failed to get user confirmation for suspicious package %s/%s@%s",
 			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion)
-
-	case proxy.BlockReasonNoVerdict:
-		// An outage and not a policy blocked the package, so the advisory
-		// message is not appended.
-		return fmt.Sprintf("PMG could not get a malware verdict for %s. %s", packagePurl(blockCtx), noVerdictRetry)
 
 	case proxy.BlockReasonDependencyCooldown:
 		message = fmt.Sprintf("Package blocked by dependency cooldown: %s/%s@%s\n\nPublished %d day(s) ago; cooldown window is %d day(s) (%d remaining).",
@@ -188,7 +188,18 @@ func BlockedPackageReason(reason proxy.BlockReason, blockCtx *proxy.BlockContext
 	}
 }
 
-const noVerdictRetry = "Paranoid mode blocks a package that has no verdict. Retry the install in a few minutes."
+// NoVerdictRetry tells a user why paranoid mode blocked a package with no
+// verdict and what to do.
+const NoVerdictRetry = "Paranoid mode blocks a package that has no verdict. Retry the install in a few minutes."
+
+// noVerdictMessage has no package name when an interceptor failed before it
+// read the package from the request.
+func noVerdictMessage(blockCtx *proxy.BlockContext) string {
+	if blockCtx == nil {
+		return "PMG could not check this request. " + NoVerdictRetry
+	}
+	return fmt.Sprintf("PMG could not get a malware verdict for %s. %s", packagePurl(blockCtx), NoVerdictRetry)
+}
 
 // packagePurl names the blocked package as a PURL, the form of the rule
 // selectors. An admin writes a selector in the decoded form, for example

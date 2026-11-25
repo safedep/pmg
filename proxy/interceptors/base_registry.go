@@ -48,9 +48,18 @@ const (
 	paranoidBreakerOpenPeriod = 10 * time.Second
 
 	halfOpenPoll = 100 * time.Millisecond
+
+	// minAnalysisBudget is the least time that a query gets after the wait for
+	// the probe. A shorter query ends at its deadline and trips the breaker.
+	minAnalysisBudget = 2 * time.Second
 )
 
-func newAnalyzerCircuitBreaker(name string) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
+var errNoAnalysisBudget = errors.New("the analysis time ran out while the circuit breaker tested the service")
+
+func newAnalyzerCircuitBreaker(name string, openPeriod time.Duration) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
+	if openPeriod > 0 {
+		return newAnalyzerCircuitBreakerWithTimeout(name, openPeriod)
+	}
 	if config.Get().FailClosed() {
 		return newAnalyzerCircuitBreakerWithTimeout(name, paranoidBreakerOpenPeriod)
 	}
@@ -269,7 +278,11 @@ func (b *baseRegistryInterceptor) analyzePackage(
 // breaker, so that one short failure does not block a whole burst.
 func (b *baseRegistryInterceptor) execute(ctx context.Context,
 	analyze func() (*analyzer.PackageVersionAnalysisResult, error)) (*analyzer.PackageVersionAnalysisResult, error) {
-	for {
+	for waited := false; ; waited = true {
+		if deadline, ok := ctx.Deadline(); waited && ok && time.Until(deadline) < minAnalysisBudget {
+			return nil, errNoAnalysisBudget
+		}
+
 		result, err := b.circuitBreaker.Execute(analyze)
 		if !errors.Is(err, gobreaker.ErrTooManyRequests) || !config.Get().FailClosed() {
 			return result, err
@@ -347,6 +360,9 @@ func (b *baseRegistryInterceptor) handleVerdict(
 	packageVersion string,
 	result *analyzer.PackageVersionAnalysisResult,
 ) (*proxy.InterceptorResponse, bool, error) {
+	if b.statsCollector != nil {
+		b.statsCollector.ClearNoVerdictBlock(ecosystem, packageName, packageVersion)
+	}
 	if resp, ok := b.trustedByPolicy(ctx, ecosystem, packageName, packageVersion, result); ok {
 		return resp, true, nil
 	}
@@ -458,6 +474,11 @@ func (b *baseRegistryInterceptor) verdictResponse(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	default:
+		if config.Get().FailClosed() {
+			return b.handleUnanalyzed(ctx, ecosystem, packageName, packageVersion,
+				fmt.Errorf("unknown analysis action %d", result.Action)), nil
+		}
+
 		audit.LogInstallAllowed(result.PackageVersion, 1)
 
 		if b.statsCollector != nil {

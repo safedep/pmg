@@ -334,7 +334,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.RuleBlockedPackages = statsCollector.GetRuleBlocks()
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 	reportData.CooldownWithheldPackages = statsCollector.GetCooldownWithheld()
-	reportData.NoVerdictBlockedPackages = statsCollector.GetNoVerdictBlocks()
+	reportData.NoVerdictBlockedPackages, reportData.NoVerdictMore = statsCollector.GetNoVerdictBlocks()
 	if !cfg.FailClosed() {
 		reportData.UnanalyzedPackages, reportData.UnanalyzedMore = statsCollector.GetUnanalyzedPackages()
 	}
@@ -421,6 +421,7 @@ func (f *proxyFlow) createAndStartProxyServer(
 	onNetworkDecision func(proxy.NetworkDecision),
 ) (proxy.ProxyServer, string, error) {
 	proxyConfig := proxy.DefaultProxyConfig()
+	proxyConfig.FailClosed = config.Get().FailClosed()
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorsList
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}

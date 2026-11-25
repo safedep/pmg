@@ -80,17 +80,27 @@ func TestAnalysisFailureLogLimitsABurst(t *testing.T) {
 }
 
 func TestAnalysisFailureLogFlushWritesTheHeldBackCount(t *testing.T) {
-	var out bytes.Buffer
-	l := newAnalysisFailureLog(&out)
+	for _, tc := range []struct {
+		blocked bool
+		line    string
+	}{
+		{blocked: false, line: "pmg did not write 3 more lines about packages allowed without malware analysis"},
+		{blocked: true, line: "pmg did not write 3 more lines about packages blocked without malware analysis"},
+	} {
+		t.Run(fmt.Sprintf("blocked=%t", tc.blocked), func(t *testing.T) {
+			var out bytes.Buffer
+			l := newAnalysisFailureLog(&out)
 
-	failure := fmt.Errorf("circuit breaker is open")
-	for i := range analysisFailureMaxLines + 3 {
-		l.Record(npmPackage(fmt.Sprintf("1.0.%d", i)), failure, false)
+			failure := fmt.Errorf("circuit breaker is open")
+			for i := range analysisFailureMaxLines + 3 {
+				l.Record(npmPackage(fmt.Sprintf("1.0.%d", i)), failure, tc.blocked)
+			}
+			l.Flush()
+			l.Flush()
+
+			lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+			require.Len(t, lines, analysisFailureMaxLines+1)
+			assert.Contains(t, lines[analysisFailureMaxLines], tc.line)
+		})
 	}
-	l.Flush()
-	l.Flush()
-
-	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	require.Len(t, lines, analysisFailureMaxLines+1)
-	assert.Contains(t, lines[analysisFailureMaxLines], "pmg did not write 3 more lines")
 }

@@ -56,3 +56,31 @@ func TestRecordRuleBlockedCountsNoAnalysis(t *testing.T) {
 	assert.Equal(t, 1, stats.BlockedCount)
 	assert.Len(t, collector.GetRuleBlocks(), 1)
 }
+
+func TestNoVerdictBlocksCapAndHeal(t *testing.T) {
+	collector := NewAnalysisStatsCollector()
+	block := func(version string) *proxy.BlockContext {
+		return &proxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "flaky", PackageVersion: version}
+	}
+
+	for i := range maxUnanalyzedPackages + 3 {
+		collector.RecordNoVerdictBlocked(block(fmt.Sprintf("1.0.%d", i)))
+	}
+	collector.RecordNoVerdictBlocked(block("1.0.0"))
+
+	blocks, more := collector.GetNoVerdictBlocks()
+	assert.Len(t, blocks, maxUnanalyzedPackages)
+	assert.Equal(t, 3, more)
+	assert.Equal(t, maxUnanalyzedPackages+3, collector.GetStats().BlockedCount, "a retried version counts once")
+
+	collector.ClearNoVerdictBlock(packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
+	collector.ClearNoVerdictBlock(packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
+	collector.ClearNoVerdictBlock(packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", fmt.Sprintf("1.0.%d", maxUnanalyzedPackages))
+
+	blocks, more = collector.GetNoVerdictBlocks()
+	assert.Len(t, blocks, maxUnanalyzedPackages-1)
+	assert.Equal(t, 2, more)
+	assert.Equal(t, maxUnanalyzedPackages+1, collector.GetStats().BlockedCount, "a heal counts once, in the list or past it")
+	assert.False(t, collector.HasNoVerdictBlock(block("1.0.0")))
+	assert.True(t, collector.HasNoVerdictBlock(block("1.0.1")))
+}

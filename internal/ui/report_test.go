@@ -436,11 +436,13 @@ func TestReportListsNoVerdictBlocks(t *testing.T) {
 			data.NoVerdictBlockedPackages = []*proxy.BlockContext{{
 				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "lodash", PackageVersion: "4.17.21",
 			}}
+			data.NoVerdictMore = 2
 
 			out := captureStdout(t, func() { Report(data) })
 
 			assert.Contains(t, out, NoVerdictBlockedHeadline, "a block shows in every mode")
 			assert.Contains(t, out, "pkg:npm/lodash@4.17.21")
+			assert.Contains(t, out, "and 2 more")
 			assert.NotContains(t, out, MalwareBlockedHeadline, "a package with no verdict is not malicious")
 			assert.NotContains(t, out, "malicious package detected")
 		})

@@ -243,7 +243,7 @@ func (c *AnalysisStatsCollector) GetCooldownWithheld() []models.CooldownWithheld
 // RecordNoVerdictBlocked records a package that PMG blocked because the
 // analysis failed. It keeps each version once, because npm and pip retry a 503.
 func (c *AnalysisStatsCollector) RecordNoVerdictBlocked(block *proxy.BlockContext) {
-	key := packageKey(block.Ecosystem, block.PackageName, block.PackageVersion)
+	key := blockKey(block)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -256,19 +256,50 @@ func (c *AnalysisStatsCollector) RecordNoVerdictBlocked(block *proxy.BlockContex
 	}
 	c.noVerdictSeen[key] = true
 	c.stats.BlockedCount++
-	c.noVerdictBlocks = append(c.noVerdictBlocks, block)
+	if len(c.noVerdictBlocks) < maxUnanalyzedPackages {
+		c.noVerdictBlocks = append(c.noVerdictBlocks, block)
+	}
 }
 
-// GetNoVerdictBlocks returns the packages that PMG blocked with no verdict.
-func (c *AnalysisStatsCollector) GetNoVerdictBlocks() []*proxy.BlockContext {
+// ClearNoVerdictBlock removes the block of a package that a retried download
+// analyzed, because the install then gets the package.
+func (c *AnalysisStatsCollector) ClearNoVerdictBlock(ecosystem packagev1.Ecosystem, name, version string) {
+	key := packageKey(ecosystem, name, version)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.noVerdictSeen[key] {
+		return
+	}
+	delete(c.noVerdictSeen, key)
+	c.stats.BlockedCount--
+	c.noVerdictBlocks = slices.DeleteFunc(c.noVerdictBlocks, func(b *proxy.BlockContext) bool { return blockKey(b) == key })
+}
+
+// HasNoVerdictBlock reports whether the package is still blocked with no verdict.
+func (c *AnalysisStatsCollector) HasNoVerdictBlock(block *proxy.BlockContext) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return slices.Clone(c.noVerdictBlocks)
+	return c.noVerdictSeen[blockKey(block)]
+}
+
+// GetNoVerdictBlocks returns the kept packages that PMG blocked with no
+// verdict, and how many more it blocked.
+func (c *AnalysisStatsCollector) GetNoVerdictBlocks() ([]*proxy.BlockContext, int) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return slices.Clone(c.noVerdictBlocks), len(c.noVerdictSeen) - len(c.noVerdictBlocks)
 }
 
 func packageKey(ecosystem packagev1.Ecosystem, name, version string) string {
 	return ecosystem.String() + "|" + name + "|" + version
+}
+
+func blockKey(block *proxy.BlockContext) string {
+	return packageKey(block.Ecosystem, block.PackageName, block.PackageVersion)
 }
 
 // RecordUnanalyzed keeps each version once, because a package manager can

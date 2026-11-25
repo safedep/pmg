@@ -3,6 +3,7 @@ package interceptors
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
@@ -36,6 +37,10 @@ type InterceptorContext struct {
 	// can swap in a new policy with no restart. nil means the policy of the
 	// process, cloudpolicy.Global.
 	Policy cloudpolicy.Source
+
+	// BreakerOpenPeriod replaces the open period of the analyzer circuit
+	// breaker. Zero means the default of the mode. Set by the proxy E2E tests.
+	BreakerOpenPeriod time.Duration
 
 	// OnAnalysisFailure is called for each package that PMG could not analyze.
 	// blocked is true when paranoid mode blocked the package.

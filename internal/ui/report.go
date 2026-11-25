@@ -99,6 +99,7 @@ type ReportData struct {
 	// Packages that paranoid mode blocked because the malware analysis failed
 	// (proxy mode only)
 	NoVerdictBlockedPackages []*proxy.BlockContext
+	NoVerdictMore            int
 
 	// UnanalyzedPackages is set in proxy mode only.
 	UnanalyzedPackages []*packagev1.PackageVersion
@@ -220,7 +221,10 @@ func printNoVerdictBlockSection(data *ReportData) {
 	for _, block := range data.NoVerdictBlockedPackages {
 		fmt.Printf("    %s\n", packagePurl(block))
 	}
-	fmt.Printf("  %s\n", Colors.Dim("The malware analysis failed. "+noVerdictRetry))
+	if data.NoVerdictMore > 0 {
+		fmt.Printf("    and %d more\n", data.NoVerdictMore)
+	}
+	fmt.Printf("  %s\n", Colors.Dim("The malware analysis failed. "+NoVerdictRetry))
 	fmt.Println()
 }
 
@@ -429,6 +433,9 @@ func reportVerbose(data *ReportData) {
 		fmt.Println(Colors.Red("  " + NoVerdictBlockedHeadline + ":"))
 		for _, block := range data.NoVerdictBlockedPackages {
 			fmt.Printf("    - %s\n", packagePurl(block))
+		}
+		if data.NoVerdictMore > 0 {
+			fmt.Printf("    and %d more\n", data.NoVerdictMore)
 		}
 	}
 

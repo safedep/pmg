@@ -146,7 +146,7 @@ func writeBlocked(b *strings.Builder, in Input) {
 		fmt.Fprintf(b, "| %s | %s |\n", code(ui.BlockedPackageName(p.Context)), cell(ui.BlockedPackageReason(p.Reason, p.Context)))
 	}
 	if n := countNoVerdict(blocked); n > 0 {
-		fmt.Fprintf(b, "\nPMG could not get a malware verdict for %d package(s). Paranoid mode blocks a package that has no verdict. Re-run the job in a few minutes.\n", n)
+		fmt.Fprintf(b, "\nPMG could not get a malware verdict for %d package(s). %s\n", n, ui.NoVerdictRetry)
 	}
 	b.WriteString("\n")
 }

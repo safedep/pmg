@@ -47,7 +47,7 @@ func newPypiRegistryInterceptor(
 			cache:            cache,
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
-			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-pypi"),
+			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-pypi", execContext.BreakerOpenPeriod),
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},

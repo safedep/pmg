@@ -68,7 +68,7 @@ func newGoRegistryInterceptor(
 			cache:            cache,
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
-			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-go"),
+			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-go", execContext.BreakerOpenPeriod),
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
@@ -147,8 +147,9 @@ func (i *GoRegistryInterceptor) handleArtifact(
 
 // handleZipDownload runs dependency cooldown, then trusted/insecure
 // fast-allow, then malware analysis. memoize is false after an analyzer
-// error, so a retried request gets another chance to be analyzed. It is also false when a package rule decided the
-// outcome, because pmg keeps no rule result.
+// error, so a retried request gets another chance to be analyzed. It is also
+// false when a package rule decided the outcome, because pmg keeps no rule
+// result.
 func (i *GoRegistryInterceptor) handleZipDownload(
 	ctx *proxy.RequestContext,
 	match *registryMatch,

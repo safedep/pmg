@@ -229,6 +229,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
 	proxyConfig.BlockMessageRenderer = opts.BlockMessage
+	proxyConfig.FailClosed = cfg.FailClosed()
 
 	blocks := &blockLog{seen: map[string]bool{}}
 	proxyConfig.OnBlock = blocks.Record
@@ -369,7 +370,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	// keeps `stop --fail-on-violation` correct in those cases.
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
-	state.Blocked = blocks.List()
+	state.Blocked = blocks.List(statsCollector.HasNoVerdictBlock)
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}
@@ -626,10 +627,14 @@ func (l *blockLog) Record(reason pmgproxy.BlockReason, blockCtx *pmgproxy.BlockC
 	l.blocked = append(l.blocked, BlockedPackage{Reason: reason, Context: blockCtx})
 }
 
-func (l *blockLog) List() []BlockedPackage {
+// List leaves out a block with no verdict when a later download of the same
+// package got a verdict, because the install then got the package.
+func (l *blockLog) List(blockedWithoutVerdict func(*pmgproxy.BlockContext) bool) []BlockedPackage {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return slices.Clone(l.blocked)
+	return slices.DeleteFunc(slices.Clone(l.blocked), func(p BlockedPackage) bool {
+		return p.Reason == pmgproxy.BlockReasonNoVerdict && !blockedWithoutVerdict(p.Context)
+	})
 }
 
 // reloadIfCacheMoved reloads the policy when the cache holds another policy

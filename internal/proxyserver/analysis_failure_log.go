@@ -23,13 +23,14 @@ type analysisFailureLog struct {
 	now func() time.Time
 
 	mu          sync.Mutex
+	heldBack    string
 	windowStart time.Time
 	written     int
 	suppressed  int
 }
 
 func newAnalysisFailureLog(out io.Writer) *analysisFailureLog {
-	return &analysisFailureLog{out: out, now: time.Now}
+	return &analysisFailureLog{out: out, now: time.Now, heldBack: "allowed"}
 }
 
 func (l *analysisFailureLog) Record(pkg *packagev1.PackageVersion, err error, blocked bool) {
@@ -50,8 +51,10 @@ func (l *analysisFailureLog) Record(pkg *packagev1.PackageVersion, err error, bl
 	l.written++
 
 	action := "Allowed"
+	l.heldBack = "allowed"
 	if blocked {
 		action = "Blocked"
+		l.heldBack = "blocked"
 	}
 	l.write(now, fmt.Sprintf("%s %s without malware analysis: %s",
 		action, ui.PackageVersionPurl(pkg), ui.RemoveControlChars(err.Error())))
@@ -70,7 +73,7 @@ func (l *analysisFailureLog) flushLocked(now time.Time) {
 	if l.suppressed == 0 {
 		return
 	}
-	l.write(now, fmt.Sprintf("pmg did not write %d more lines about packages without malware analysis", l.suppressed))
+	l.write(now, fmt.Sprintf("pmg did not write %d more lines about packages %s without malware analysis", l.suppressed, l.heldBack))
 	l.suppressed = 0
 }
 

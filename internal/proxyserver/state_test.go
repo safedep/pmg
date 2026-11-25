@@ -88,12 +88,18 @@ func TestBlockLog(t *testing.T) {
 	l.Record(pmgproxy.BlockReasonDependencyCooldown, ms)
 	l.Record(pmgproxy.BlockReasonPolicyRule, pypiMs)
 	l.Record(pmgproxy.BlockReasonNone, nil)
+	healed := &pmgproxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "lodash", PackageVersion: "4.17.20"}
+	blocked := &pmgproxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "lodash", PackageVersion: "4.17.19"}
+	l.Record(pmgproxy.BlockReasonNoVerdict, healed)
+	l.Record(pmgproxy.BlockReasonNoVerdict, blocked)
 
+	stillBlocked := func(b *pmgproxy.BlockContext) bool { return b.PackageVersion == blocked.PackageVersion }
 	assert.Equal(t, []BlockedPackage{
 		{Reason: pmgproxy.BlockReasonPolicyRule, Context: ms},
 		{Reason: pmgproxy.BlockReasonDependencyCooldown, Context: ms},
 		{Reason: pmgproxy.BlockReasonPolicyRule, Context: pypiMs},
-	}, l.List())
+		{Reason: pmgproxy.BlockReasonNoVerdict, Context: blocked},
+	}, l.List(stillBlocked), "a retried download that got a verdict heals its block")
 }
 
 func TestWriteStateCreatesMissingDir(t *testing.T) {

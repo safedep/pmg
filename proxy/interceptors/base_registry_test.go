@@ -326,7 +326,8 @@ func TestHandleUnanalyzed(t *testing.T) {
 
 			if !tc.blocked {
 				assert.Equal(t, proxy.ActionAllow, resp.Action)
-				assert.Empty(t, base.statsCollector.GetNoVerdictBlocks())
+				blocks, _ := base.statsCollector.GetNoVerdictBlocks()
+				assert.Empty(t, blocks)
 				assert.Zero(t, base.statsCollector.GetStats().BlockedCount)
 				return
 			}
@@ -335,8 +336,50 @@ func TestHandleUnanalyzed(t *testing.T) {
 			assert.Equal(t, proxy.BlockReasonNoVerdict, resp.BlockReason)
 			want := &proxy.BlockContext{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "flaky", PackageVersion: "1.0.0"}
 			assert.Equal(t, want, resp.BlockContext)
-			assert.Equal(t, []*proxy.BlockContext{want}, base.statsCollector.GetNoVerdictBlocks(), "a retried download counts once")
+			blocks, more := base.statsCollector.GetNoVerdictBlocks()
+			assert.Equal(t, []*proxy.BlockContext{want}, blocks, "a retried download counts once")
+			assert.Zero(t, more)
 			assert.Equal(t, 1, base.statsCollector.GetStats().BlockedCount)
+
+			mock.err = nil
+			mock.result = &analyzer.PackageVersionAnalysisResult{PackageVersion: reported[0], Action: analyzer.ActionAllow}
+			resp, err = base.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0", mock.result)
+			require.NoError(t, err)
+			assert.Equal(t, proxy.ActionAllow, resp.Action)
+			blocks, _ = base.statsCollector.GetNoVerdictBlocks()
+			assert.Empty(t, blocks, "a verdict on a retried download heals the block")
+			assert.Zero(t, base.statsCollector.GetStats().BlockedCount)
+		})
+	}
+}
+
+func TestUnknownActionInParanoidModeBlocks(t *testing.T) {
+	for _, paranoid := range []bool{false, true} {
+		t.Run(fmt.Sprintf("paranoid=%t", paranoid), func(t *testing.T) {
+			rc := pmgconfig.Get()
+			saved := *rc
+			t.Cleanup(func() { *rc = saved })
+			rc.Config.Paranoid = paranoid
+			rc.InsecureInstallation = false
+
+			base := newTestBaseInterceptor(&mockAnalyzer{})
+			result := &analyzer.PackageVersionAnalysisResult{
+				PackageVersion: &packagev1.PackageVersion{
+					Package: &packagev1.Package{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, Name: "odd"},
+					Version: "1.0.0",
+				},
+				Action: analyzer.Action(99),
+			}
+
+			resp, err := base.handleAnalysisResult(newTestRequestContext(), packagev1.Ecosystem_ECOSYSTEM_NPM, "odd", "1.0.0", result)
+			require.NoError(t, err)
+			if !paranoid {
+				assert.Equal(t, proxy.ActionAllow, resp.Action)
+				return
+			}
+			assert.Equal(t, proxy.ActionBlock, resp.Action)
+			assert.Equal(t, http.StatusServiceUnavailable, resp.BlockCode)
+			assert.Equal(t, proxy.BlockReasonNoVerdict, resp.BlockReason)
 		})
 	}
 }

@@ -49,7 +49,7 @@ func newCargoRegistryInterceptor(
 			cache:            cache,
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
-			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-cargo"),
+			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-cargo", execContext.BreakerOpenPeriod),
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},

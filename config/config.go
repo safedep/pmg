@@ -529,8 +529,8 @@ func (r *RuntimeConfig) CloudPolicyEnabled() bool {
 	return r.Config.Cloud.Enabled && r.Config.Cloud.Policy
 }
 
-// FailClosed reports whether PMG blocks a package that it cannot verify:
-// paranoid mode is on and insecure installation is off.
+// FailClosed reports whether PMG blocks a package that it cannot verify. It
+// is true when paranoid mode is on and insecure installation is off.
 func (r *RuntimeConfig) FailClosed() bool {
 	return r.Config.Paranoid && !r.InsecureInstallation
 }

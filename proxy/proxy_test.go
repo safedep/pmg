@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -189,4 +191,55 @@ func TestResponseProtoNormalisedToHTTP11(t *testing.T) {
 
 	assert.Equal(t, 1, resp.ProtoMajor, "response ProtoMajor should be 1 (HTTP/1.1)")
 	assert.Equal(t, 1, resp.ProtoMinor, "response ProtoMinor should be 1 (HTTP/1.1)")
+}
+
+type failingInterceptor struct{}
+
+func (failingInterceptor) Name() string                         { return "failing" }
+func (failingInterceptor) ShouldIntercept(*RequestContext) bool { return true }
+func (failingInterceptor) HandleRequest(*RequestContext) (*InterceptorResponse, error) {
+	return nil, errors.New("parse failed")
+}
+
+func TestInterceptorErrorInFailClosedMode(t *testing.T) {
+	for _, tc := range []struct {
+		failClosed bool
+		wantStatus int
+		wantReason BlockReason
+	}{
+		{failClosed: false, wantStatus: http.StatusOK},
+		{failClosed: true, wantStatus: http.StatusServiceUnavailable, wantReason: BlockReasonNoVerdict},
+	} {
+		t.Run(fmt.Sprintf("failClosed=%t", tc.failClosed), func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("ok"))
+			}))
+			defer upstream.Close()
+
+			reasons := make(chan BlockReason, 1)
+			cfg := DefaultProxyConfig()
+			cfg.EnableMITM = false
+			cfg.Interceptors = []Interceptor{failingInterceptor{}}
+			cfg.FailClosed = tc.failClosed
+			cfg.OnBlock = func(reason BlockReason, _ *BlockContext) { reasons <- reason }
+			server, err := NewProxyServer(cfg)
+			require.NoError(t, err)
+			require.NoError(t, server.Start())
+			t.Cleanup(func() { _ = server.Stop(t.Context()) })
+
+			proxyURL, err := url.Parse("http://" + server.Address())
+			require.NoError(t, err)
+			client := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+			resp, err := client.Get(upstream.URL + "/pkg")
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+
+			assert.Equal(t, tc.wantStatus, resp.StatusCode)
+			if tc.failClosed {
+				assert.Equal(t, tc.wantReason, <-reasons)
+			} else {
+				assert.Empty(t, reasons)
+			}
+		})
+	}
 }

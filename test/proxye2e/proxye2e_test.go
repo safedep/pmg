@@ -638,8 +638,42 @@ func TestProxyFlow_ParanoidBlocksWithoutAVerdict(t *testing.T) {
 			},
 		},
 		TestCase{
-			Name:   "half-open breaker lets a burst wait for the probe",
+			Name:   "a retried download that gets a verdict heals the block",
 			Config: paranoid,
+			Setup:  func(h *Harness) { addNpm(h, "flaky", ServerError()) },
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.Npm().Download("flaky", "1.0.0"))
+				h.Analyzer.SetNpm("flaky", "1.0.0", Clean())
+				res.add(h.Npm().Download("flaky", "1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Len(t, res.Requests, 2)
+				assert.Equal(t, http.StatusServiceUnavailable, res.Requests[0].StatusCode)
+				assert.Equal(t, http.StatusOK, res.Requests[1].StatusCode)
+				assert.Zero(t, h.Stats().BlockedCount, "the install got the package")
+				assert.Equal(t, 1, h.Stats().AllowedCount)
+			},
+		},
+		TestCase{
+			Name:   "a retry keeps a malware verdict",
+			Config: paranoid,
+			Setup:  func(h *Harness) { addNpm(h, "evil", FailOnce(VerifiedMalware())) },
+			Exec:   func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Equal(t, http.StatusForbidden, lastRequest(t, res).StatusCode)
+				assert.Equal(t, 2, h.Analyzer.AnalyzedCount("evil", "1.0.0"), "the analyzer retries the transient failure")
+				blocks := h.Blocks()
+				require.Len(t, blocks, 1)
+				assert.Equal(t, proxy.BlockReasonMalware, blocks[0].Reason)
+				assert.Empty(t, h.Unanalyzed())
+			},
+		},
+		TestCase{
+			Name:    "half-open breaker lets a burst wait for the probe",
+			Config:  paranoid,
+			Options: []Option{WithBreakerOpenPeriod(time.Second)},
 			Setup: func(h *Harness) {
 				setupTrip(h)
 				for _, name := range burst {
@@ -648,8 +682,7 @@ func TestProxyFlow_ParanoidBlocksWithoutAVerdict(t *testing.T) {
 			},
 			Exec: func(h *Harness) ExecResult {
 				tripBreaker(h)
-				// The open period of the breaker is 10 seconds in paranoid mode.
-				time.Sleep(10*time.Second + 500*time.Millisecond)
+				time.Sleep(1500 * time.Millisecond)
 
 				outcomes := make([]RequestOutcome, len(burst))
 				var wg sync.WaitGroup

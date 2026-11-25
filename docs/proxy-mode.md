@@ -191,9 +191,10 @@ When a query gets no answer in 3 seconds, or the connection fails, PMG also send
 PMG uses the first answer from the server.
 When the server answers `Unavailable` or `ResourceExhausted`, PMG sends the query again.
 A proxy in front of the service, such as Cloudflare, gives `Unavailable` for HTTP 429, 502, 503 and 504.
-PMG sends one query at most 3 times.
-After `Unavailable` it waits about 200 ms, then about 600 ms.
-After `ResourceExhausted` it waits about 1 second, then about 3 seconds.
+PMG makes at most 3 attempts.
+Only the first attempt also goes on a new connection, so one package costs at most 4 queries and 1 new connection.
+After `Unavailable` PMG waits about 200 ms, then about 600 ms.
+After `ResourceExhausted` or an HTTP 429 it waits about 1 second, then about 3 seconds.
 All attempts share the 10 second limit of one analysis.
 PMG does not start a wait that ends after the limit.
 PMG does not send the query again after `Internal`, `Unknown` or a reply that it cannot read, because these show a bug in the service.
@@ -212,6 +213,8 @@ When PMG has no verdict after these attempts, the result depends on the mode.
   PMG sends 503 and not 403, because an outage and not a policy blocks the package.
   The install report, `pmg proxy stop`, its `--report` JSON and the GitHub Action job summary show the package with the reason `no malware verdict`.
   `--fail-on-violation` counts the package as a blocked package.
+  When a later download of the same version gets a verdict, PMG removes the block from these reports and from the count.
+  Paranoid mode also blocks with HTTP 503 when an interceptor fails or the service sends an unknown action.
 
 npm and pip send a download again after a 503, so a short outage can slow an install before it fails.
 With its default settings, npm tries the download 3 times in about 70 seconds.
@@ -227,6 +230,8 @@ In paranoid mode it is 10 seconds, because each package that PMG cannot analyze 
 Then one query tests the service.
 In paranoid mode, the other analyses wait for the result of that query, inside their own 10 second limit.
 So a short failure does not block all the packages of a large install.
+When less than 2 seconds of the limit are left after the wait, PMG blocks the package without a query.
+A query that short ends at its deadline and opens the circuit breaker again.
 
 The service has a known gap.
 It can send a report with an analysis status other than completed, for example when the analysis is not complete yet.

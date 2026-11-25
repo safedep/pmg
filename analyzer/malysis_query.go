@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"strings"
 	"time"
 
 	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
@@ -26,12 +27,21 @@ const (
 	communityMalysisPort = "443"
 
 	malysisMaxAttempts = 3
+	malysisRetryMargin = 100 * time.Millisecond
+
+	// grpcHTTP429 is part of the message of grpc-go for an HTTP 429 from a
+	// proxy in front of the service. grpc-go maps it to Unavailable.
+	grpcHTTP429 = "status code received from server: 429"
 )
 
 type MalysisQueryAnalyzerConfig struct {
 	// Cache, when non-nil, enables a persistent read-through verdict cache
 	// applied as a decorator by newMalysisAnalyzer. nil = no caching.
 	Cache MalysisCache
+
+	// RetryWait turns the base wait before a retry into the real wait. nil
+	// adds jitter. Tests shorten the wait.
+	RetryWait func(base time.Duration) time.Duration
 }
 
 type malysisQueryAnalyzer struct {
@@ -42,8 +52,6 @@ type malysisQueryAnalyzer struct {
 	// exclusions returned by authenticated queries. Exclusions are never
 	// returned for unauthenticated (community) queries.
 	honorExclusions bool
-
-	retryWait func(code codes.Code, attempt int) (time.Duration, bool)
 }
 
 var _ Analyzer = &malysisQueryAnalyzer{}
@@ -78,7 +86,6 @@ func NewMalysisQueryAnalyzerWithClient(client malysisv1grpc.MalwareAnalysisServi
 		client:          client,
 		Config:          config,
 		honorExclusions: honorExclusions,
-		retryWait:       malysisRetryWait,
 	}, nil
 }
 
@@ -162,21 +169,28 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 	return analysisResult, nil
 }
 
-// query sends the request again after a transient answer. The connection
-// already hedges a dead connection, so this retry covers a live one.
+// query makes at most 3 attempts. Only the first attempt hedges on a new
+// connection, so one package costs at most 4 queries and 1 new connection.
 func (a *malysisQueryAnalyzer) query(ctx context.Context,
 	req *malysisv1.QueryPackageAnalysisRequest) (*malysisv1.QueryPackageAnalysisResponse, error) {
+	jitter := a.Config.RetryWait
+	if jitter == nil {
+		jitter = malysisJitter
+	}
+
+	attemptCtx := ctx
 	for attempt := 1; ; attempt++ {
-		res, err := a.client.QueryPackageAnalysis(ctx, req)
+		res, err := a.client.QueryPackageAnalysis(attemptCtx, req)
 		if err == nil || attempt == malysisMaxAttempts {
 			return res, err
 		}
 
-		wait, ok := a.retryWait(status.Code(err), attempt)
+		base, ok := malysisRetryBase(err, attempt)
 		if !ok {
 			return nil, err
 		}
-		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < wait {
+		wait := jitter(base)
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < wait+malysisRetryMargin {
 			return nil, err
 		}
 
@@ -188,25 +202,32 @@ func (a *malysisQueryAnalyzer) query(ctx context.Context,
 			return nil, err
 		case <-timer.C:
 		}
+		attemptCtx = withoutHedge(ctx)
 	}
 }
 
-// malysisRetryWait gives the jittered wait before the next attempt. It refuses
-// a code that a retry cannot change, for example Internal from a backend bug.
-func malysisRetryWait(code codes.Code, attempt int) (time.Duration, bool) {
+// malysisRetryBase gives the base wait before the next attempt. It refuses an
+// error that a retry cannot change, for example Internal from a backend bug.
+func malysisRetryBase(err error, attempt int) (time.Duration, bool) {
+	s := status.Convert(err)
 	var base time.Duration
-	switch code {
-	case codes.Unavailable:
-		base = 200 * time.Millisecond
-	case codes.ResourceExhausted:
+	switch {
+	case s.Code() == codes.ResourceExhausted,
+		s.Code() == codes.Unavailable && strings.Contains(s.Message(), grpcHTTP429):
 		base = time.Second
+	case s.Code() == codes.Unavailable:
+		base = 200 * time.Millisecond
 	default:
 		return 0, false
 	}
 	for range attempt - 1 {
 		base *= 3
 	}
-	return base/2 + rand.N(base), true
+	return base, true
+}
+
+func malysisJitter(base time.Duration) time.Duration {
+	return base/2 + rand.N(base)
 }
 
 // dropExclusionUnderCloudPolicy removes the tenant exclusion from the reply

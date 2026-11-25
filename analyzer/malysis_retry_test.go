@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -14,51 +13,58 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func fastRetry(code codes.Code, attempt int) (time.Duration, bool) {
-	_, ok := malysisRetryWait(code, attempt)
-	return time.Millisecond, ok
+func waitFor(d time.Duration) func(time.Duration) time.Duration {
+	return func(time.Duration) time.Duration { return d }
 }
 
 func newRetryTestAnalyzer(t *testing.T, client malysisv1grpc.MalwareAnalysisServiceClient,
-	wait func(codes.Code, int) (time.Duration, bool)) *malysisQueryAnalyzer {
+	wait func(time.Duration) time.Duration) *malysisQueryAnalyzer {
 	t.Helper()
-	an, err := NewMalysisQueryAnalyzerWithClient(client, MalysisQueryAnalyzerConfig{}, false)
+	an, err := NewMalysisQueryAnalyzerWithClient(client, MalysisQueryAnalyzerConfig{RetryWait: wait}, false)
 	require.NoError(t, err)
-	an.retryWait = wait
 	return an
 }
 
-func TestMalysisRetryWait(t *testing.T) {
-	cases := []struct {
-		code    codes.Code
-		attempt int
-		retry   bool
-		base    time.Duration
-	}{
-		{code: codes.Unavailable, attempt: 1, retry: true, base: 200 * time.Millisecond},
-		{code: codes.Unavailable, attempt: 2, retry: true, base: 600 * time.Millisecond},
-		{code: codes.ResourceExhausted, attempt: 1, retry: true, base: time.Second},
-		{code: codes.ResourceExhausted, attempt: 2, retry: true, base: 3 * time.Second},
-		{code: codes.Internal, attempt: 1},
-		{code: codes.Unknown, attempt: 1},
-		{code: codes.NotFound, attempt: 1},
-		{code: codes.InvalidArgument, attempt: 1},
-		{code: codes.PermissionDenied, attempt: 1},
-		{code: codes.Unauthenticated, attempt: 1},
-		{code: codes.DeadlineExceeded, attempt: 1},
-		{code: codes.Canceled, attempt: 1},
+type retryBaseCase struct {
+	name    string
+	err     error
+	attempt int
+	retry   bool
+	base    time.Duration
+}
+
+func TestMalysisRetryBase(t *testing.T) {
+	http429 := status.Error(codes.Unavailable,
+		"unexpected HTTP status code received from server: 429 (Too Many Requests); transport: received unexpected content-type \"text/html\"")
+	http503 := status.Error(codes.Unavailable,
+		"unexpected HTTP status code received from server: 503 (Service Unavailable)")
+
+	cases := []retryBaseCase{
+		{name: "Unavailable", err: http503, attempt: 1, retry: true, base: 200 * time.Millisecond},
+		{name: "Unavailable second wait", err: http503, attempt: 2, retry: true, base: 600 * time.Millisecond},
+		{name: "ResourceExhausted", err: status.Error(codes.ResourceExhausted, "slow down"), attempt: 1, retry: true, base: time.Second},
+		{name: "ResourceExhausted second wait", err: status.Error(codes.ResourceExhausted, "slow down"), attempt: 2, retry: true, base: 3 * time.Second},
+		{name: "HTTP 429 of a proxy waits as ResourceExhausted", err: http429, attempt: 1, retry: true, base: time.Second},
+	}
+	for _, code := range []codes.Code{codes.Internal, codes.Unknown, codes.NotFound, codes.InvalidArgument,
+		codes.PermissionDenied, codes.Unauthenticated, codes.DeadlineExceeded, codes.Canceled} {
+		cases = append(cases, retryBaseCase{name: code.String(), err: status.Error(code, "no"), attempt: 1})
 	}
 
 	for _, tc := range cases {
-		t.Run(fmt.Sprintf("%s attempt %d", tc.code, tc.attempt), func(t *testing.T) {
-			wait, ok := malysisRetryWait(tc.code, tc.attempt)
-			require.Equal(t, tc.retry, ok)
-			if !tc.retry {
-				return
-			}
-			assert.GreaterOrEqual(t, wait, tc.base/2)
-			assert.Less(t, wait, tc.base*3/2)
+		t.Run(tc.name, func(t *testing.T) {
+			base, ok := malysisRetryBase(tc.err, tc.attempt)
+			assert.Equal(t, tc.retry, ok)
+			assert.Equal(t, tc.base, base)
 		})
+	}
+}
+
+func TestMalysisJitter(t *testing.T) {
+	for range 100 {
+		wait := malysisJitter(time.Second)
+		require.GreaterOrEqual(t, wait, 500*time.Millisecond)
+		require.Less(t, wait, 1500*time.Millisecond)
 	}
 }
 
@@ -84,7 +90,7 @@ func TestMalysisQueryAnalyzerRetriesTransientAnswers(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &stubMalwareAnalysisServiceClient{errs: tc.errs, resp: &malysisv1.QueryPackageAnalysisResponse{AnalysisId: "a-1"}}
-			an := newRetryTestAnalyzer(t, client, fastRetry)
+			an := newRetryTestAnalyzer(t, client, waitFor(time.Millisecond))
 
 			result, err := an.Analyze(context.Background(), makePkgVersion("pkg", "1.0.0"))
 			assert.Equal(t, tc.wantCode, status.Code(err))
@@ -96,23 +102,46 @@ func TestMalysisQueryAnalyzerRetriesTransientAnswers(t *testing.T) {
 	}
 }
 
+func TestMalysisQueryAnalyzerZeroValueRetries(t *testing.T) {
+	client := &stubMalwareAnalysisServiceClient{
+		errs: []error{status.Error(codes.Unavailable, "down")},
+		resp: &malysisv1.QueryPackageAnalysisResponse{AnalysisId: "a-1"},
+	}
+	an := &malysisQueryAnalyzer{client: client}
+
+	result, err := an.Analyze(context.Background(), makePkgVersion("pkg", "1.0.0"))
+	require.NoError(t, err)
+	assert.Equal(t, "a-1", result.AnalysisID)
+}
+
 func TestMalysisQueryAnalyzerDoesNotWaitPastTheDeadline(t *testing.T) {
-	client := &stubMalwareAnalysisServiceClient{err: status.Error(codes.Unavailable, "down")}
-	an := newRetryTestAnalyzer(t, client, func(codes.Code, int) (time.Duration, bool) { return time.Second, true })
+	for _, tc := range []struct {
+		name    string
+		wait    time.Duration
+		timeout time.Duration
+	}{
+		{name: "the wait ends after the deadline", wait: time.Second, timeout: 300 * time.Millisecond},
+		{name: "the wait leaves less than the margin", wait: 250 * time.Millisecond, timeout: 300 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &stubMalwareAnalysisServiceClient{err: status.Error(codes.Unavailable, "down")}
+			an := newRetryTestAnalyzer(t, client, waitFor(tc.wait))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
+			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
+			defer cancel()
 
-	start := time.Now()
-	_, err := an.Analyze(ctx, makePkgVersion("pkg", "1.0.0"))
-	assert.Equal(t, codes.Unavailable, status.Code(err))
-	assert.Equal(t, 1, client.calls)
-	assert.Less(t, time.Since(start), 100*time.Millisecond, "a wait that ends after the deadline does not start")
+			start := time.Now()
+			_, err := an.Analyze(ctx, makePkgVersion("pkg", "1.0.0"))
+			assert.Equal(t, codes.Unavailable, status.Code(err), "the caller sees the real cause")
+			assert.Equal(t, 1, client.calls)
+			assert.Less(t, time.Since(start), 100*time.Millisecond)
+		})
+	}
 }
 
 func TestMalysisQueryAnalyzerStopsWhenTheCallerCancels(t *testing.T) {
 	client := &stubMalwareAnalysisServiceClient{err: status.Error(codes.Unavailable, "down")}
-	an := newRetryTestAnalyzer(t, client, func(codes.Code, int) (time.Duration, bool) { return time.Minute, true })
+	an := newRetryTestAnalyzer(t, client, waitFor(time.Minute))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(100*time.Millisecond, cancel)
@@ -124,17 +153,39 @@ func TestMalysisQueryAnalyzerStopsWhenTheCallerCancels(t *testing.T) {
 	assert.Less(t, time.Since(start), time.Second)
 }
 
-func TestMalysisQueryAnalyzerRetriesAfterTheHedge(t *testing.T) {
-	srv, addr := serveMalysis(t, &testMalysisServer{failures: []codes.Code{codes.Unavailable, codes.Unavailable}})
-	conn, dialer := newTestConn(t, time.Minute, addr)
-	an := newRetryTestAnalyzer(t, malysisv1grpc.NewMalwareAnalysisServiceClient(conn), fastRetry)
+func TestMalysisQueryAnalyzerHedgesOnlyTheFirstAttempt(t *testing.T) {
+	cases := []struct {
+		name      string
+		failures  int
+		wantErr   bool
+		wantCalls int32
+	}{
+		{name: "the hedge sends the first attempt again, then the retry answers", failures: 2, wantCalls: 3},
+		{name: "a server that is always Unavailable gets 4 queries", failures: 10, wantErr: true, wantCalls: 4},
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			failures := make([]codes.Code, tc.failures)
+			for i := range failures {
+				failures[i] = codes.Unavailable
+			}
+			srv, addr := serveMalysis(t, &testMalysisServer{failures: failures})
+			conn, dialer := newTestConn(t, time.Minute, addr)
+			an := newRetryTestAnalyzer(t, malysisv1grpc.NewMalwareAnalysisServiceClient(conn), waitFor(time.Millisecond))
 
-	result, err := an.Analyze(ctx, makePkgVersion("pkg", "1.0.0"))
-	require.NoError(t, err)
-	assert.Equal(t, "analysis-1.0.0", result.AnalysisID)
-	assert.Equal(t, int32(3), srv.calls.Load(), "the hedge sends the first attempt again, then the retry sends a third")
-	assert.Equal(t, int32(2), dialer.dials.Load())
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			result, err := an.Analyze(ctx, makePkgVersion("pkg", "1.0.0"))
+			if tc.wantErr {
+				assert.Equal(t, codes.Unavailable, status.Code(err))
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, "analysis-1.0.0", result.AnalysisID)
+			}
+			assert.Equal(t, tc.wantCalls, srv.calls.Load())
+			assert.Equal(t, int32(2), dialer.dials.Load(), "one new connection for %d failures", tc.failures)
+		})
+	}
 }

@@ -92,6 +92,11 @@ func TestProxyPresenterBlockMessage(t *testing.T) {
 			expected: "PMG could not get a malware verdict for pkg:npm/lodash@4.17.20. Paranoid mode blocks a package that has no verdict. Retry the install in a few minutes.",
 		},
 		{
+			name:     "no verdict for a request that an interceptor could not read",
+			reason:   proxy.BlockReasonNoVerdict,
+			expected: "PMG could not check this request. Paranoid mode blocks a package that has no verdict. Retry the install in a few minutes.",
+		},
+		{
 			name:   "dependency cooldown",
 			reason: proxy.BlockReasonDependencyCooldown,
 			blockCtx: &proxy.BlockContext{
