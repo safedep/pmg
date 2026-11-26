@@ -34,16 +34,14 @@ exec python3 $WORK/sock.py wait
 
 # A profile that cannot write the project keeps host.sock open. Below
 # Landlock ABI 9 the supervisor checks the list and pmg warns about the race.
-[linux] [!bubblewrap] env PMG_SECCOMP_TRACE=1
-[linux] [!bubblewrap] env APP_LOG_LEVEL=debug
-[linux] [!bubblewrap] env APP_LOG_FILE=$WORK/helper.log
-[linux] [!bubblewrap] exec sh -c 'pmg --debug sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py host.sock; pmg sandbox explain --last; cat $WORK/helper.log; cat /proc/self/attr/current; ls -la $WORK/proj; sysctl kernel.apparmor_restrict_unprivileged_userns; true'
-[linux] [!bubblewrap] exec pmg sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py host.sock
-[linux] [!bubblewrap] stdout '^OK host$'
-[linux] [!bubblewrap] [!landlock-unix-connect] stderr 'The supervisor checks it'
-[landlock-unix-connect] ! stderr 'The supervisor checks it'
+# AppArmor userns confinement refuses the connect, so the allowed run skips
+# there.
+[linux] [!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py host.sock
+[linux] [!bubblewrap] [!apparmor-userns] stdout '^OK host$'
 [linux] [!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py other.sock
 [linux] [!bubblewrap] stdout '^DENIED connect E(ACCES|PERM)$'
+[linux] [!bubblewrap] [!landlock-unix-connect] stderr 'The supervisor checks it'
+[landlock-unix-connect] ! stderr 'The supervisor checks it'
 
 # Linux from Landlock ABI 9: host.sock is in the project, which the exec
 # profile can write, so a run could replace it. The entry stays closed.
