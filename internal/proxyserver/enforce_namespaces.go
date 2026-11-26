@@ -66,7 +66,6 @@ type namespaceRedirect struct {
 	policy     netenforce.NamespacePolicy
 	redirector netenforce.NamespaceRedirector
 	handle     netenforce.NamespaceHandle
-	caProvided bool
 
 	// addressOn means this daemon owns the address on lo and removes it at
 	// stop. An address another daemon put there stays until the table is
@@ -85,7 +84,7 @@ func newNamespaceRedirect(nc config.ProxyEnforceNamespacesConfig, p netenforce.P
 	if err != nil {
 		return nil, err
 	}
-	n := &namespaceRedirect{mode: mode, effective: mode, policy: policy, caProvided: nc.CAProvided}
+	n := &namespaceRedirect{mode: mode, effective: mode, policy: policy}
 	if mode == netenforce.NamespaceIgnore {
 		return n, nil
 	}
@@ -237,17 +236,14 @@ func (n *namespaceRedirect) state() *NamespaceState {
 }
 
 // warnings names what an operator must know: redirected containers need
-// the CA unless another program provides it, a host firewall that would
-// drop them, or the reason the redirect is off under auto.
+// the CA, a host firewall that would drop them, or the reason the redirect
+// is off under auto.
 func (n *namespaceRedirect) warnings() []string {
 	switch {
 	case n == nil:
 		return nil
 	case n.active():
-		var w []string
-		if !n.caProvided {
-			w = append(w, fmt.Sprintf("Containers on %s are redirected through the proxy. A container that does not trust the PMG CA fails on registry hosts. Pass PMG_CA_BUNDLE from `pmg proxy env` into it. See docs/persistent-proxy.md.", strings.Join(n.policy.Ingress, ", ")))
-		}
+		w := []string{fmt.Sprintf("Containers on %s are redirected through the proxy. A container must trust the PMG CA to reach registry hosts. pmg-entrypoint.sh with PMG_CONTAINER_TRUST=1 does this. Otherwise pass PMG_CA_BUNDLE from `pmg proxy env` into the container. See docs/persistent-proxy.md.", strings.Join(n.policy.Ingress, ", "))}
 		if fw := n.firewallWarning(); fw != "" {
 			w = append(w, fw)
 		}

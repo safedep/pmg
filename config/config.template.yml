@@ -134,9 +134,6 @@ proxy:
         ingress: [docker0, "br-*"]
         # Listener address the daemon adds to lo for redirected traffic.
         address: 169.254.200.1
-        # Set to true when another program, such as pmg-runc, gives each
-        # redirected container the PMG CA.
-        ca_provided: false
 
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.

@@ -246,10 +246,7 @@ start_all() {
   fi
   case $PMG_CONTAINER_TRUST in
     0) ;;
-    1)
-      check_container_trust
-      pmg_env+=(PMG_PROXY_SERVER_ENFORCE_NAMESPACES_CA_PROVIDED=true)
-      ;;
+    1) check_container_trust ;;
     *)
       log "PMG_CONTAINER_TRUST must be 0 or 1, not '$PMG_CONTAINER_TRUST'"
       exit 1

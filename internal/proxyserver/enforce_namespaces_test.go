@@ -197,6 +197,7 @@ func TestNamespaceRedirectWarnsAboutAnInputDropFirewall(t *testing.T) {
 	require.NoError(t, err)
 	w := n.warnings()
 	require.Len(t, w, 2)
+	assert.Contains(t, w[0], "PMG_CONTAINER_TRUST=1")
 	assert.Contains(t, w[0], "PMG_CA_BUNDLE")
 	assert.Contains(t, w[1], "ip filter INPUT")
 	assert.Contains(t, w[1], "iptables -I INPUT -i docker0 -d 169.254.200.1 -j ACCEPT")
@@ -204,23 +205,6 @@ func TestNamespaceRedirectWarnsAboutAnInputDropFirewall(t *testing.T) {
 
 	f.dropChains = nil
 	assert.Len(t, n.warnings(), 1, "no firewall line without a drop chain")
-}
-
-func TestNamespaceRedirectSkipsCAWarningWhenCAProvided(t *testing.T) {
-	f := &fakeRedirector{dropChains: []netenforce.InputDropChain{{Family: "ip", Table: "filter", Chain: "INPUT"}}}
-	useFakeRedirector(t, f, nil)
-
-	nc := nsConfig("redirect")
-	nc.CAProvided = true
-	n, err := newNamespaceRedirect(nc, basePolicy)
-	require.NoError(t, err)
-	w := n.warnings()
-	require.Len(t, w, 1)
-	assert.Contains(t, w[0], "ip filter INPUT")
-	assert.NotContains(t, w[0], "PMG_CA_BUNDLE")
-
-	f.dropChains = nil
-	assert.Empty(t, n.warnings())
 }
 
 func TestNamespaceRedirectRejectsBadConfig(t *testing.T) {
