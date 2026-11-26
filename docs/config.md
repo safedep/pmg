@@ -147,6 +147,10 @@ pasted key with no expiry. When the keychain records an expiry:
   it expires within 14 days. The check makes no network call.
 - `pmg setup info` shows the expiry next to the keychain.
 
+When the keychain records no expiry, `pmg setup doctor` cannot know if the key expired. The check
+passes and names the source of the credentials only. `pmg cloud sync` reports the key when SafeDep
+Cloud rejects it.
+
 pmg shows the expiry in UTC. pmg does not stop a sync because of the recorded expiry. SafeDep Cloud
 decides if it accepts the key.
 
