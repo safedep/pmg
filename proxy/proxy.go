@@ -39,10 +39,10 @@ const defaultServerReadWriteTimeout = 30 * time.Minute
 // (which surfaces to the client as a "socket hang up"/ECONNRESET).
 const defaultUpstreamRetries = 2
 
-// DefaultUpstreamTLSHandshakeTimeout stops a stalled upstream TLS handshake
+// defaultUpstreamTLSHandshakeTimeout stops a stalled upstream TLS handshake
 // earlier than the connect timeout. pip stops after 15 s by default, so pip
 // can leave first and then the failure goes to the debug log only.
-const DefaultUpstreamTLSHandshakeTimeout = 20 * time.Second
+const defaultUpstreamTLSHandshakeTimeout = 20 * time.Second
 
 // ProxyServer manages the proxy lifecycle
 type ProxyServer interface {
@@ -103,7 +103,7 @@ type ProxyConfig struct {
 	UpstreamRetries int
 
 	// TLSHandshakeTimeout bounds the TLS handshake with an upstream registry.
-	// Zero or less means DefaultUpstreamTLSHandshakeTimeout.
+	// Zero or less means defaultUpstreamTLSHandshakeTimeout.
 	TLSHandshakeTimeout time.Duration
 
 	// UpstreamDialContext, when set, replaces the default dialer for all upstream
@@ -179,7 +179,7 @@ func DefaultProxyConfig() *ProxyConfig {
 		RequestTimeout:         5 * time.Minute,
 		ServerReadWriteTimeout: defaultServerReadWriteTimeout,
 		UpstreamRetries:        defaultUpstreamRetries,
-		TLSHandshakeTimeout:    DefaultUpstreamTLSHandshakeTimeout,
+		TLSHandshakeTimeout:    defaultUpstreamTLSHandshakeTimeout,
 		Interceptors:           []Interceptor{},
 	}
 }
@@ -373,7 +373,7 @@ func newUpstreamTransport(config *ProxyConfig, control func(network, address str
 
 	tlsHandshakeTimeout := config.TLSHandshakeTimeout
 	if tlsHandshakeTimeout <= 0 {
-		tlsHandshakeTimeout = DefaultUpstreamTLSHandshakeTimeout
+		tlsHandshakeTimeout = defaultUpstreamTLSHandshakeTimeout
 	}
 
 	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so

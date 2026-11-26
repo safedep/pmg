@@ -38,8 +38,8 @@ func TestUpstreamTLSHandshakeTimeoutFromConfig(t *testing.T) {
 		want time.Duration
 	}{
 		{"configured value", 7 * time.Second, 7 * time.Second},
-		{"zero uses default", 0, DefaultUpstreamTLSHandshakeTimeout},
-		{"negative uses default", -time.Second, DefaultUpstreamTLSHandshakeTimeout},
+		{"zero uses default", 0, defaultUpstreamTLSHandshakeTimeout},
+		{"negative uses default", -time.Second, defaultUpstreamTLSHandshakeTimeout},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
