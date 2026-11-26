@@ -793,6 +793,11 @@ proxy:
   the reason in `pmg proxy status`.
 - `ignore` is the default.
 
+With the redirect on, the daemon warns that a container must trust the PMG
+CA. Set `namespaces.ca_provided: true` when another program gives each
+container the CA, such as `pmg-runc`. `pmg-entrypoint.sh` sets it with
+`PMG_CONTAINER_TRUST=1`.
+
 The flag is `--enforce-namespaces <mode>`. The redirect covers `docker run`,
 and `RUN` steps in `docker build` with the default builder and with a
 `docker-container` builder. A `--network host` container is in the host

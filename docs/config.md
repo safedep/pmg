@@ -160,6 +160,7 @@ A decode failure can trigger the whole-file fallback described above.
 | `proxy.server.enforce.cgroup` | `PMG_PROXY_SERVER_ENFORCE_CGROUP` |
 | `proxy.server.enforce.deny_udp` | `PMG_PROXY_SERVER_ENFORCE_DENY_UDP` |
 | `proxy.server.enforce.namespaces.mode` | `PMG_PROXY_SERVER_ENFORCE_NAMESPACES_MODE` |
+| `proxy.server.enforce.namespaces.ca_provided` | `PMG_PROXY_SERVER_ENFORCE_NAMESPACES_CA_PROVIDED` |
 | `verbosity`                   | `PMG_VERBOSITY`                   |
 | `skip_event_logging`          | `PMG_SKIP_EVENT_LOGGING`          |
 | `sandbox.enabled`             | `PMG_SANDBOX_ENABLED`             |

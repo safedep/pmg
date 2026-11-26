@@ -269,6 +269,11 @@ type ProxyEnforceNamespacesConfig struct {
 
 	// Address is the IPv4 address the daemon adds to lo and listens on.
 	Address string `mapstructure:"address"`
+
+	// CAProvided says that another program, such as pmg-runc, gives each
+	// redirected container the PMG CA. The daemon then does not warn that
+	// the containers need it.
+	CAProvided bool `mapstructure:"ca_provided"`
 }
 
 const (
