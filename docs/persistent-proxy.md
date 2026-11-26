@@ -916,6 +916,44 @@ RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem,mode=0444 \
     NODE_EXTRA_CA_CERTS=/run/pmg-ca.pem npm ci
 ```
 
+#### Trust in the containers of a runner image
+
+When dockerd runs in the runner container, PMG can give its CA to every
+container of that dockerd. To turn this on, set `PMG_CONTAINER_TRUST=1` on
+the runner container. When the variable is not set, this is off.
+
+`pmg-entrypoint.sh` then starts PMG with `--enforce-namespaces redirect` and
+links `/usr/local/sbin/runc` to `pmg-runc`. dockerd starts every container
+through `pmg-runc`, including `docker exec` and the `RUN` steps of
+`docker build`. `pmg-runc` mounts the PMG CA read-only in `/dev/pmg-ca` and
+sets `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`
+and `UV_NATIVE_TLS`. The container keeps the CAs of its image. A variable
+that the container sets keeps its value.
+
+`pmg-entrypoint.sh` stops with an error in these cases:
+
+- `DOCKER_HOST` is set, because dockerd then runs in another container.
+- The real `runc` is in `/usr/local/sbin`, or it comes before
+  `/usr/local/sbin` on `PATH`.
+
+Do not set the variable when dockerd runs in a sidecar container. A sidecar
+that shares its socket with no `DOCKER_HOST` is not found by this check.
+
+When `pmg-runc` cannot add the CA, the container starts without it. An
+install in that container then fails on the certificate, and
+`/var/log/pmg-runc.log` gives the reason.
+
+These containers get no PMG check, or fail on the certificate:
+
+- A `--network host` container gets no PMG check.
+- A container with `-v /dev:/dev`, or a container of a nested dockerd, gets
+  no CA.
+- Java, wget with GnuTLS and Bun 1.2 do not read these variables.
+
+With the redirect on, PMG adds `169.254.200.1` to `lo`. If the runner
+connects to a proxy on `172.17.0.1`, allow that address in the access list
+of the proxy.
+
 ### Test it before you deploy
 
 Run these on a Linux machine with Docker. If a daemon runs, stop it first.

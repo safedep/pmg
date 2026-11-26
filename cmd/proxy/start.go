@@ -89,6 +89,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	opts.BlockMessage = ui.ProxyPresenter{Advisory: config.AdvisoryMessage}.BlockMessage
 	opts.Started = printStartupMessage
 	opts.CertificateRejected = certificateRejectedNotice
+	opts.UpstreamFailed = upstreamFailedNotice
 	if err := proxyserver.Run(cmd.Context(), cfg, opts); err != nil {
 		ui.ErrorExit(err)
 	}

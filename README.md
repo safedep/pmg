@@ -274,7 +274,7 @@ Download the latest binary for your platform from the [Releases Page](https://gi
 
 Prebuilt multi-arch (`linux/amd64`, `linux/arm64`) images are published to [GitHub Container Registry](https://github.com/safedep/pmg/pkgs/container/pmg) on every release. The image entrypoint is `pmg`.
 
-The image also holds `/opt/safedep/pmg/bin` with `pmg` and `pmg-entrypoint.sh`. A self-hosted CI runner image on Kubernetes copies that directory and uses the script as its entrypoint. See [PMG on Self-Hosted CI Runners in Kubernetes](https://docs.safedep.io/package-security/pmg/kubernetes-ci-runners).
+The image also holds `/opt/safedep/pmg/bin` with `pmg`, `pmg-runc` and `pmg-entrypoint.sh`. A self-hosted CI runner image on Kubernetes copies that directory and uses the script as its entrypoint. See [PMG on Self-Hosted CI Runners in Kubernetes](https://docs.safedep.io/package-security/pmg/kubernetes-ci-runners).
 
 ```bash
 # Pull the latest image (or pin a release tag, such as :v0.30.0)

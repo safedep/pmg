@@ -19,7 +19,8 @@ ARG TARGETOS TARGETARCH
 
 RUN --mount=type=secret,id=pmg-ca,target=/run/secrets/pmg-ca.pem,mode=0444 \
     if [ -f /run/secrets/pmg-ca.pem ]; then export SSL_CERT_FILE=/run/secrets/pmg-ca.pem; fi; \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make
+    export CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}; \
+    make && go build -trimpath -o bin/pmg-runc ./scripts/container/pmg-runc
 
 FROM debian:13-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 # Original: debian:13-slim
@@ -36,7 +37,7 @@ LABEL org.opencontainers.image.licenses=Apache-2.0
 
 # A runner image copies /opt/safedep/pmg to get pmg and its entrypoint
 # script. /usr/local/bin/pmg stays for images that copy only the binary.
-COPY --from=build /build/bin/pmg /opt/safedep/pmg/bin/pmg
+COPY --from=build /build/bin/pmg /build/bin/pmg-runc /opt/safedep/pmg/bin/
 COPY --chmod=0755 scripts/container/pmg-entrypoint.sh /opt/safedep/pmg/bin/pmg-entrypoint.sh
 RUN ln -s /opt/safedep/pmg/bin/pmg /usr/local/bin/pmg
 
