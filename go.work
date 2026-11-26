@@ -3,3 +3,7 @@ go 1.27.3
 use .
 
 use ./scripts
+
+// Keep in sync with go.mod. In workspace mode, Go ignores the godebug lines in
+// go.mod.
+godebug tlsmlkem=0
