@@ -422,6 +422,21 @@
   tier: P2
   guarantee: "With cloud sync on, pmg setup doctor fails the Cloud credentials check when PMG_CLOUD_CREDENTIAL_FILE names a file that pmg cannot use, also when SAFEDEP_API_KEY is set, and names the fix. pmg setup info names the credential file, not the environment key."
   labels: [cloud, doctor, offline]
+# The two rows below have no script. A script must write an API key with an
+# expiry to the OS keychain. The Linux runners have no keychain, and on macOS
+# the script would write to the login keychain of the user who runs it.
+- id: cloud/credentials/sync-rejected-expired-key-gives-date
+  title: "a rejected API key that the keychain records as expired gives the date"
+  category: cloud
+  tier: P2
+  guarantee: "When SafeDep Cloud rejects a keychain API key with a recorded expiry in the past, pmg cloud sync fails with the date of the expiry in UTC and says to run 'pmg cloud login' with a new API key."
+  labels: [cloud, credentials, keychain]
+- id: cloud/credentials/doctor-reports-key-expiry
+  title: "doctor and info report the recorded expiry of a keychain API key"
+  category: cloud
+  tier: P2
+  guarantee: "With a keychain API key whose recorded expiry is past, pmg setup doctor fails the Cloud credentials check. Within 14 days of the expiry, it warns. pmg setup info shows the expiry next to the keychain."
+  labels: [cloud, credentials, keychain, doctor]
 - id: cloud/workload/no-id-token-names-permission
   title: "the workload identity exchange without an ID token names id-token: write"
   category: cloud
