@@ -37,9 +37,7 @@ exec python3 $WORK/sock.py wait
 [linux] [!bubblewrap] env PMG_SECCOMP_TRACE=1
 [linux] [!bubblewrap] env APP_LOG_LEVEL=debug
 [linux] [!bubblewrap] env APP_LOG_FILE=$WORK/helper.log
-[linux] [!bubblewrap] ? exec pmg --debug sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py host.sock
-[linux] [!bubblewrap] ? exec pmg sandbox explain --last
-[linux] [!bubblewrap] ? exec sh -c 'cat $WORK/helper.log; cat /proc/self/attr/current; ls -la $WORK/proj; grep -i apparmor /proc/self/status; sysctl kernel.apparmor_restrict_unprivileged_userns'
+[linux] [!bubblewrap] exec sh -c 'pmg --debug sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py host.sock; pmg sandbox explain --last; cat $WORK/helper.log; cat /proc/self/attr/current; ls -la $WORK/proj; sysctl kernel.apparmor_restrict_unprivileged_userns; true'
 [linux] [!bubblewrap] exec pmg sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py host.sock
 [linux] [!bubblewrap] stdout '^OK host$'
 [linux] [!bubblewrap] [!landlock-unix-connect] stderr 'The supervisor checks it'
