@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,7 +152,8 @@ func TestCloudCredentialsCheckRunsOnlyWithCloudOn(t *testing.T) {
 			require.NotEqual(t, -1, idx)
 			result := results[idx]
 			assert.Equal(t, doctor.StatusFail, result.Status)
-			assert.Contains(t, result.Message, "pmg cannot use the credential file that PMG_CLOUD_CREDENTIAL_FILE names (open the credential file")
+			// The cause differs by platform. Windows does not support the file.
+			assert.True(t, strings.HasPrefix(result.Message, "pmg cannot use the credential file that PMG_CLOUD_CREDENTIAL_FILE names ("), result.Message)
 		})
 	}
 }
