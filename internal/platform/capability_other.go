@@ -10,6 +10,8 @@ func supports(c Capability) bool {
 		return false
 	case MachineWidePath:
 		return false
+	case OwnerOnlyFiles:
+		return true
 	case EnforcingProxy:
 		return false
 	}

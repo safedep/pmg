@@ -1,8 +1,6 @@
 package cloudpolicy
 
 import (
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -161,29 +159,13 @@ func TestLoadFallsBackToThePreviousFile(t *testing.T) {
 func TestLoadStaleCache(t *testing.T) {
 	cfg := newTestConfig(t)
 	writeCache(t, cfg, cloudpolicytest.Policy(blockEvil()), 48)
-	setFetchedAt(t, cfg.CloudPolicyCacheDir(), time.Now().Add(-8*24*time.Hour))
+	require.NoError(t, cloudpolicytest.SetFetchedAt(cfg.CloudPolicyCacheDir(), time.Now().Add(-8*24*time.Hour)))
 
 	st := Load(cfg, testTenant)
 
 	assert.Equal(t, recordv1.ApplyState_APPLY_STATE_STALE, st.State)
 	assert.Equal(t, 1, st.BlockEntries, "a stale cache still applies")
 	assert.Greater(t, st.CacheAge(time.Now()), StaleAfter)
-}
-
-// setFetchedAt moves fetched_at of state.json, as a cache that no fetch
-// reached for a while has it.
-func setFetchedAt(t *testing.T, dir string, at time.Time) {
-	t.Helper()
-	path := filepath.Join(dir, "state.json")
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-
-	var state configsync.State
-	require.NoError(t, json.Unmarshal(data, &state))
-	state.FetchedAt = at
-	data, err = json.Marshal(state)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(path, data, 0o600))
 }
 
 func TestLoadReportsDroppedRules(t *testing.T) {

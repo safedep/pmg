@@ -33,7 +33,9 @@ go mod tidy
 make all
 ```
 
-The built `pmg` binary will be available in the `bin` directory.
+The `bin` directory holds the built `pmg` binary. `make all` builds with
+`CGO_ENABLED=0`, the same as a release. If you build with `go build`, set `CGO_ENABLED=0` too. The
+Linux sandbox can hang in a cgo build.
 
 If you wish to install this binary on your system, make sure to copy it to a directory within your `$PATH`. 
 

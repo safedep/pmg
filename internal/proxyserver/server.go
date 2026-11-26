@@ -215,8 +215,10 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	go autoBlockConfirmations(confirmationChan)
 
 	ecosystems, notices := proxiedEcosystems(caDir, truststore.GoTrustsCA)
+	failureLog := newAnalysisFailureLog(os.Stderr)
 	interceptorList, err := buildInterceptors(
 		malysisAnalyzer, cache, statsCollector, confirmationChan, cfg.Config.Proxy.Registries, ecosystems,
+		failureLog.Record,
 	)
 	if err != nil {
 		return err
@@ -359,6 +361,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	}
 
 	close(confirmationChan)
+	failureLog.Flush()
 
 	// Stats are read after drain so a package analyzed at shutdown is not missed.
 	// Persist the blocked count BEFORE the (possibly slow) cloud flush so it
@@ -439,13 +442,14 @@ func buildInterceptors(
 	confirmationChan chan *interceptors.ConfirmationRequest,
 	registries []config.ProxyRegistryConfig,
 	ecosystems []packagev1.Ecosystem,
+	onAnalysisFailure func(*packagev1.PackageVersion, error),
 ) ([]pmgproxy.Interceptor, error) {
 	factory, err := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,
 		cache,
 		statsCollector,
 		confirmationChan,
-		interceptors.InterceptorContext{Policy: cloudpolicy.Global()},
+		interceptors.InterceptorContext{Policy: cloudpolicy.Global(), OnAnalysisFailure: onAnalysisFailure},
 		registries,
 	)
 	if err != nil {

@@ -19,7 +19,7 @@ func TestEvaluateEnforceCheck(t *testing.T) {
 	}{
 		{"not available on this platform", errors.New("not linux"), netenforce.ProbeResult{}, doctor.StatusPass, "Linux only"},
 		{"host can enforce", nil, netenforce.ProbeResult{Supported: true, KernelVersion: "6.8.0", CgroupPath: "/sys/fs/cgroup"}, doctor.StatusPass, "kernel 6.8.0"},
-		{"host misses a requirement", nil, netenforce.ProbeResult{Missing: []string{"CAP_BPF is not in the effective capability set (run as root)"}}, doctor.StatusWarn, "CAP_BPF"},
+		{"host misses a requirement", nil, netenforce.ProbeResult{Missing: []string{"CAP_BPF is not in the effective capability set (run as root)"}}, doctor.StatusOff, "CAP_BPF"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

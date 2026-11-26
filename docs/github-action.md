@@ -95,7 +95,7 @@ YAML file loaded through `config-file`. Set an input to override the
 default.
 
 Cloud inputs are an exception.
-With `api-key`, the action exports `PMG_CLOUD_ENABLED=true`.
+With `api-key`, or with `tenant-id` in [OIDC mode](#use-github-oidc-instead-of-an-api-key), the action exports `PMG_CLOUD_ENABLED=true`.
 It sets `PMG_CLOUD_AUTO_SYNC_ENABLED=true` in server mode and `false` in shim mode.
 It also exports `PMG_CLOUD_ENDPOINT_ID`, with `gh:<owner>/<repo>` as its default.
 These variables override the corresponding `config-file` values.
@@ -113,8 +113,8 @@ Use exactly lowercase `true` for `cache`, `sandbox`, and `skip-event-logging`. T
 |---|---|---|
 | `version` | PMG release tag (for example `v0.42.0`) or `latest` | `latest` |
 | `api-key` | SafeDep Cloud API key. Set it with `tenant-id`. Use a secret to hold the value. The action then fetches the cloud policy, and the step fails when no cloud policy applies. | unset (cloud sync disabled) |
-| `tenant-id` | SafeDep Cloud tenant ID | unset |
-| `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name | `gh:<owner>/<repo>` when `api-key` is set |
+| `tenant-id` | SafeDep Cloud tenant ID. Without `api-key` it selects [OIDC mode](#use-github-oidc-instead-of-an-api-key). | unset |
+| `endpoint-id` | Identifier that SafeDep Cloud reports as the machine name. OIDC mode ignores it. | `gh:<owner>/<repo>` when `api-key` is set |
 | `paranoid` | `PMG_PARANOID` | `false` |
 | `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
 | `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `2` |
@@ -144,8 +144,6 @@ The install cache verifies only the cached tarball.
 On a cache hit, it runs the extracted binary without checking or extracting it again.
 Protect that directory on a shared self-hosted runner.
 GitHub-hosted runner tool caches do not persist between jobs.
-Do not set `PMG_CONFIG_DIR` together with `config-file`.
-The staging script uses `${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg` regardless of that variable.
 
 ## Outputs
 
@@ -183,7 +181,7 @@ The action fetches the policy before the next step runs, so the first install of
 The fetch takes 25 seconds at most.
 When no cloud policy applies after the fetch, the action step fails.
 When your SafeDep plan does not include the cloud policy, the step prints a warning and does not fail.
-On a self-hosted runner that keeps its policy cache, a failed fetch prints a warning, and the last policy applies.
+Under kernel enforcement on a self-hosted runner, root keeps its policy cache. A failed fetch then prints a warning, and the last policy applies.
 A PMG `version` without `pmg cloud sync --require-policy` does not fail the step.
 The action then runs the full sync and prints a warning only when that sync fails.
 That sync waits up to 30 seconds for the sync lock and then runs for up to 10 seconds.
@@ -208,6 +206,68 @@ Labels that an admin set on the old endpoint do not move to the new endpoint.
 A policy override that selects those labels stops to apply until an admin sets them again.
 To keep the old ID, set `endpoint-id: gha/${{ github.repository }}`.
 
+### Use GitHub OIDC instead of an API key
+
+Set `tenant-id` and no `api-key`, and give the job `id-token: write`.
+The action then gets a short-lived SafeDep Cloud credential for the job, and the job needs no API key secret.
+A tenant admin first links the SafeDep GitHub App and adds a workload identity rule for the repository.
+
+```yaml
+permissions:
+  contents: read
+  id-token: write
+steps:
+  - uses: safedep/pmg@v2
+    with:
+      tenant-id: ${{ vars.SAFEDEP_TENANT_ID }}
+  - run: npm ci
+```
+
+When the job sets `api-key` too, the action uses the API key.
+So both inputs work while you move a workflow from the API key to OIDC.
+An `api-key` that is set from an empty secret selects OIDC mode.
+For example, a reusable workflow gets no secret without `secrets: inherit`.
+To run a job without SafeDep Cloud, remove `tenant-id`.
+
+In OIDC mode the action step:
+
+1. Asks GitHub for an ID token for SafeDep Cloud and exchanges it for a credential.
+   It asks for the longest life that the rule allows, because the proxy cannot refresh the credential.
+2. Gives the credential to the proxy before the proxy starts.
+   A proxy that runs as the job user gets it in its environment.
+   A root daemon under [kernel enforcement](#kernel-enforcement) reads a copy that only root can read.
+   The proxy never gets the GitHub token that requests an ID token.
+   `PMG_CLOUD_CREDENTIAL_FILE` names the credential file, so pmg uses the credential before a credential that `pmg cloud login` saved on the runner.
+3. In [shim mode](#shim-mode), exports the credential to the later steps as `SAFEDEP_API_KEY` and `PMG_CLOUD_CREDENTIAL_FILE`, and masks it in the log.
+   In server mode the action does not write the credential to `$GITHUB_ENV`.
+
+Server mode does not isolate the credential from the later steps.
+The later steps run as the job user.
+A step can read the credential file of the action in `$RUNNER_TEMP`, and the environment of a proxy that runs as the job user.
+A step with `sudo` can read the root copy too.
+The post step removes both files and revokes the credential.
+
+SafeDep Cloud sets the endpoint ID `gh:<owner>/<repo>` from the claims of the ID token.
+The action ignores `endpoint-id` in OIDC mode and prints a warning when you set it.
+
+The post step stops the proxy and then revokes the credential on every job outcome: success, failure and cancel.
+When the proxy still runs at the end of the job, the post step fails.
+On a persistent self-hosted runner, a proxy that stays alive would serve later jobs under the credential of this job.
+A cancel can stop the action step after the proxy starts and before the action saves the proxy state.
+The post step then cannot find that proxy, and the proxy keeps running, but the post step still revokes the credential.
+When SafeDep Cloud is unavailable, does not answer or reports an internal error, pmg tries the revoke one more time.
+When the revoke fails, the post step prints a warning, and the credential stays valid until it expires.
+
+These cases change the result of the action step:
+
+| Case | Result |
+|---|---|
+| The job has no `id-token: write` | The step fails, and the message names `permissions: id-token: write`. |
+| A `pull_request`, `pull_request_review` or `pull_request_review_comment` run from a fork | GitHub gives the run no ID token. The step prints a warning, and PMG runs without SafeDep Cloud. The action sets `PMG_CLOUD_ENABLED=false` for the proxy and the later steps, also when the runner config or an earlier step turned cloud on. |
+| SafeDep Cloud refuses the exchange, for example no rule matches, the ID token expired or the tenant is over its limit | The step fails, as with a bad API key. The message and the job summary name the tenant and the reason. A tenant admin can list denied exchanges with `safedep workload exchange list --denied`. |
+| SafeDep Cloud is unavailable | pmg tries the exchange one more time with a new ID token. A second failure fails the step. |
+| The `version` input names a PMG release without `pmg cloud workload exchange` | The step fails. A run from a fork warns first, as above. |
+
 ### Use `config-file` for custom settings
 
 ```yaml
@@ -227,7 +287,7 @@ trusted_packages:
     config-file: .github/pmg.yml
 ```
 
-The action copies the file to `${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml`.
+The action copies the file to `$PMG_CONFIG_DIR/config.yml`.
 Server mode does not run `pmg setup install`.
 Under kernel enforcement, the root daemon gets a copy in `$PMG_PROXY_CONFIG_DIR`.
 In server mode, PMG applies the missing template keys in memory.
@@ -246,7 +306,7 @@ job needs no other PMG step. See the [Quick start](#quick-start).
 At the end of the job, the post step of the action:
 
 1. Stops the daemon. The daemon flushes its events to SafeDep Cloud when
-   the job sets `api-key`.
+   the job sets `api-key` or uses OIDC mode.
 2. Proposes a network profile from the destinations the job reached. See
    [Build the profile from a run](#build-the-profile-from-a-run).
 3. Writes the job summary. The summary shows the verdict, each denied
@@ -424,6 +484,17 @@ inherit `github-actions` and add the registry hosts to it, as
 as `npm-restrictive`. It does not allow the hosts of the runner, so the
 proxy refuses the runner's connections to GitHub.
 
+In PMG releases later than v0.36.0, the `github-actions` profile also allows
+the SafeDep hosts `api.safedep.io:443`, `community-api.safedep.io:443` and
+`cloud.safedep.io:443`. PMG calls the first two. `cloud.safedep.io` is the
+control plane of SafeDep Cloud, and PMG does not call it today. The proxy
+daemon connects to these hosts directly. The other pmg processes of the job,
+such as `pmg cloud sync` and the background fetch of the cloud policy, connect
+through the proxy. When `SAFEDEP_CLOUD_DATA_ADDR` names another host, add
+that host to your profile. These hosts accept the credentials of every
+SafeDep tenant. To refuse one of them, add a deny rule for that host to your
+profile.
+
 The runner, `actions/upload-artifact` and `actions/cache` store logs,
 artifacts and caches in Azure storage. `github-actions` allows only the
 storage accounts that the GitHub Meta API lists, not every Azure storage
@@ -463,7 +534,9 @@ Three runs take a job from no profile to `enforce`.
    every destination the job needs. Save the proposal as
    `.pmg/network.yml` and commit it. Set `network-profile:
    .pmg/network.yml` on the PMG step. The proposal inherits
-   `github-actions`, which refuses each host that no rule allows.
+   `github-actions`, which refuses each host that no rule allows. The
+   proposal does not list the hosts of the runner or the SafeDep hosts of
+   PMG, because `github-actions` allows them.
 
    Each later run in `audit` lists the destinations the profile does not
    allow, in the summary and as a warning on the run. The summary shows the
@@ -571,13 +644,26 @@ A hung daemon keeps its programs, so the runner cannot reach GitHub and
 stays offline until an operator restarts the daemon. `Restart=on-failure`
 does not restart a hung daemon.
 
-On a persistent runner, the action leaves staged configuration and installed shims.
+On the runner host, the action sets `PMG_CONFIG_DIR` to `$RUNNER_TEMP/pmg/config` and `PMG_STATE_DIR` to `$RUNNER_TEMP/pmg/state`.
+Each runner agent has its own `RUNNER_TEMP`, and the runner empties it after each job.
+Two jobs on one host then do not share the config, the proxy state or the cloud sync queue.
+A proxy or a queue that a crashed job leaves does not affect the next job.
+The action keeps a directory that the workflow sets.
+When the job sets `config-file`, the action uses its own config directory, so the staged file does not change the config of later jobs.
+Under kernel enforcement, the root daemon gets a copy of `config.yml` from `PMG_CONFIG_DIR`, and uses the directories of root.
+The action keeps the proxy state for each job with PMG v0.35.0 or later. An older `version` keeps it in the shared cache directory.
+The `config.yml` and the sandbox profiles, presets and overlays in `~/.config/safedep/pmg` do not apply.
+If the job does not set `config-file` and the action finds these files, it prints a warning.
+Use `config-file` or the [managed config](config.md#globally-managed-configuration).
+The cache directory stays shared.
+
+On a persistent runner, the action leaves installed shims.
 Sandbox preparation also attempts host changes that the post step does not restore.
-Use ephemeral runners or reset configuration and host state for each job.
-Concurrent jobs that share a user can collide on the default proxy state.
-A second enforced daemon on the same cgroup fails to start.
+Use ephemeral runners or reset host state for each job.
+Kernel enforcement allows one enforcing daemon on each host.
+When another job on the host enforces, a step with `enforce: true` fails.
 Other eligible host processes route through the first daemon.
-Run one enforced job at a time on a host. See
+Run one runner agent on each host, or set `enforce: false`. See
 [Kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux).
 
 The enforcing daemon receives no upstream proxy variables from this action.

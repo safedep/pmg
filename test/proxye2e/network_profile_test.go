@@ -294,3 +294,79 @@ func TestProxyFlow_GitHubActionsStorage(t *testing.T) {
 		},
 	})
 }
+
+// The github-actions profile allows the SafeDep hosts, so a profile that
+// inherits it does not refuse the cloud sync or the malware analysis. It
+// names each host, so another safedep.io host stays refused.
+func TestProxyFlow_GitHubActionsSafeDepHosts(t *testing.T) {
+	const inheritsGitHubActions = "name: ci\ninherits: github-actions\n"
+	// The documented example profile ends with its own catch-all deny.
+	const withCatchAllDeny = inheritsGitHubActions + "network:\n  deny_outbound:\n    - \"*:*\"\n"
+	listed := []string{"api.safedep.io", "cloud.safedep.io", "community-api.safedep.io"}
+	unlisted := []string{"attacker.safedep.io", "example.com"}
+	getListed := func(h *Harness) ExecResult {
+		var res ExecResult
+		for _, host := range listed {
+			res.Requests = append(res.Requests, h.get("https://"+host+"/x", nil))
+		}
+		return res
+	}
+	assertListedAllowed := func(t *testing.T, h *Harness, _ ExecResult) {
+		assert.Empty(t, h.NetworkDecisions())
+		for _, host := range listed {
+			assert.Contains(t, h.DialedAddrs(), host+":443")
+		}
+	}
+	RunCases(t, []TestCase{
+		{
+			Name:    "each SafeDep host is allowed",
+			Options: []Option{profilePolicy(t, inheritsGitHubActions, nil, nil)},
+			Exec:    getListed,
+			Assert:  assertListedAllowed,
+		},
+		{
+			Name:    "each SafeDep host is allowed under a child profile that denies every other host",
+			Options: []Option{profilePolicy(t, withCatchAllDeny, nil, nil)},
+			Exec:    getListed,
+			Assert:  assertListedAllowed,
+		},
+		{
+			Name:    "a deny rule in the child profile refuses a SafeDep host",
+			Options: []Option{profilePolicy(t, inheritsGitHubActions, nil, []string{"api.safedep.io:443"})},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("https://api.safedep.io/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Empty(t, h.DialedAddrs())
+				require.Error(t, res.Requests[0].Err)
+				decisions := h.NetworkDecisions()
+				require.Len(t, decisions, 1)
+				assert.Equal(t, "api.safedep.io:443", decisions[0].Rule)
+				assert.True(t, decisions[0].Enforced)
+			},
+		},
+		{
+			Name:    "a host that the profile does not name is refused before the dial",
+			Options: []Option{profilePolicy(t, inheritsGitHubActions, nil, nil)},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				for _, host := range unlisted {
+					res.Requests = append(res.Requests, h.get("https://"+host+"/x", nil))
+				}
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Empty(t, h.DialedAddrs())
+				decisions := h.NetworkDecisions()
+				require.Len(t, decisions, len(unlisted))
+				for i, host := range unlisted {
+					require.Error(t, res.Requests[i].Err, host)
+					assert.Contains(t, res.Requests[i].Err.Error(), "Forbidden", host)
+					assert.Equal(t, host, decisions[i].Host)
+					assert.Equal(t, "*:*", decisions[i].Rule)
+					assert.True(t, decisions[i].Enforced)
+				}
+			},
+		},
+	})
+}

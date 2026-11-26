@@ -175,10 +175,27 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		cmd.ExtraFiles = []*os.File{shimSockFile}
 		attr := *procAttr
 		attr.Cloneflags = cloneflags
+		// The target must not outlive the helper and its supervisor.
+		// Pdeathsig follows the thread that starts the shim, and the
+		// helper keeps its main goroutine locked to that thread. In a new
+		// PID namespace, the Go child sees getppid() == 0 and sends
+		// SIGKILL to itself as a parent-death check. The kernel drops that
+		// signal, because the child is the init of the namespace.
+		attr.Pdeathsig = syscall.SIGKILL
 		cmd.SysProcAttr = &attr
 		return cmd
 	}
 
+	// Signals queue from before the shim starts, so an early interrupt
+	// counts toward the second-signal kill.
+	sigCh := make(chan os.Signal, 3)
+	signal.Notify(sigCh, unix.SIGINT, unix.SIGTERM, unix.SIGQUIT)
+	defer func() {
+		signal.Stop(sigCh)
+		close(sigCh)
+	}()
+
+	runtime.LockOSThread()
 	extraCloneFlags := landlockBuildCloneflags(policy)
 	cmd, err := startShimWithFallback(newShimCmd, procAttr.Cloneflags|extraCloneFlags, extraCloneFlags, func(err error) {
 		if err := landlockWriteAuditEvent(auditWriter, auditEvent{
@@ -196,6 +213,22 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	}
 	_ = shimSockFile.Close() // child has its own copy
 	childPID := cmd.Process.Pid
+
+	// The target is the init of its PID namespace, and the kernel drops a
+	// signal that init has no handler for. A second signal kills it, so an
+	// interrupt cannot leave the run waiting. Forwarding starts before the
+	// setup below, which can block on the shim.
+	go func() {
+		forwarded := false
+		for sig := range sigCh {
+			if forwarded {
+				warnSignalFailure(cmd.Process.Kill(), unix.SIGKILL)
+				continue
+			}
+			forwarded = true
+			warnSignalFailure(cmd.Process.Signal(sig), sig)
+		}
+	}()
 
 	notifyFd, err := receiveNotifyFd(int(helperSockFile.Fd()))
 	if err != nil {
@@ -245,19 +278,9 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		log.Warnf("close /proc/%d/mem: %v", childPID, err)
 	}
 
-	sigCh := make(chan os.Signal, 3)
-	signal.Notify(sigCh, unix.SIGINT, unix.SIGTERM, unix.SIGQUIT)
-	go func() {
-		for sig := range sigCh {
-			_ = cmd.Process.Signal(sig)
-		}
-	}()
-
 	waitErr := cmd.Wait()
 
 	_ = supervisor.Stop()
-	signal.Stop(sigCh)
-	close(sigCh)
 
 	exitCode := 0
 	if waitErr != nil {
@@ -422,5 +445,13 @@ func landlockSelectBaseConfig(policy *landlockExecPolicy) landlock.Config {
 		return landlock.V2
 	default:
 		return landlock.V1
+	}
+}
+
+// warnSignalFailure logs a signal that did not reach the shim. A shim that
+// already exited needs no signal.
+func warnSignalFailure(err error, sig os.Signal) {
+	if err != nil && !errors.Is(err, os.ErrProcessDone) {
+		log.Warnf("sandbox: send %v to the sandboxed program: %v", sig, err)
 	}
 }

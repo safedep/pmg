@@ -1,5 +1,5 @@
 name: github-actions
-description: Network base for a PMG proxy on a GitHub Actions runner. Allows the hosts the runner and the GitHub actions reach.
+description: Network base for a PMG proxy on a GitHub Actions runner. Allows the hosts the runner and the GitHub actions reach, and the SafeDep hosts.
 # The persistent proxy serves every package manager of the job, so the
 # profile names the exec workload, as the exec base does.
 package_managers:
@@ -28,6 +28,20 @@ package_managers:
 #
 # A release download redirects to release-assets.githubusercontent.com.
 # actions/setup-node and the other setup actions download from releases.
+#
+# PMG calls api.safedep.io, the data plane of SafeDep Cloud, and
+# community-api.safedep.io, which gives the malware analysis without
+# credentials. The proxy daemon connects to them directly. The other pmg
+# processes of the job connect through the proxy, for example
+# `pmg cloud sync` and the background fetch of the cloud policy. When
+# SAFEDEP_CLOUD_DATA_ADDR names another host, the child profile must allow
+# that host.
+#
+# cloud.safedep.io is the control plane of SafeDep Cloud. PMG does not call
+# it today.
+#
+# These hosts accept the credentials of every SafeDep tenant. A child
+# profile that must refuse one of them adds a deny rule for that host.
 network:
   allow_outbound:
     - "*.actions.githubusercontent.com:443"
@@ -179,6 +193,9 @@ network:
     - release-assets.githubusercontent.com:443
     - ghcr.io:443
     - pkg-containers.githubusercontent.com:443
+    - api.safedep.io:443
+    - cloud.safedep.io:443
+    - community-api.safedep.io:443
   # A host that no rule names is refused. A specific allow rule of a child
   # profile beats this rule.
   deny_outbound:

@@ -3,6 +3,7 @@
 // Helpers that main.js and post.js share. The action has no dependencies, so
 // these replace the parts of @actions/core it needs.
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -121,6 +122,15 @@ function childEnv(env = {}) {
   return out;
 }
 
+// helperEnv is the environment of a pmg call that the action makes outside
+// the proxy start and the cloud policy fetch. None of these calls needs
+// SafeDep Cloud. With cloud on, pmg can start a detached sync on exit, and
+// that sync can use a keychain credential of another tenant on a
+// self-hosted runner, against the policy cache and the events of the proxy.
+function helperEnv() {
+  return childEnv({ PMG_CLOUD_ENABLED: 'false' });
+}
+
 // run starts one setup script. The runner applies GITHUB_ENV and
 // GITHUB_PATH only after the step ends, so run applies what the script
 // appended to this process, and the next script sees it. It returns the
@@ -166,17 +176,35 @@ function run(shell, script, env, { captureStderr = false } = {}) {
 // daemon and its event log belong to root. Only root gets the root
 // daemon's config directory. The runner user cannot write it, and every pmg
 // command opens the event log there. capture pipes stdout, and 'all'
-// pipes stderr too.
-function runPMG(bin, args, { sudo = false, configDir = '', capture = false } = {}) {
+// pipes stderr too. idToken keeps the ID token request token, for the
+// exchange of the workload identity only. No other pmg process gets it.
+// proxyEnv, when set, replaces the proxy variables in every letter case,
+// for a call after the proxy stopped. Every call runs with helperEnv.
+function runPMG(bin, args, { sudo = false, configDir = '', capture = false, idToken = false, proxyEnv = null } = {}) {
   let file = bin;
   let argv = args;
-  const env = childEnv();
+  const env = helperEnv();
+  if (idToken && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+    env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  }
+  if (proxyEnv) {
+    for (const name of Object.keys(env)) {
+      if (isProxyVar(name)) {
+        delete env[name];
+      }
+    }
+    Object.assign(env, proxyEnv);
+  }
   if (sudo) {
+    // The directories of the job belong to the runner user. Root must not
+    // write its event log or state there.
+    delete env.PMG_CONFIG_DIR;
+    delete env.PMG_STATE_DIR;
     if (configDir !== '') {
       env.PMG_CONFIG_DIR = configDir;
     }
     file = 'sudo';
-    argv = ['-n', '--preserve-env=PMG_CONFIG_DIR,GITHUB_ACTIONS', bin, ...args];
+    argv = ['-n', '--preserve-env=PMG_CONFIG_DIR,PMG_CLOUD_ENABLED,GITHUB_ACTIONS', bin, ...args];
   }
   const res = spawnSync(file, argv, {
     env,
@@ -187,6 +215,13 @@ function runPMG(bin, args, { sudo = false, configDir = '', capture = false } = {
     throw res.error;
   }
   return res;
+}
+
+// isProxyVar matches the proxy variables that `pmg proxy env` exports, such
+// as HTTPS_PROXY and https_proxy, and not the PMG_PROXY_* variables of the
+// action.
+function isProxyVar(name) {
+  return /proxy/i.test(name) && !name.startsWith('PMG_PROXY_');
 }
 
 // A ScriptError holds the error codes that pmg printed, so a caller can tell
@@ -201,21 +236,45 @@ class ScriptError extends Error {
 
 const stripColors = (text) => text.replace(/\x1b\[[0-9;]*m/g, '');
 
-// errorCodes reads the code that pmg prints first on an error line, as in
-// " InvalidArgument   the enforce policy is not valid".
-function errorCodes(text) {
+// errorLines reads the error lines of pmg, as in
+// " InvalidArgument   the enforce policy is not valid". The code comes
+// first, then the message.
+function errorLines(text) {
   return stripColors(text)
     .split('\n')
-    .map((line) => /^\s*([A-Z][A-Za-z]+)\s{2,}\S/.exec(line))
+    .map((line) => /^\s*([A-Z][A-Za-z]+)\s{2,}(\S.*)$/s.exec(line))
     .filter(Boolean)
-    .map((match) => match[1]);
+    .map((match) => ({ code: match[1], message: match[2].trim() }));
+}
+
+function errorCodes(text) {
+  return errorLines(text).map((line) => line.code);
+}
+
+// isCommand is true for a line that the runner reads as a workflow command.
+const isCommand = (line) => stripColors(line).trim().startsWith('::');
+
+// printUntrusted prints text that came from pmg or SafeDep Cloud. Between the
+// stop line and the resume line, the runner runs no workflow command in either
+// syntax. A filter of the text misses the legacy ##[command] syntax and a line
+// that ends at a bare carriage return. The token is random, so the text cannot
+// resume the commands. The resume line must start a line of its own, or the
+// later commands of the action stay off.
+function printUntrusted(text) {
+  const token = crypto.randomUUID();
+  process.stdout.write(`::stop-commands::${token}\n`);
+  try {
+    process.stdout.write(text.endsWith('\n') || text === '' ? text : `${text}\n`);
+  } finally {
+    process.stdout.write(`::${token}::\n`);
+  }
 }
 
 function lastLines(text, n) {
   return stripColors(text)
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line !== '' && !line.startsWith('::'))
+    .filter((line) => line !== '' && !isCommand(line))
     .slice(-n)
     .join(' ');
 }
@@ -244,10 +303,13 @@ module.exports = {
   childEnv,
   error,
   errorCodes,
+  errorLines,
   group,
+  helperEnv,
   inJobContainer,
   input,
   isProfilePath,
+  isProxyVar,
   lastLines,
   notice,
   parseKeyValues,
@@ -256,6 +318,7 @@ module.exports = {
   saveState,
   ScriptError,
   state,
+  printUntrusted,
   warning,
   workspacePath,
 };

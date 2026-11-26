@@ -1,10 +1,12 @@
 package interceptors
 
 import (
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
 	"github.com/safedep/pmg/proxy"
@@ -35,7 +37,14 @@ type AnalysisStatsCollector struct {
 	// left. Metadata for one package can be fetched several times during an
 	// install, so recording must deduplicate rather than append.
 	cooldownWithheld map[string]map[string]int
+
+	unanalyzed     []*packagev1.PackageVersion
+	unanalyzedSeen map[string]bool
 }
+
+// maxUnanalyzedPackages caps the list, because an outage in a long-running
+// daemon can fail every download.
+const maxUnanalyzedPackages = 1000
 
 // NewAnalysisStatsCollector creates a new stats collector
 func NewAnalysisStatsCollector() *AnalysisStatsCollector {
@@ -226,4 +235,32 @@ func (c *AnalysisStatsCollector) GetCooldownWithheld() []models.CooldownWithheld
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
+}
+
+// RecordUnanalyzed keeps each version once, because a package manager can
+// retry a download. Past the cap it keeps only the key, to count it.
+func (c *AnalysisStatsCollector) RecordUnanalyzed(pkg *packagev1.PackageVersion) {
+	key := pkg.GetPackage().GetEcosystem().String() + "|" + pkg.GetPackage().GetName() + "|" + pkg.GetVersion()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.unanalyzedSeen[key] {
+		return
+	}
+	if c.unanalyzedSeen == nil {
+		c.unanalyzedSeen = make(map[string]bool)
+	}
+	c.unanalyzedSeen[key] = true
+	if len(c.unanalyzed) < maxUnanalyzedPackages {
+		c.unanalyzed = append(c.unanalyzed, pkg)
+	}
+}
+
+// GetUnanalyzedPackages returns the kept packages and how many more failed.
+func (c *AnalysisStatsCollector) GetUnanalyzedPackages() ([]*packagev1.PackageVersion, int) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return slices.Clone(c.unanalyzed), len(c.unanalyzedSeen) - len(c.unanalyzed)
 }

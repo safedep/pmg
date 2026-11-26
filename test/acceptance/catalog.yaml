@@ -118,6 +118,12 @@
   tier: P0
   guarantee: "npm_config_https_proxy and npm_config_noproxy in the environment are overridden, so a malicious package is still blocked."
   labels: [malware, block, bypass, proxy]
+- id: npm/install/analysis-unreachable-reported
+  title: "an install with no reachable analysis service names the unanalyzed package"
+  category: npm
+  tier: P1
+  guarantee: "When the malware analysis service cannot be reached, the report names each package that PMG did not analyze."
+  labels: [install, analysis-failure, community]
 - id: npm/insecure/bypass-warns
   title: "insecure mode installs but warns that protection is bypassed"
   category: npm
@@ -263,6 +269,12 @@
   tier: P0
   guarantee: "Under `pmg sandbox exec`, the .git file and the gitdir and commondir files of a linked worktree cannot be rewritten, and a .git file that names the home directory or another repository grants no write there."
   labels: [sandbox, exec, block]
+- id: sandbox/exec/stops-target-with-pmg
+  title: "sandbox exec stops the program when pmg stops"
+  category: sandbox
+  tier: P1
+  guarantee: "On Linux, an interrupt to `pmg sandbox exec` or a kill of pmg stops the program, also a program such as `sleep` that has no signal handler."
+  labels: [sandbox, exec, offline]
 - id: sandbox/exec/requires-command
   title: "sandbox exec without a program fails with usage help"
   category: sandbox
@@ -410,6 +422,18 @@
   tier: P1
   guarantee: "A rejected proxy configuration records a PMG error source and configuration reason in the session summary."
   labels: [cloud, audit, error-reporting, offline]
+- id: cloud/workload/no-id-token-names-permission
+  title: "the workload identity exchange without an ID token names id-token: write"
+  category: cloud
+  tier: P1
+  guarantee: "On Linux and macOS, pmg cloud workload exchange with no ID token in the environment fails, names 'permissions: id-token: write' and writes no credential file."
+  labels: [cloud, workload-identity, offline]
+- id: cloud/workload/exchange-live
+  title: "a GitHub Actions job exchanges its ID token and uses the workload credential"
+  category: cloud
+  tier: P1
+  guarantee: "In a GitHub Actions job with an ID token, on Linux and macOS, pmg cloud workload exchange gets a credential of the tenant. With it and no API key, pmg fetches the cloud policy and blocks known malware, and pmg cloud workload revoke revokes it."
+  labels: [cloud, workload-identity, authenticated]
 - id: cloud/policy/block-entry-blocks
   title: "a block entry of the cloud policy blocks an install"
   category: cloud

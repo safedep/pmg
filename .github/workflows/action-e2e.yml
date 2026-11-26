@@ -14,6 +14,9 @@ on:
       - .github/actions/check-proxy-env-post/**
       - .github/scripts/action-post.sh
       - .github/workflows/action-e2e.yml
+      - cmd/cloud/**
+      - internal/cloudauth/**
+      - test/actione2e/**
   push:
     branches: [main]
     paths:
@@ -110,8 +113,11 @@ jobs:
       - name: Verify config staged into PMG config dir
         run: |
           set -e
-          dest="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml"
+          dest="$PMG_CONFIG_DIR/config.yml"
           test -f "$dest"
+          # The root daemon gets its own copy, and leaves no root-owned
+          # file in the config directory of the job.
+          test -z "$(find "$PMG_CONFIG_DIR" -user root)"
           grep -q "^paranoid: true" "$dest"
           grep -q "days: 365" "$dest"
       - name: Verify env doesn't shadow file-based tuning
@@ -162,6 +168,26 @@ jobs:
           echo "apparmor_restrict_unprivileged_userns=$v"
           test "$v" = "0" -o "$v" = "missing"
 
+  oidc-stub-exchange:
+    name: OIDC mode against a stub exchange (user proxy, root proxy, revoke, fork)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: The action exchanges, hands off and revokes the credential
+        env:
+          PMG_ACTIONE2E_ENFORCE: "true"
+        run: go test -tags actione2e -count=1 -v ./test/actione2e/
+
   enforce-flags:
     name: enforce-* inputs become flags
     runs-on: ubuntu-latest
@@ -190,7 +216,7 @@ jobs:
           set -euo pipefail
           test -z "$(action/enforce-flags.sh)"
       - name: The action library reads the runner files
-        run: node --test action/lib.test.js action/main.test.js action/post.test.js
+        run: node --test action/lib.test.js action/main.test.js action/post.test.js action/workload.test.js
 
   # The jobs below run the action against a build of this pull request, so
   # the post step uses the stop report and the job summary. Each job runs the
@@ -358,6 +384,18 @@ jobs:
           npm init -y >/dev/null
           npm install lodash@4.17.21
           test -d node_modules/lodash
+      - name: The proxy state is under RUNNER_TEMP, and another job does not see it
+        run: |
+          set -euo pipefail
+          test "$PMG_CONFIG_DIR" = "$RUNNER_TEMP/pmg/config"
+          test "$PMG_STATE_DIR" = "$RUNNER_TEMP/pmg/state"
+          test -f "$PMG_STATE_DIR/proxy-state.json"
+          pmg proxy status | tee status.txt
+          grep -q 'running (pid' status.txt
+          # A job of another runner agent has another RUNNER_TEMP.
+          other="$(mktemp -d)"
+          PMG_CONFIG_DIR="$other/config" PMG_STATE_DIR="$other/state" pmg proxy status | tee other.txt
+          grep -q 'not running' other.txt
 
   post-step-enforce:
     name: The post step fails on a connection the profile denies under enforce
@@ -467,14 +505,28 @@ jobs:
           fail-on-cache-miss: true
       - name: The cache restored the test data
         run: grep -qx "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" storage-data/run.txt
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pmg-e2e-storage-${{ github.run_attempt }}
           path: storage-data
           retention-days: 1
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      # The artifact service can answer "Artifact not found" for an artifact
+      # that the upload finalized a moment before. The job then tries once
+      # more after a short wait, so the step fails only on a real denial.
+      - id: download
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: pmg-e2e-storage-${{ github.run_attempt }}
+          artifact-ids: ${{ steps.upload.outputs.artifact-id }}
+          path: downloaded
+      - name: Wait before the second download
+        if: steps.download.outcome == 'failure'
+        run: sleep 15
+      - if: steps.download.outcome == 'failure'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ steps.upload.outputs.artifact-id }}
           path: downloaded
       - name: The artifact holds the test data
         run: grep -qx "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" downloaded/run.txt

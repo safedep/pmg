@@ -46,7 +46,7 @@ jobs:
           unset SAFEDEP_API_KEY SAFEDEP_TENANT_ID PMG_CLOUD_ENABLED PMG_CLOUD_AUTO_SYNC_ENABLED PMG_CLOUD_ENDPOINT_ID
           go mod tidy
           go build
-          go test -coverprofile=coverage.txt -v ./...
+          go test -coverprofile=coverage.txt -v ./... ./scripts/...
 
       - name: Upload Coverage
         if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push'
@@ -384,6 +384,43 @@ jobs:
           docker buildx build --platform linux/amd64 --load \
           --secret id=pmg-ca,src="$PMG_CA_BUNDLE" \
           -t build-container-test:latest .
+
+      - name: Save Container Image
+        run: docker save -o "$RUNNER_TEMP/pmg-image.tar" build-container-test:latest
+
+      - name: Upload Container Image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pmg-image
+          path: ${{ runner.temp }}/pmg-image.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  # The test starts its own PMG in a privileged runner container. This job has
+  # no host PMG, because a host redirect takes the traffic of that container.
+  # The image comes from build-container-test, so its build goes through PMG.
+  container-trust-test:
+    needs: build-container-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download Container Image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name pmg-image --dir "$RUNNER_TEMP"
+
+      - name: Test Container Trust
+        run: |
+          docker load -i "$RUNNER_TEMP/pmg-image.tar"
+          test/container/trust.sh build-container-test:latest
 
   release-preflight:
     runs-on: ubuntu-latest

@@ -1164,7 +1164,8 @@ func procComm(pid uint32) string {
 
 // waitForNotif blocks until notifyFd has a notification to read or stopFd is
 // signalled. Returns (true, nil) when a notification is ready, (false, nil)
-// when stop was signalled, and (false, err) on fatal errors.
+// when stop was signalled or the filter has no tasks left, and (false, err)
+// on fatal errors.
 func waitForNotif(notifyFd, stopFd int) (bool, error) {
 	pfds := []unix.PollFd{
 		{Fd: int32(notifyFd), Events: unix.POLLIN},
@@ -1181,10 +1182,16 @@ func waitForNotif(notifyFd, stopFd int) (bool, error) {
 		if pfds[1].Revents&unix.POLLIN != 0 {
 			return false, nil
 		}
-		if pfds[0].Revents&(unix.POLLIN|unix.POLLERR|unix.POLLHUP) != 0 {
-			// POLLERR/POLLHUP on notifyFd means the child died and the
-			// listener is no longer useful — caller will see EINVAL on recv.
+		if pfds[0].Revents&unix.POLLIN != 0 {
 			return true, nil
+		}
+		// POLLHUP without POLLIN means that every task of the filter has
+		// exited, so no notification can come. Before Linux 6.11, RECV then
+		// blocks forever, and Stop waits forever for the loop. POLLERR alone
+		// means that a signal interrupted the poll in the kernel, so the
+		// loop polls again.
+		if pfds[0].Revents&unix.POLLHUP != 0 {
+			return false, nil
 		}
 	}
 }

@@ -5,9 +5,11 @@
 // daemon at the end of the job.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const lib = require('./lib');
+const workload = require('./workload');
 
 // runnerErrorCodes are the start failures that come from the runner, not
 // from the policy. enforce auto runs the proxy without enforcement only for
@@ -40,10 +42,12 @@ function main() {
   const { outputs } = lib.group('Install PMG', () =>
     lib.run('sh', 'install.sh', { INPUT_VERSION: lib.input('version'), INPUT_CACHE: lib.input('cache') }));
   const binDir = outputs['bin-dir'];
+  const bin = path.join(binDir, 'pmg');
+  exportJobDirs(jobContainer, lib.input('config-file'));
   // Before any script changes the job, so a refused second step leaves the
   // configuration of the first step in place.
   if (serverMode) {
-    refuseSecondProxy(path.join(binDir, 'pmg'));
+    refuseSecondProxy(bin);
   }
 
   if (lib.boolInput('sandbox') && !serverMode) {
@@ -51,11 +55,15 @@ function main() {
       lib.run('sh', 'sandbox.sh', { INPUT_DRIVER: lib.input('sandbox-driver'), PMG_JOB_CONTAINER: String(jobContainer) }));
   }
 
+  const cloud = cloudInputs(bin, serverMode);
   lib.group('Export PMG configuration', () => lib.run('sh', 'config.sh', {
     INPUT_CONFIG_FILE: lib.input('config-file'),
-    IN_API_KEY: lib.input('api-key'),
-    IN_TENANT_ID: lib.input('tenant-id'),
-    IN_ENDPOINT_ID: lib.input('endpoint-id'),
+    IN_API_KEY: cloud.apiKey,
+    IN_TENANT_ID: cloud.tenantId,
+    IN_ENDPOINT_ID: cloud.endpointId,
+    IN_EXPORT_CREDENTIAL: String(cloud.exportCredential),
+    IN_CREDENTIAL_FILE: cloud.credentialFile,
+    IN_CLOUD_OFF: String(cloud.cloudOff),
     IN_PARANOID: lib.input('paranoid'),
     IN_COOLDOWN_ENABLED: lib.input('cooldown-enabled'),
     IN_COOLDOWN_DAYS: lib.input('cooldown-days'),
@@ -70,13 +78,79 @@ function main() {
   }));
 
   if (serverMode) {
-    startProxy(binDir, profile, enforce, jobContainer);
+    startProxy(binDir, profile, enforce, jobContainer, cloud.workload);
   } else {
     lib.group('Install the PMG shims', () => lib.run('sh', 'shim.sh'));
   }
 
-  const verify = spawnSync('sh', ['-c', 'pmg version && printf "%s\\n" "npm resolves to: $(command -v npm || printf "%s" "<not installed>")"'], { stdio: 'inherit', env: lib.childEnv() });
+  const verify = spawnSync('sh', ['-c', 'pmg version && printf "%s\\n" "npm resolves to: $(command -v npm || printf "%s" "<not installed>")"'], { stdio: 'inherit', env: lib.helperEnv() });
   return verify.status === 0 ? 0 : 1;
+}
+
+// exportJobDirs puts the config and state of PMG under RUNNER_TEMP. Two
+// runner agents on one host can run jobs at the same time as one user, and a
+// crashed job can leave a proxy or a sync queue. Each runner agent has its
+// own RUNNER_TEMP, and the runner empties it after each job. A directory
+// that the workflow sets stays, except a config directory when the job sets
+// config-file, so the staged file does not change the config of later jobs.
+// The cache stays shared, because it holds only regenerable data. A job
+// container has its own filesystem, and the proxy CA must stay in
+// /github/home there, so Docker actions can read it.
+function exportJobDirs(jobContainer, configFile) {
+  if (jobContainer) {
+    return;
+  }
+  for (const [name, dir] of [['PMG_CONFIG_DIR', 'config'], ['PMG_STATE_DIR', 'state']]) {
+    if (!process.env[name] || (name === 'PMG_CONFIG_DIR' && configFile !== '')) {
+      if (name === 'PMG_CONFIG_DIR' && configFile === '') {
+        warnUnusedConfig(process.env.PMG_CONFIG_DIR || path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'safedep', 'pmg'));
+      }
+      process.env[name] = path.join(process.env.RUNNER_TEMP, 'pmg', dir);
+      lib.appendFile('GITHUB_ENV', `${name}=${process.env[name]}`);
+    }
+    fs.mkdirSync(process.env[name], { recursive: true });
+  }
+}
+
+// unusedConfig returns the files in dir that PMG reads from a config
+// directory: the config file and the sandbox profiles, presets and overlays.
+function unusedConfig(dir) {
+  return ['config.yml', 'sandbox'].filter((name) => fs.existsSync(path.join(dir, name)));
+}
+
+// warnUnusedConfig tells the user that a config, which applied to PMG on
+// this runner before, does not apply to the job.
+function warnUnusedConfig(dir) {
+  const files = unusedConfig(dir);
+  if (files.length > 0) {
+    lib.warning(`PMG does not read ${files.join(' and ')} in ${dir} in this job, because each job has its own config directory. Use the config-file input or the managed config in /etc/safedep/pmg. Delete the files to stop this warning.`);
+  }
+}
+
+// cloudInputs gives the cloud inputs of config.sh. In OIDC mode the access
+// token of the workload credential takes the place of the API key. In server
+// mode only the proxy gets the credential. The steps of the job do not.
+function cloudInputs(bin, serverMode) {
+  const none = { apiKey: '', tenantId: '', endpointId: '', exportCredential: true, credentialFile: '', cloudOff: false, workload: null };
+  if (workload.cloudMode() !== 'oidc') {
+    return { ...none, apiKey: lib.input('api-key'), tenantId: lib.input('tenant-id'), endpointId: lib.input('endpoint-id') };
+  }
+  const cred = workload.exchange(bin);
+  if (cred === null) {
+    // A fork pull request has no ID token, and the action warned that PMG
+    // runs without SafeDep Cloud. A runner config or an earlier step can
+    // have turned cloud on, and pmg would then use a saved login of another
+    // tenant.
+    return { ...none, cloudOff: true };
+  }
+  return {
+    apiKey: cred.AccessToken,
+    tenantId: cred.TenantDomain,
+    endpointId: cred.EndpointID || '',
+    exportCredential: !serverMode,
+    credentialFile: serverMode ? '' : cred.file,
+    workload: cred,
+  };
 }
 
 // resolveServerMode is true unless the job asks for shims. The sandbox wraps
@@ -166,6 +240,12 @@ function runnerCannotEnforce(err) {
   return err instanceof lib.ScriptError && err.codes.some((code) => runnerErrorCodes.includes(code));
 }
 
+// enforcedElsewhere is true when a daemon that this job did not start
+// enforces. refuseSecondProxy already refused a daemon of this job.
+function enforcedElsewhere(err) {
+  return err instanceof lib.ScriptError && err.codes.includes('EnforceAlreadyActive');
+}
+
 function failedPolicyFetch(err) {
   return err instanceof lib.ScriptError && err.status === policyFetchStatus;
 }
@@ -174,12 +254,25 @@ function enforceInputsSet() {
   return enforceInputs.some((name) => lib.input(name) !== '');
 }
 
-function startProxy(binDir, profile, enforceInput, jobContainer) {
+function startProxy(binDir, profile, enforceInput, jobContainer, cred) {
   const network = networkInputs(profile);
   const env = {
     INPUT_NETWORK_PROFILE: network.profile,
     INPUT_NETWORK_MODE: network.mode,
   };
+  // The proxy that runs as the job user gets the credential in its
+  // environment. PMG_CLOUD_CREDENTIAL_FILE makes pmg use it before a
+  // keychain credential that a self-hosted runner keeps. The root daemon
+  // reads a copy that only root can read.
+  // config.sh turns cloud off for the later steps of the job, which have no
+  // credential. Only the proxy start turns it on.
+  const cloudOn = { PMG_CLOUD_ENABLED: 'true', PMG_CLOUD_AUTO_SYNC_ENABLED: 'true' };
+  const userEnv = cred
+    ? { ...cloudOn, SAFEDEP_API_KEY: cred.AccessToken, SAFEDEP_TENANT_ID: cred.TenantDomain, PMG_CLOUD_CREDENTIAL_FILE: cred.file }
+    : {};
+  const rootEnv = cred
+    ? { ...cloudOn, PMG_WORKLOAD_CREDENTIAL: cred.file, PMG_ROOT_CREDENTIAL_DIR: workload.rootCredentialDir() }
+    : {};
 
   const mode = enforceMode(enforceInput, jobContainer);
   if (mode === 'required' && jobContainer) {
@@ -187,12 +280,15 @@ function startProxy(binDir, profile, enforceInput, jobContainer) {
   }
   if (mode !== 'off') {
     try {
-      startOnce(binDir, true, jobContainer, env);
+      startOnce(binDir, true, jobContainer, { ...env, ...rootEnv });
       trustBundleForOldNode();
       return;
     } catch (err) {
       if (failedPolicyFetch(err)) {
         throw err;
+      }
+      if (enforcedElsewhere(err)) {
+        throw new Error('Another PMG daemon on this host already enforces, such as the daemon of a job of another runner agent. PMG enforces for one daemon on each host. Run one runner agent on each host, or set enforce to false.');
       }
       // Only a runner that cannot enforce falls back. A policy error, such
       // as a typo in an enforce-* input or in config-file, fails as
@@ -210,7 +306,7 @@ function startProxy(binDir, profile, enforceInput, jobContainer) {
       }
     }
   }
-  startOnce(binDir, false, jobContainer, env);
+  startOnce(binDir, false, jobContainer, { ...env, ...userEnv });
 }
 
 function startOnce(binDir, enforce, jobContainer, env) {
@@ -219,6 +315,12 @@ function startOnce(binDir, enforce, jobContainer, env) {
   } catch (err) {
     stopAfterFailedStart(binDir, enforce);
     throw err;
+  } finally {
+    // enforce.sh makes the root copy of the credential. The post step
+    // removes it, also after a failed start.
+    if (env.PMG_ROOT_CREDENTIAL_DIR && fs.existsSync(env.PMG_ROOT_CREDENTIAL_DIR)) {
+      lib.saveState('root_credential', env.PMG_ROOT_CREDENTIAL_DIR);
+    }
   }
 }
 
@@ -238,7 +340,6 @@ function runStartScript(binDir, enforce, jobContainer, env) {
       ...env,
       PMG_BIN_DIR: binDir,
       PMG_ROOT_STATE: rootStatePath(),
-      INPUT_CONFIG_FILE: lib.input('config-file'),
       ...Object.fromEntries(enforceInputs.map((name) => [`INPUT_${name.toUpperCase().replace(/-/g, '_')}`, lib.input(name)])),
     }, { captureStderr: true }));
   }
@@ -275,7 +376,7 @@ function saveProxyState(binDir, enforce, result) {
   // traffic to a stopped proxy.
   const proxyVars = result.exported
     .map(([name]) => name)
-    .filter((name) => /proxy/i.test(name) && !name.startsWith('PMG_PROXY_'));
+    .filter(lib.isProxyVar);
   lib.saveState('bin', path.join(binDir, 'pmg'));
   lib.saveState('enforce', String(enforce));
   lib.saveState('state', process.env.PMG_PROXY_STATE || '');
@@ -341,4 +442,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkInputs, enforceMode, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce };
+module.exports = { checkInputs, enforceMode, enforcedElsewhere, exportJobDirs, failedPolicyFetch, refuseSecondProxy, resolveServerMode, runnerCannotEnforce, unusedConfig };

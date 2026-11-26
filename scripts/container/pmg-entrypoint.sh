@@ -5,6 +5,7 @@
 # PMG covers the processes of this container: job steps, and every process
 # they start in it. dockerd starts its containers in other cgroups. PMG does
 # not route them, and they keep working with no PMG check.
+# PMG_CONTAINER_TRUST=1 changes this. See install_container_trust.
 #
 # The script writes /etc/safedep/pmg/config.yml when no file is there. A PMG_
 # variable overrides a config key, for example
@@ -17,6 +18,7 @@ PMG_STATE=$PMG_RUN_DIR/proxy-state.json
 PMG_ENV_FILE=$PMG_RUN_DIR/env
 PMG_CONFIG=/etc/safedep/pmg/config.yml
 PMG_SECRET_DIR=${PMG_SECRET_DIR:-/etc/pmg-secret}
+PMG_CONTAINER_TRUST=${PMG_CONTAINER_TRUST:-0}
 
 log() { echo "[pmg] $*" >&2; }
 
@@ -42,10 +44,12 @@ elif ! PMG_BIN=$(command -v pmg); then
   exit 1
 fi
 
-# sudo drops the environment. Pass on the PMG_ variables, and the Kubernetes
-# variables that PMG reads to identify the Pod in SafeDep Cloud.
+# sudo drops the environment. Pass on the PMG_ variables, the Kubernetes
+# variables that PMG reads to identify the Pod in SafeDep Cloud, and GODEBUG.
+# GODEBUG=tlsmlkem=0 removes the post-quantum key share from the upstream TLS
+# handshake of PMG. Some network paths drop that larger handshake (#624).
 pmg_env=()
-for v in $(compgen -e PMG_) $(compgen -e KUBE_) $(compgen -e KUBERNETES_SERVICE_); do pmg_env+=("$v=${!v}"); done
+for v in $(compgen -e PMG_) $(compgen -e KUBE_) $(compgen -e KUBERNETES_SERVICE_) $(compgen -e GODEBUG); do pmg_env+=("$v=${!v}"); done
 pmg_cgroup=""
 pmg_pid=""
 
@@ -56,9 +60,10 @@ pmg_pid=""
 # forward proxy from this environment as its upstream. That proxy's
 # connections come back to PMG, and the request loops.
 pmg_root() {
+  # Bash before 4.4 stops on an empty array under "set -u".
   # shellcheck disable=SC2016 # the root shell expands these, not this one
   $SUDO env -u HTTPS_PROXY -u HTTP_PROXY -u ALL_PROXY -u https_proxy -u http_proxy -u all_proxy \
-    "${pmg_env[@]}" "PMG_SECRET_DIR=$PMG_SECRET_DIR" \
+    ${pmg_env[@]+"${pmg_env[@]}"} "PMG_SECRET_DIR=$PMG_SECRET_DIR" \
     bash -c '
       for v in SAFEDEP_API_KEY SAFEDEP_TENANT_ID; do
         if [ -r "$PMG_SECRET_DIR/$v" ]; then export "$v=$(<"$PMG_SECRET_DIR/$v")"; fi
@@ -130,8 +135,14 @@ EOF
   log "SafeDep Cloud: $cloud"
 }
 
+# state_field prints the value of a top-level string or number key of
+# $PMG_STATE. It prints nothing when the file or the key is missing.
+state_field() {
+  $SUDO sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\).*/\1/p" "$PMG_STATE" 2>/dev/null | head -n1
+}
+
 load_pid() {
-  pmg_pid=$($SUDO sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$PMG_STATE" 2>/dev/null | head -n1) || pmg_pid=""
+  pmg_pid=$(state_field pid) || pmg_pid=""
 }
 
 # A stopped process can stay in the process table, and "kill -0" still finds
@@ -147,7 +158,10 @@ pmg_alive() {
 # --enforce keeps enforcement on when the customer's own config file, or a
 # PMG_ variable, leaves it off.
 start_pmg() {
-  pmg_root proxy start --daemon --state "$PMG_STATE" --enforce --enforce-cgroup "$pmg_cgroup" && load_pid
+  local ns=()
+  if [ "$PMG_CONTAINER_TRUST" = 1 ]; then ns=(--enforce-namespaces redirect); fi
+  # Bash before 4.4 stops on an empty array under "set -u".
+  pmg_root proxy start --daemon --state "$PMG_STATE" --enforce --enforce-cgroup "$pmg_cgroup" ${ns[@]+"${ns[@]}"} && load_pid
 }
 
 # write_trust exports the variables that make job steps trust the PMG CA, and
@@ -163,6 +177,52 @@ write_trust() {
   if [ -n "${RUNNER_ASSETS_DIR:-}" ] && [ -d "$RUNNER_ASSETS_DIR" ]; then
     sed -e 's/^export //' -e "s/'//g" <<<"$trust" | $SUDO tee -a "$RUNNER_ASSETS_DIR/.env" >/dev/null
   fi
+}
+
+# check_container_trust stops the start when dockerd runs in another
+# container, such as a dind sidecar. The redirect then covers the containers
+# of that dockerd, but pmg-runc does not, and every install in them fails on
+# the PMG CA.
+check_container_trust() {
+  if [ ! -x "$here/pmg-runc" ]; then
+    log "PMG_CONTAINER_TRUST=1 needs $here/pmg-runc"
+    exit 1
+  fi
+  if [ -n "${DOCKER_HOST:-}" ]; then
+    log "PMG_CONTAINER_TRUST=1 needs dockerd in this container. DOCKER_HOST is set, so dockerd runs in another container. Remove PMG_CONTAINER_TRUST."
+    exit 1
+  fi
+  if { [ -e /usr/local/sbin/runc ] || [ -L /usr/local/sbin/runc ]; } && [ "$(readlink /usr/local/sbin/runc)" != "$here/pmg-runc" ]; then
+    log "PMG_CONTAINER_TRUST=1 needs /usr/local/sbin/runc for pmg-runc, but the image has another runc there. Move that runc to /usr/bin/runc."
+    exit 1
+  fi
+  local dir dirs
+  IFS=: read -ra dirs <<<"$PATH"
+  for dir in "${dirs[@]}"; do
+    [ "${dir%/}" = /usr/local/sbin ] && break
+    if [ -x "$dir/runc" ]; then
+      log "PMG_CONTAINER_TRUST=1 needs /usr/local/sbin before $dir on PATH, because dockerd starts the first runc on PATH."
+      exit 1
+    fi
+  done
+}
+
+# install_container_trust puts pmg-runc first on PATH as runc, so dockerd and
+# the BuildKit in dockerd start every container through it. pmg-runc gives a
+# container the PMG CA certificate under /dev/pmg-ca, and never the key.
+# PMG redirects the traffic of the containers with --enforce-namespaces.
+install_container_trust() {
+  local ca
+  ca=$(state_field ca_cert_path) || ca=""
+  if [ -z "$ca" ]; then
+    log "PMG_CONTAINER_TRUST=1 needs the PMG CA, but $PMG_STATE names no ca_cert_path"
+    exit 1
+  fi
+  $SUDO install -d -m 0755 /etc/pmg-runc
+  $SUDO install -m 0644 "$ca" /etc/pmg-runc/ca.pem
+  $SUDO install -m 0644 "$PMG_CA_BUNDLE" /etc/pmg-runc/ca-bundle.pem
+  $SUDO ln -sf "$here/pmg-runc" /usr/local/sbin/runc
+  log "containers get the PMG CA from pmg-runc"
 }
 
 supervise() {
@@ -184,6 +244,14 @@ start_all() {
     . "$PMG_ENV_FILE"
     return
   fi
+  case $PMG_CONTAINER_TRUST in
+    0) ;;
+    1) check_container_trust ;;
+    *)
+      log "PMG_CONTAINER_TRUST must be 0 or 1, not '$PMG_CONTAINER_TRUST'"
+      exit 1
+      ;;
+  esac
   attach_cgroup
   $SUDO mkdir -p "$PMG_RUN_DIR"
   $SUDO rm -f "$PMG_RUN_DIR/stopping"
@@ -191,6 +259,7 @@ start_all() {
   pmg_root setup cert install --system
   start_pmg
   write_trust
+  if [ "$PMG_CONTAINER_TRUST" = 1 ]; then install_container_trust; fi
   supervise </dev/null >/dev/null &
 }
 
