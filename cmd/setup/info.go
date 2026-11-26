@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudauth"
 	pmgplatform "github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
@@ -270,11 +271,26 @@ func tryResolveKeychainCredentials() (string, bool) {
 		}
 	}()
 
-	if _, err := resolver.Resolve(); err != nil {
+	creds, err := resolver.Resolve()
+	if err != nil {
 		log.Debugf("no keychain credentials: %v", err)
 		return "", false
 	}
-	return "keychain", true
+	return keychainCredentialsLabel(cloudauth.StatusOf(creds, time.Now())), true
+}
+
+// keychainCredentialsLabel names the keychain with the expiry of its API key,
+// when the keychain records one.
+func keychainCredentialsLabel(status cloudauth.KeyStatus) string {
+	day := status.ExpiresAt.UTC().Format(time.DateOnly)
+	switch status.State {
+	case cloudauth.KeyStateExpired:
+		return "keychain (API key expired on " + day + ")"
+	case cloudauth.KeyStateExpiring, cloudauth.KeyStateValid:
+		return "keychain (API key expires on " + day + ")"
+	default:
+		return "keychain"
+	}
 }
 
 func describeAutoSync(c config.CloudAutoSyncConfig) string {

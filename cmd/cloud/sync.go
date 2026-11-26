@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/safedep/pmg/internal/ui"
@@ -45,6 +46,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	cfg := config.Get()
 
 	if requirePolicy {
+		origin := checkStoredKey()
 		// The command sends no events, so it must not start the background
 		// event sync either.
 		audit.SuppressBackgroundSync()
@@ -58,7 +60,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 		case errors.As(err, &warning):
 			ui.ShowWarning(policyWarningText(warning))
 		case err != nil:
-			ui.ErrorExit(requirePolicyError(err))
+			ui.ErrorExit(requirePolicyError(err, origin))
 		}
 		if st.Applied != nil {
 			ui.Successf("Cloud policy revision %d applies", st.Applied.Revision)
@@ -73,6 +75,8 @@ func runSync(cmd *cobra.Command, args []string) error {
 			WithHelp("Set 'cloud.enabled: true' in PMG config to enable cloud sync"))
 	}
 
+	origin := checkStoredKey()
+
 	// The policy fetch runs first, so a user or IT can force a fetch.
 	res, err := cloudsync.Run(cmd.Context(), cfg, cloudsync.Plan{
 		Policy:      cloudsync.StepForce,
@@ -81,7 +85,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 		Timeout:     syncTimeout,
 	})
 	if err != nil {
-		ui.ErrorExit(syncFailureError(err))
+		ui.ErrorExit(syncFailureError(err, origin))
 	}
 
 	if res.PolicyRan && res.PolicyErr == nil {
@@ -92,12 +96,52 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	if res.PolicyErr != nil {
-		ui.ErrorExit(policyFetchFailureError(res.PolicyErr, appliedPolicyRevision(cfg)))
+		ui.ErrorExit(policyFetchFailureError(res.PolicyErr, appliedPolicyRevision(cfg), origin))
 	}
 	if res.EventsErr != nil {
-		ui.ErrorExit(syncFailureError(res.EventsErr))
+		ui.ErrorExit(syncFailureError(res.EventsErr, origin))
 	}
 	return nil
+}
+
+// checkStoredKey stops the sync before the network call when the API key has
+// expired, and warns when it expires soon. SafeDep Cloud rejects an expired
+// key with a generic authentication error that does not give the date. It
+// returns the origin of the credentials for the help of a later error.
+func checkStoredKey() cloudauth.KeyOrigin {
+	status, err := cloudauth.ResolveStatus(time.Now())
+	if err != nil {
+		// The sync reports the missing credentials itself.
+		return cloudauth.KeyOriginUnknown
+	}
+
+	warning, err := storedKeyCheck(status)
+	if err != nil {
+		ui.ErrorExit(err)
+	}
+	if warning != "" {
+		ui.ShowWarning(warning)
+	}
+	return status.Origin
+}
+
+// storedKeyCheck returns the error for an expired API key, and the warning
+// for a key that expires within cloudauth.KeyExpiryWarning.
+func storedKeyCheck(status cloudauth.KeyStatus) (string, error) {
+	day := status.ExpiresAt.UTC().Format(time.DateOnly)
+	help := cloudauth.CredentialHelp(status.Origin)
+
+	switch status.State {
+	case cloudauth.KeyStateExpired:
+		return "", usefulerror.NewUsefulError().
+			WithCode(usefulerror.ErrAuthenticationFailed).
+			WithHumanError(fmt.Sprintf("The SafeDep Cloud API key expired on %s", day)).
+			WithHelp(help)
+	case cloudauth.KeyStateExpiring:
+		return fmt.Sprintf("The SafeDep Cloud API key expires on %s. %s before that date.", day, help), nil
+	default:
+		return "", nil
+	}
 }
 
 // policyWarningText is the warning of a failed policy fetch that does not
@@ -112,7 +156,7 @@ func policyWarningText(w *cloudsync.PolicyWarning) string {
 
 // requirePolicyError maps the error of pmg cloud sync --require-policy, when
 // no cloud policy applies, to a user-facing error.
-func requirePolicyError(err error) error {
+func requirePolicyError(err error, origin cloudauth.KeyOrigin) error {
 	switch {
 	case errors.Is(err, cloudsync.ErrPolicyRejected):
 		return usefulerror.NewUsefulError().
@@ -121,9 +165,9 @@ func requirePolicyError(err error) error {
 			WithHumanError("No cloud policy applies. pmg did not accept the policy that it fetched").
 			WithHelp("Run 'pmg setup doctor' to see why the cloud policy does not apply")
 	case errors.Is(err, audit.ErrSyncInProgress), errors.Is(err, cloud.ErrMissingCredentials):
-		return syncFailureError(err)
+		return syncFailureError(err, origin)
 	default:
-		return policyFetchFailureError(err, 0)
+		return policyFetchFailureError(err, 0, origin)
 	}
 }
 
@@ -132,10 +176,10 @@ func requirePolicyError(err error) error {
 // policy, or 0 when no policy applies. A credential or entitlement error keeps
 // its own text, because the user must fix the login. Every other error says
 // which policy still applies.
-func policyFetchFailureError(err error, applied uint64) error {
+func policyFetchFailureError(err error, applied uint64, origin cloudauth.KeyOrigin) error {
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	if ok && isCredentialCode(usefulErr.Code()) {
-		return withCredentialGuidance(usefulErr, err)
+		return withCredentialGuidance(usefulErr, err, origin)
 	}
 
 	code := errcodes.Network
@@ -192,7 +236,7 @@ func appliedPolicyRevision(cfg *config.RuntimeConfig) uint64 {
 // usefulerror converters) pass through so the real cause is shown, except
 // auth failures which get credential setup guidance; the network-flavored
 // message is only a fallback for errors nothing can classify.
-func syncFailureError(err error) error {
+func syncFailureError(err error, origin cloudauth.KeyOrigin) error {
 	if errors.Is(err, audit.ErrSyncInProgress) {
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.Lifecycle).
@@ -209,7 +253,7 @@ func syncFailureError(err error) error {
 	}
 
 	if usefulErr, ok := usefulerror.AsUsefulError(err); ok {
-		return withCredentialGuidance(usefulErr, err)
+		return withCredentialGuidance(usefulErr, err, origin)
 	}
 
 	return usefulerror.NewUsefulError().
@@ -221,9 +265,10 @@ func syncFailureError(err error) error {
 }
 
 // withCredentialGuidance rebrands generic auth failures (invalid API key,
-// wrong tenant, gateway 401/403) with how to fix credentials in pmg. Richer
-// classifications like missing entitlements keep their own code and help.
-func withCredentialGuidance(usefulErr usefulerror.UsefulError, err error) error {
+// wrong tenant, gateway 401/403) with how to fix the credentials of origin in
+// pmg. Richer classifications like missing entitlements keep their own code
+// and help.
+func withCredentialGuidance(usefulErr usefulerror.UsefulError, err error, origin cloudauth.KeyOrigin) error {
 	code := usefulErr.Code()
 	if code != usefulerror.ErrAuthenticationFailed && code != usefulerror.ErrAuthorizationFailed {
 		return usefulErr
@@ -233,6 +278,6 @@ func withCredentialGuidance(usefulErr usefulerror.UsefulError, err error) error 
 		Wrap(err).
 		WithCode(code).
 		WithHumanError("SafeDep Cloud rejected your credentials").
-		WithHelp("Run 'pmg cloud login' to update credentials, or check the SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables").
+		WithHelp(cloudauth.CredentialHelp(origin)).
 		WithAdditionalHelp(usefulErr.AdditionalHelp())
 }

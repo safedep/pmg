@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/cloudsync"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,6 +53,7 @@ func TestSyncFailureError(t *testing.T) {
 	tests := []struct {
 		name          string
 		err           error
+		origin        cloudauth.KeyOrigin
 		expectedCode  string
 		expectedHuman string
 		expectedHelp  string
@@ -74,6 +77,30 @@ func TestSyncFailureError(t *testing.T) {
 			expectedCode:  usefulerror.ErrAuthenticationFailed,
 			expectedHuman: "SafeDep Cloud rejected your credentials",
 			expectedHelp:  "Run 'pmg cloud login' to update credentials, or check the SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables",
+		},
+		{
+			name:          "a rejected keychain key asks for a new key",
+			err:           wrap(status.Error(codes.Unauthenticated, "invalid API key")),
+			origin:        cloudauth.KeyOriginKeychain,
+			expectedCode:  usefulerror.ErrAuthenticationFailed,
+			expectedHuman: "SafeDep Cloud rejected your credentials",
+			expectedHelp:  "Run 'pmg cloud login' with a new API key",
+		},
+		{
+			name:          "a rejected environment key names the variables",
+			err:           wrap(status.Error(codes.Unauthenticated, "invalid API key")),
+			origin:        cloudauth.KeyOriginEnvironment,
+			expectedCode:  usefulerror.ErrAuthenticationFailed,
+			expectedHuman: "SafeDep Cloud rejected your credentials",
+			expectedHelp:  "Set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID to a valid API key and its tenant",
+		},
+		{
+			name:          "a rejected credential file names the file",
+			err:           wrap(status.Error(codes.Unauthenticated, "invalid API key")),
+			origin:        cloudauth.KeyOriginCredentialFile,
+			expectedCode:  usefulerror.ErrAuthenticationFailed,
+			expectedHuman: "SafeDep Cloud rejected your credentials",
+			expectedHelp:  "Check the credential file that PMG_CLOUD_CREDENTIAL_FILE names",
 		},
 		{
 			name:          "entitlement failure passes through",
@@ -113,7 +140,7 @@ func TestSyncFailureError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := syncFailureError(tt.err)
+			err := syncFailureError(tt.err, tt.origin)
 			require.Error(t, err)
 
 			usefulErr, ok := usefulerror.AsUsefulError(err)
@@ -195,7 +222,7 @@ func TestPolicyFetchFailureError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usefulErr, ok := usefulerror.AsUsefulError(policyFetchFailureError(tt.err, tt.applied))
+			usefulErr, ok := usefulerror.AsUsefulError(policyFetchFailureError(tt.err, tt.applied, cloudauth.KeyOriginUnknown))
 			require.True(t, ok)
 
 			assert.Equal(t, tt.expectedCode, usefulErr.Code())
@@ -244,7 +271,7 @@ func TestRequirePolicyError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usefulErr, ok := usefulerror.AsUsefulError(requirePolicyError(tt.err))
+			usefulErr, ok := usefulerror.AsUsefulError(requirePolicyError(tt.err, cloudauth.KeyOriginUnknown))
 			require.True(t, ok)
 			assert.Equal(t, tt.expectedCode, usefulErr.Code())
 			assert.Equal(t, tt.expectedHuman, usefulErr.HumanError())
@@ -260,4 +287,53 @@ func TestPolicyWarningText(t *testing.T) {
 		"Your SafeDep plan does not include the cloud policy, so no cloud policy applies. "+
 			"Set 'cloud.policy: false' in the PMG config to turn off this warning.",
 		policyWarningText(&cloudsync.PolicyWarning{Err: entitlementStatusErr(t, 0)}))
+}
+
+func TestStoredKeyCheck(t *testing.T) {
+	day := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name          string
+		status        cloudauth.KeyStatus
+		expectedHuman string
+		expectedHelp  string
+		expectedWarn  string
+	}{
+		{
+			name:          "an expired keychain key stops the sync",
+			status:        cloudauth.KeyStatus{Origin: cloudauth.KeyOriginKeychain, State: cloudauth.KeyStateExpired, ExpiresAt: day},
+			expectedHuman: "The SafeDep Cloud API key expired on 2026-11-20",
+			expectedHelp:  "Run 'pmg cloud login' with a new API key",
+		},
+		{
+			name:         "a key that expires soon warns",
+			status:       cloudauth.KeyStatus{Origin: cloudauth.KeyOriginKeychain, State: cloudauth.KeyStateExpiring, ExpiresAt: day},
+			expectedWarn: "The SafeDep Cloud API key expires on 2026-11-20. Run 'pmg cloud login' with a new API key before that date.",
+		},
+		{
+			name:   "a valid key passes",
+			status: cloudauth.KeyStatus{Origin: cloudauth.KeyOriginKeychain, State: cloudauth.KeyStateValid, ExpiresAt: day},
+		},
+		{
+			name:   "a key with no recorded expiry passes",
+			status: cloudauth.KeyStatus{Origin: cloudauth.KeyOriginEnvironment},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			warning, err := storedKeyCheck(tt.status)
+			assert.Equal(t, tt.expectedWarn, warning)
+
+			if tt.expectedHuman == "" {
+				assert.NoError(t, err)
+				return
+			}
+			usefulErr, ok := usefulerror.AsUsefulError(err)
+			require.True(t, ok)
+			assert.Equal(t, usefulerror.ErrAuthenticationFailed, usefulErr.Code())
+			assert.Equal(t, tt.expectedHuman, usefulErr.HumanError())
+			assert.Equal(t, tt.expectedHelp, usefulErr.Help())
+		})
+	}
 }
