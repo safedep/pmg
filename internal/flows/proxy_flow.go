@@ -423,6 +423,7 @@ func (f *proxyFlow) createAndStartProxyServer(
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
 	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
 	proxyConfig.OnNetworkDecision = onNetworkDecision
+	proxyConfig.TLSHandshakeTimeout = config.Get().Config.Proxy.UpstreamTLSHandshakeTimeout
 	applyNetworkPolicy(proxyConfig, sandboxRes)
 
 	proxyServer, err := proxy.NewProxyServer(proxyConfig)

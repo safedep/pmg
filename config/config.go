@@ -189,6 +189,10 @@ type ProxyConfig struct {
 	SkipCommands map[string][]string   `mapstructure:"skip_commands"`
 	Server       ProxyServerConfig     `mapstructure:"server"`
 	Registries   []ProxyRegistryConfig `mapstructure:"registries"`
+
+	// UpstreamTLSHandshakeTimeout bounds the TLS handshake with an upstream
+	// registry. Zero or less means the proxy default.
+	UpstreamTLSHandshakeTimeout time.Duration `mapstructure:"upstream_tls_handshake_timeout"`
 }
 
 // ProxyServerConfig configures the persistent proxy server (`pmg proxy start`).
@@ -784,8 +788,9 @@ func DefaultConfig() RuntimeConfig {
 				},
 			},
 			Proxy: ProxyConfig{
-				InstallOnly:  false,
-				SkipCommands: map[string][]string{},
+				InstallOnly:                 false,
+				SkipCommands:                map[string][]string{},
+				UpstreamTLSHandshakeTimeout: 20 * time.Second,
 				Server: ProxyServerConfig{
 					ListenHost:  "127.0.0.1",
 					NetworkMode: SandboxNetworkModeAudit,

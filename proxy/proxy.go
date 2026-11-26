@@ -39,10 +39,10 @@ const defaultServerReadWriteTimeout = 30 * time.Minute
 // (which surfaces to the client as a "socket hang up"/ECONNRESET).
 const defaultUpstreamRetries = 2
 
-// upstreamTLSHandshakeTimeout stops a stalled upstream TLS handshake earlier
-// than the connect timeout. pip stops after 15 s by default, so pip can leave
-// first and then the failure goes to the debug log only.
-const upstreamTLSHandshakeTimeout = 20 * time.Second
+// DefaultUpstreamTLSHandshakeTimeout stops a stalled upstream TLS handshake
+// earlier than the connect timeout. pip stops after 15 s by default, so pip
+// can leave first and then the failure goes to the debug log only.
+const DefaultUpstreamTLSHandshakeTimeout = 20 * time.Second
 
 // ProxyServer manages the proxy lifecycle
 type ProxyServer interface {
@@ -101,6 +101,10 @@ type ProxyConfig struct {
 	// UpstreamRetries bounds retries of idempotent upstream requests on
 	// transient round-trip failures. Zero disables retries.
 	UpstreamRetries int
+
+	// TLSHandshakeTimeout bounds the TLS handshake with an upstream registry.
+	// Zero or less means DefaultUpstreamTLSHandshakeTimeout.
+	TLSHandshakeTimeout time.Duration
 
 	// UpstreamDialContext, when set, replaces the default dialer for all upstream
 	// connections — both MITM'd round-trips and the CONNECT tunnels used for
@@ -175,6 +179,7 @@ func DefaultProxyConfig() *ProxyConfig {
 		RequestTimeout:         5 * time.Minute,
 		ServerReadWriteTimeout: defaultServerReadWriteTimeout,
 		UpstreamRetries:        defaultUpstreamRetries,
+		TLSHandshakeTimeout:    DefaultUpstreamTLSHandshakeTimeout,
 		Interceptors:           []Interceptor{},
 	}
 }
@@ -366,6 +371,11 @@ func newUpstreamTransport(config *ProxyConfig, control func(network, address str
 		tlsClientConfig = config.UpstreamTLSClientConfig
 	}
 
+	tlsHandshakeTimeout := config.TLSHandshakeTimeout
+	if tlsHandshakeTimeout <= 0 {
+		tlsHandshakeTimeout = DefaultUpstreamTLSHandshakeTimeout
+	}
+
 	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so
 	// that PMG works in enterprise environments that require a corporate
 	// upstream proxy to reach the internet. Loopback addresses are always
@@ -393,7 +403,7 @@ func newUpstreamTransport(config *ProxyConfig, control func(network, address str
 		MaxIdleConns:          200,
 		MaxIdleConnsPerHost:   50,
 		IdleConnTimeout:       120 * time.Second,
-		TLSHandshakeTimeout:   upstreamTLSHandshakeTimeout,
+		TLSHandshakeTimeout:   tlsHandshakeTimeout,
 		ResponseHeaderTimeout: config.RequestTimeout,
 		TLSClientConfig:       tlsClientConfig,
 	}

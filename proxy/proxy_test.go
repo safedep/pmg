@@ -31,6 +31,30 @@ func TestNewProxyServerSecuresUpstreamTLSConfig(t *testing.T) {
 	assert.GreaterOrEqual(t, internalProxy.proxy.Tr.TLSClientConfig.MinVersion, uint16(tls.VersionTLS12), "minimum TLS version should be 1.2+")
 }
 
+func TestUpstreamTLSHandshakeTimeoutFromConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		set  time.Duration
+		want time.Duration
+	}{
+		{"configured value", 7 * time.Second, 7 * time.Second},
+		{"zero uses default", 0, DefaultUpstreamTLSHandshakeTimeout},
+		{"negative uses default", -time.Second, DefaultUpstreamTLSHandshakeTimeout},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultProxyConfig()
+			cfg.EnableMITM = false
+			cfg.TLSHandshakeTimeout = tt.set
+			server, err := NewProxyServer(cfg)
+			require.NoError(t, err)
+			ps, ok := server.(*proxyServer)
+			require.True(t, ok)
+			assert.Equal(t, tt.want, ps.proxy.Tr.TLSHandshakeTimeout)
+		})
+	}
+}
+
 func TestUpstreamHandshakeTimeoutIsReportedOnce(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
