@@ -45,10 +45,6 @@ proxy:
   skip_commands:
     npm: []
 
-  # Time limit for the TLS handshake with an upstream registry. PMG does not
-  # retry a handshake timeout. The failure goes to the proxy log.
-  upstream_tls_handshake_timeout: 20s
-
   # Additional npm, PyPI, Go module proxy or sparse Cargo registry endpoints
   # serving public packages through an internal mirror or registry proxy.
   # Private packages are allowed but are not protected by PMG's

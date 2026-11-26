@@ -233,7 +233,6 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	proxyConfig.Interceptors = interceptorList
 	proxyConfig.BlockMessageRenderer = opts.BlockMessage
 	proxyConfig.OnUpstreamFailure = opts.UpstreamFailed
-	proxyConfig.TLSHandshakeTimeout = cfg.Config.Proxy.UpstreamTLSHandshakeTimeout
 
 	blocks := &blockLog{seen: map[string]bool{}}
 	proxyConfig.OnBlock = blocks.Record
