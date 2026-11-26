@@ -1,9 +1,10 @@
 package setup
 
 import (
+	"errors"
 	"fmt"
-	"time"
 
+	"github.com/safedep/dry/cloud"
 	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/doctor"
 )
@@ -16,15 +17,11 @@ const checkCloudCredentials = "cloud-credentials"
 // Cloud rejects. pmg cloud sync reports that.
 func cloudCredentialsResult(status cloudauth.KeyStatus, resolveErr error) doctor.CheckResult {
 	if resolveErr != nil {
-		return doctor.CheckResult{
-			Status:  doctor.StatusWarn,
-			Message: "Cloud sync is on, but pmg finds no SafeDep Cloud credentials",
-			Fix:     "Run: pmg cloud login",
-		}
+		return credentialsErrorResult(status.Origin, resolveErr)
 	}
 
 	from := originName(status.Origin)
-	day := status.ExpiresAt.UTC().Format(time.DateOnly)
+	day := status.ExpiryText()
 	fix := cloudauth.CredentialHelp(status.Origin)
 
 	switch status.State {
@@ -49,6 +46,32 @@ func cloudCredentialsResult(status cloudauth.KeyStatus, resolveErr error) doctor
 		return doctor.CheckResult{
 			Status:  doctor.StatusPass,
 			Message: fmt.Sprintf("Credentials from the %s", from),
+		}
+	}
+}
+
+// credentialsErrorResult is the doctor result when pmg cannot resolve the
+// credentials. A credential file that pmg cannot use fails the check, because
+// pmg then uses no other credentials.
+func credentialsErrorResult(origin cloudauth.KeyOrigin, err error) doctor.CheckResult {
+	switch {
+	case origin == cloudauth.KeyOriginCredentialFile:
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("pmg cannot use the credential file that %s names (%v)", cloudauth.CredentialFileEnv, err),
+			Fix:     cloudauth.CredentialHelp(origin),
+		}
+	case errors.Is(err, cloud.ErrMissingCredentials):
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: "Cloud sync is on, but pmg finds no SafeDep Cloud credentials",
+			Fix:     "Run 'pmg cloud login', or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID",
+		}
+	default:
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: fmt.Sprintf("pmg cannot read the SafeDep Cloud credentials (%v)", err),
+			Fix:     cloudauth.CredentialHelp(origin),
 		}
 	}
 }

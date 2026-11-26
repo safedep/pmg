@@ -63,7 +63,9 @@ func StatusOf(creds *cloud.Credentials, now time.Time) KeyStatus {
 }
 
 // ResolveStatus resolves the credentials as ResolveCredentials does and
-// returns their status. It makes no network call.
+// returns their status. It makes no network call. When the resolve fails, the
+// origin of the status is KeyOriginCredentialFile if CredentialFileEnv is
+// set, because pmg reads only that file then.
 func ResolveStatus(now time.Time) (KeyStatus, error) {
 	creds, closeFn, err := ResolveCredentials()
 	defer func() {
@@ -72,9 +74,17 @@ func ResolveStatus(now time.Time) (KeyStatus, error) {
 		}
 	}()
 	if err != nil {
+		if os.Getenv(CredentialFileEnv) != "" {
+			return KeyStatus{Origin: KeyOriginCredentialFile}, err
+		}
 		return KeyStatus{}, err
 	}
 	return StatusOf(creds, now), nil
+}
+
+// ExpiryText is the expiry of the key in UTC, for a message.
+func (s KeyStatus) ExpiryText() string {
+	return s.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC")
 }
 
 // CredentialHelp says how the user fixes the credentials of origin.
@@ -85,7 +95,7 @@ func CredentialHelp(origin KeyOrigin) string {
 	case KeyOriginEnvironment:
 		return "Set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID to a valid API key and its tenant"
 	case KeyOriginCredentialFile:
-		return "Check the credential file that " + CredentialFileEnv + " names"
+		return "Run the job again to get a new credential in the file that " + CredentialFileEnv + " names"
 	default:
 		return "Run 'pmg cloud login' to update credentials, or check the SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables"
 	}

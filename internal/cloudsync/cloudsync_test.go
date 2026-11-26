@@ -140,6 +140,7 @@ func TestRunOrder(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantOrder, rec.order)
 			assert.Equal(t, tt.fetchErr, res.PolicyErr)
+			assert.Equal(t, tt.wantOrder != nil, res.Key != nil, "a key status only when a step used the credentials")
 		})
 	}
 }
@@ -215,11 +216,12 @@ func TestRequirePolicyWithCloudOrPolicyOff(t *testing.T) {
 				cfg.Config.Cloud.Policy = false
 			}
 
-			st, err := RequirePolicy(context.Background(), cfg, DefaultFetchTimeout)
+			st, key, err := RequirePolicy(context.Background(), cfg, DefaultFetchTimeout)
 
 			assert.NoError(t, err)
 			require.NotNil(t, st)
 			assert.Nil(t, st.Applied)
+			assert.Nil(t, key)
 		})
 	}
 }
@@ -326,7 +328,7 @@ func TestFetchIfNeeded(t *testing.T) {
 			}
 			rec := &recorder{fetchErr: tt.fetchErr}
 
-			err := rec.steps(t).fetchIfNeeded(context.Background(), cfg, tt.st, DefaultFetchTimeout)
+			key, err := rec.steps(t).fetchIfNeeded(context.Background(), cfg, tt.st, DefaultFetchTimeout)
 
 			if tt.wantErr == "" {
 				assert.NoError(t, err)
@@ -334,6 +336,7 @@ func TestFetchIfNeeded(t *testing.T) {
 				assert.EqualError(t, err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantFetch, slices.Contains(rec.order, "policy"))
+			assert.Equal(t, tt.wantFetch, key != nil, "a key status only for a fetch that ran")
 			assert.NotContains(t, rec.order, "events", "the required fetch sends no events")
 		})
 	}

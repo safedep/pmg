@@ -282,7 +282,7 @@ func tryResolveKeychainCredentials() (string, bool) {
 // keychainCredentialsLabel names the keychain with the expiry of its API key,
 // when the keychain records one.
 func keychainCredentialsLabel(status cloudauth.KeyStatus) string {
-	day := status.ExpiresAt.UTC().Format(time.DateOnly)
+	day := status.ExpiryText()
 	switch status.State {
 	case cloudauth.KeyStateExpired:
 		return "keychain (API key expired on " + day + ")"
