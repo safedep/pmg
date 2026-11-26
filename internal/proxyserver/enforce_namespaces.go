@@ -243,7 +243,7 @@ func (n *namespaceRedirect) warnings() []string {
 	case n == nil:
 		return nil
 	case n.active():
-		w := []string{fmt.Sprintf("Containers on %s are redirected through the proxy. A container that does not trust the PMG CA fails on registry hosts. Pass PMG_CA_BUNDLE from `pmg proxy env` into it. See docs/persistent-proxy.md.", strings.Join(n.policy.Ingress, ", "))}
+		w := []string{fmt.Sprintf("Containers on %s are redirected through the proxy. A container must trust the PMG CA to reach registry hosts. pmg-entrypoint.sh with PMG_CONTAINER_TRUST=1 does this. Otherwise pass PMG_CA_BUNDLE from `pmg proxy env` into the container. See docs/persistent-proxy.md.", strings.Join(n.policy.Ingress, ", "))}
 		if fw := n.firewallWarning(); fw != "" {
 			w = append(w, fw)
 		}
