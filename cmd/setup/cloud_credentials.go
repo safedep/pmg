@@ -58,7 +58,7 @@ func credentialsErrorResult(origin cloudauth.KeyOrigin, err error) doctor.CheckR
 	case origin == cloudauth.KeyOriginCredentialFile:
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
-			Message: fmt.Sprintf("pmg cannot use the credential file that %s names (%v)", cloudauth.CredentialFileEnv, err),
+			Message: fmt.Sprintf("pmg cannot use the credential file that %s names (%v)", cloudauth.CredentialFileEnv, causeOf(err)),
 			Fix:     cloudauth.CredentialHelp(origin),
 		}
 	case errors.Is(err, cloud.ErrMissingCredentials):
@@ -87,4 +87,13 @@ func originName(origin cloudauth.KeyOrigin) string {
 	default:
 		return "default source"
 	}
+}
+
+// causeOf drops the wrap of cloudauth.ResolveCredentials, which names the
+// credential file again.
+func causeOf(err error) error {
+	if cause := errors.Unwrap(err); cause != nil {
+		return cause
+	}
+	return err
 }

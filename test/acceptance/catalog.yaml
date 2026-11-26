@@ -420,7 +420,7 @@
   title: "doctor fails the Cloud credentials check for a credential file that pmg cannot use"
   category: cloud
   tier: P2
-  guarantee: "With cloud sync on, pmg setup doctor fails the Cloud credentials check when PMG_CLOUD_CREDENTIAL_FILE names a file that pmg cannot use, also when SAFEDEP_API_KEY is set, and names the fix."
+  guarantee: "With cloud sync on, pmg setup doctor fails the Cloud credentials check when PMG_CLOUD_CREDENTIAL_FILE names a file that pmg cannot use, also when SAFEDEP_API_KEY is set, and names the fix. pmg setup info names the credential file, not the environment key."
   labels: [cloud, doctor, offline]
 - id: cloud/workload/no-id-token-names-permission
   title: "the workload identity exchange without an ID token names id-token: write"

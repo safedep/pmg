@@ -54,14 +54,13 @@ func runSync(cmd *cobra.Command, args []string) error {
 			timeout = syncTimeout
 		}
 		st, key, err := cloudsync.RequirePolicy(cmd.Context(), cfg, timeout)
-		var warning *cloudsync.PolicyWarning
-		switch {
-		case errors.As(err, &warning):
-			ui.ShowWarning(policyWarningText(warning, key))
-		case err != nil:
-			ui.ErrorExit(requirePolicyError(err, key))
+		warnings, err := requirePolicyOutcome(err, key)
+		if err != nil {
+			ui.ErrorExit(err)
 		}
-		showKeyExpiryWarning(key)
+		for _, warning := range warnings {
+			ui.ShowWarning(warning)
+		}
 		if st.Applied != nil {
 			ui.Successf("Cloud policy revision %d applies", st.Applied.Revision)
 		}
@@ -93,28 +92,54 @@ func runSync(cmd *cobra.Command, args []string) error {
 		ui.Successf("Synced %d events to SafeDep Cloud", res.Synced)
 	}
 
-	showKeyExpiryWarning(res.Key)
-
-	if res.PolicyErr != nil {
-		ui.ErrorExit(policyFetchFailureError(res.PolicyErr, appliedPolicyRevision(cfg), res.Key))
+	warning, err := syncOutcome(res, appliedPolicyRevision(cfg))
+	if warning != "" {
+		ui.ShowWarning(warning)
 	}
-	if res.EventsErr != nil {
-		ui.ErrorExit(syncFailureError(res.EventsErr, res.Key))
+	if err != nil {
+		ui.ErrorExit(err)
 	}
 	return nil
 }
 
-func showKeyExpiryWarning(key *cloudauth.KeyStatus) {
-	if warning := keyExpiryWarning(key); warning != "" {
-		ui.ShowWarning(warning)
+// requirePolicyOutcome maps the result of cloudsync.RequirePolicy to the
+// warnings and the error of pmg cloud sync --require-policy.
+func requirePolicyOutcome(err error, key *cloudauth.KeyStatus) ([]string, error) {
+	var warnings []string
+	var policyWarning *cloudsync.PolicyWarning
+	switch {
+	case errors.As(err, &policyWarning):
+		warnings = append(warnings, policyWarningText(policyWarning, key))
+	case err != nil:
+		return nil, requirePolicyError(err, key)
+	}
+	if expiry := keyExpiryWarning(key, err); expiry != "" {
+		warnings = append(warnings, expiry)
+	}
+	return warnings, nil
+}
+
+// syncOutcome maps the result of a sync to its warning and its error. applied
+// is the revision of the cloud policy that applies, or 0.
+func syncOutcome(res *cloudsync.Result, applied uint64) (string, error) {
+	warning := keyExpiryWarning(res.Key, res.Err())
+	switch {
+	case res.PolicyErr != nil:
+		return warning, policyFetchFailureError(res.PolicyErr, applied, res.Key)
+	case res.EventsErr != nil:
+		return warning, syncFailureError(res.EventsErr, res.Key)
+	default:
+		return warning, nil
 	}
 }
 
-// keyExpiryWarning warns about a key that SafeDep Cloud still accepts and
-// that expires within cloudauth.KeyExpiryWarning. key is the status of the
-// credentials that the sync used, or nil when no step used them.
-func keyExpiryWarning(key *cloudauth.KeyStatus) string {
-	if key == nil || key.State != cloudauth.KeyStateExpiring {
+// keyExpiryWarning warns about a key that expires within
+// cloudauth.KeyExpiryWarning. key is the status of the credentials that the
+// sync used, or nil when no step used them. It gives no warning when SafeDep
+// Cloud rejected the key with err, because the error of the rejection then
+// tells the user what to do.
+func keyExpiryWarning(key *cloudauth.KeyStatus, err error) string {
+	if key == nil || key.State != cloudauth.KeyStateExpiring || isRejection(err) {
 		return ""
 	}
 	return fmt.Sprintf("The SafeDep Cloud API key expires on %s. Replace it before that date. %s.",
@@ -126,9 +151,11 @@ func keyExpiryWarning(key *cloudauth.KeyStatus) string {
 // rejects an expired key with a generic authentication error that does not
 // give the date.
 func expiredKeyRejected(err error, key *cloudauth.KeyStatus) bool {
-	if key == nil || key.State != cloudauth.KeyStateExpired {
-		return false
-	}
+	return key != nil && key.State == cloudauth.KeyStateExpired && isRejection(err)
+}
+
+// isRejection reports whether SafeDep Cloud rejected the credentials with err.
+func isRejection(err error) bool {
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	return ok && isRejectionCode(usefulErr.Code())
 }

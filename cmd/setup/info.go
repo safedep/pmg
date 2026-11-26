@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
@@ -247,49 +246,40 @@ func resolveSandboxDriverName() string {
 }
 
 // describeCloudCredentials reports whether SafeDep Cloud credentials can be
-// resolved, and from where. The resolution order matches NewSyncClientBundle:
-// keychain first, then environment variables. No network calls are made.
+// resolved, and from where. It resolves them as the sync does, so it names
+// the credentials that the sync uses. No network calls are made.
 func describeCloudCredentials() string {
-	if source, ok := tryResolveKeychainCredentials(); ok {
-		return source
-	}
-	if source, ok := tryResolveEnvCredentials(); ok {
-		return source
-	}
-	return "not configured (run 'pmg cloud login' or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID)"
+	status, err := cloudauth.ResolveStatus(time.Now())
+	return credentialsLabel(status, err)
 }
 
-func tryResolveKeychainCredentials() (string, bool) {
-	resolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey)
-	if err != nil {
-		log.Debugf("keychain credential resolver unavailable: %v", err)
-		return "", false
-	}
-	defer func() {
-		if err := resolver.Close(); err != nil {
-			log.Warnf("failed to close keychain resolver: %v", err)
+// credentialsLabel names the source of the credentials, with the expiry of
+// the API key when the keychain records one.
+func credentialsLabel(status cloudauth.KeyStatus, resolveErr error) string {
+	if resolveErr != nil {
+		log.Debugf("no cloud credentials: %v", resolveErr)
+		if status.Origin == cloudauth.KeyOriginCredentialFile {
+			return "credential file (" + cloudauth.CredentialFileEnv + "), not usable. Run 'pmg setup doctor' for the error"
 		}
-	}()
-
-	creds, err := resolver.Resolve()
-	if err != nil {
-		log.Debugf("no keychain credentials: %v", err)
-		return "", false
+		return "not configured (run 'pmg cloud login' or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID)"
 	}
-	return keychainCredentialsLabel(cloudauth.StatusOf(creds, time.Now())), true
-}
 
-// keychainCredentialsLabel names the keychain with the expiry of its API key,
-// when the keychain records one.
-func keychainCredentialsLabel(status cloudauth.KeyStatus) string {
-	day := status.ExpiryText()
-	switch status.State {
-	case cloudauth.KeyStateExpired:
-		return "keychain (API key expired on " + day + ")"
-	case cloudauth.KeyStateExpiring, cloudauth.KeyStateValid:
-		return "keychain (API key expires on " + day + ")"
+	switch status.Origin {
+	case cloudauth.KeyOriginKeychain:
+		switch status.State {
+		case cloudauth.KeyStateExpired:
+			return "keychain (API key expired on " + status.ExpiryText() + ")"
+		case cloudauth.KeyStateExpiring, cloudauth.KeyStateValid:
+			return "keychain (API key expires on " + status.ExpiryText() + ")"
+		default:
+			return "keychain"
+		}
+	case cloudauth.KeyOriginEnvironment:
+		return "environment (SAFEDEP_API_KEY, SAFEDEP_TENANT_ID)"
+	case cloudauth.KeyOriginCredentialFile:
+		return "credential file (" + cloudauth.CredentialFileEnv + ")"
 	default:
-		return "keychain"
+		return "configured"
 	}
 }
 
@@ -319,17 +309,4 @@ func describeLastSync(path string) string {
 	default:
 		return fmt.Sprintf("%d days ago", int(delta.Hours()/24))
 	}
-}
-
-func tryResolveEnvCredentials() (string, bool) {
-	resolver, err := cloud.NewEnvCredentialResolver()
-	if err != nil {
-		log.Debugf("env credential resolver unavailable: %v", err)
-		return "", false
-	}
-	if _, err := resolver.Resolve(); err != nil {
-		log.Debugf("no env credentials: %v", err)
-		return "", false
-	}
-	return "environment (SAFEDEP_API_KEY, SAFEDEP_TENANT_ID)", true
 }

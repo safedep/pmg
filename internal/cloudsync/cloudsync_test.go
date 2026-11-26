@@ -18,12 +18,15 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudauth"
+	"github.com/safedep/pmg/internal/cloudauth/cloudauthtest"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type recorder struct {
+	creds       *cloud.Credentials
 	order       []string
 	fetchErr    error
 	syncErr     error
@@ -33,6 +36,9 @@ type recorder struct {
 func (r *recorder) steps(t *testing.T) steps {
 	return steps{
 		resolveCredentials: func() (*cloud.Credentials, func() error, error) {
+			if r.creds != nil {
+				return r.creds, func() error { return nil }, nil
+			}
 			creds, err := cloud.NewAPIKeyCredential("sk_test", "acme.safedep.io")
 			require.NoError(t, err)
 			return creds, func() error { return nil }, nil
@@ -143,6 +149,32 @@ func TestRunOrder(t *testing.T) {
 			assert.Equal(t, tt.wantOrder != nil, res.Key != nil, "a key status only when a step used the credentials")
 		})
 	}
+}
+
+func TestRunReportsTheKeyStatusOfItsCredentials(t *testing.T) {
+	expiresAt := time.Now().Add(3 * 24 * time.Hour).Truncate(time.Second)
+
+	t.Run("run", func(t *testing.T) {
+		rec := &recorder{creds: cloudauthtest.KeychainKey(t, expiresAt)}
+
+		res, err := rec.steps(t).run(context.Background(), newSyncConfig(t), Plan{Policy: StepForce, Events: StepForce})
+
+		require.NoError(t, err)
+		require.NotNil(t, res.Key)
+		assert.Equal(t, cloudauth.KeyOriginKeychain, res.Key.Origin)
+		assert.Equal(t, cloudauth.KeyStateExpiring, res.Key.State)
+		assert.True(t, expiresAt.Equal(res.Key.ExpiresAt))
+	})
+
+	t.Run("the fetch of RequirePolicy", func(t *testing.T) {
+		rec := &recorder{creds: cloudauthtest.KeychainKey(t, expiresAt)}
+
+		key, err := rec.steps(t).fetchIfNeeded(context.Background(), newSyncConfig(t), nil, DefaultFetchTimeout)
+
+		require.NoError(t, err)
+		require.NotNil(t, key)
+		assert.Equal(t, cloudauth.KeyStateExpiring, key.State)
+	})
 }
 
 func TestRunChecksThePacingUnderTheLock(t *testing.T) {
