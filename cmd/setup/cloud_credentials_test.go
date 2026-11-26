@@ -130,12 +130,14 @@ func TestCredentialsLabel(t *testing.T) {
 }
 
 func TestCloudCredentialsCheckRunsOnlyWithCloudOn(t *testing.T) {
+	// Cleanups run in reverse order. This reload runs after t.Setenv restores
+	// the environment, so a later test does not keep the temporary config dir.
+	t.Cleanup(config.Reload)
 	// The credential file makes the result the same on every host. pmg then
 	// reads no keychain and no environment key.
 	t.Setenv(cloudauth.CredentialFileEnv, filepath.Join(t.TempDir(), "missing.json"))
 	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
 	config.Reload()
-	t.Cleanup(config.Reload)
 
 	for _, enabled := range []bool{true, false} {
 		t.Run(fmt.Sprintf("cloud.enabled=%v", enabled), func(t *testing.T) {
