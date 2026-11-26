@@ -316,6 +316,12 @@ func TestPolicyWarningText(t *testing.T) {
 				"The SafeDep Cloud API key expired on 2026-11-20 09:00 UTC. Run 'pmg cloud login' with a new API key.",
 		},
 		{
+			name:    "a rejected key with no recorded expiry gives the fix",
+			warning: &cloudsync.PolicyWarning{Revision: 52, Err: rejected},
+			want: "Cannot fetch the cloud policy (" + rejected.Error() + "). The last policy still applies (revision 52). " +
+				"Run 'pmg cloud login' to update credentials, or check the SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables.",
+		},
+		{
 			name:    "an expired key does not explain a network failure",
 			warning: &cloudsync.PolicyWarning{Revision: 52, Err: errors.New("offline")},
 			key:     &expiredKeychainKey,
@@ -426,7 +432,8 @@ func TestRequirePolicyOutcome(t *testing.T) {
 			name:         "a cached policy and a rejected key that expires soon give no expiry warning",
 			err:          &cloudsync.PolicyWarning{Revision: 52, Err: rejected},
 			key:          expiring,
-			wantWarnings: []string{"Cannot fetch the cloud policy (" + rejected.Error() + "). The last policy still applies (revision 52)."},
+			wantWarnings: []string{"Cannot fetch the cloud policy (" + rejected.Error() + "). The last policy still applies (revision 52). " +
+				"Run 'pmg cloud login' with a new API key."},
 		},
 		{name: "no fetch ran"},
 	}

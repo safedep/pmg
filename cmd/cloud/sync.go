@@ -172,8 +172,11 @@ func keyOrigin(key *cloudauth.KeyStatus) cloudauth.KeyOrigin {
 func policyWarningText(w *cloudsync.PolicyWarning, key *cloudauth.KeyStatus) string {
 	if w.Revision > 0 {
 		text := fmt.Sprintf("Cannot fetch the cloud policy (%v). The last policy still applies (revision %d).", w.Err, w.Revision)
-		if expiredKeyRejected(w.Err, key) {
+		switch {
+		case expiredKeyRejected(w.Err, key):
 			text += fmt.Sprintf(" The SafeDep Cloud API key expired on %s. %s.", key.ExpiryText(), cloudauth.CredentialHelp(key.Origin))
+		case isRejection(w.Err):
+			text += " " + cloudauth.CredentialHelp(keyOrigin(key)) + "."
 		}
 		return text
 	}
