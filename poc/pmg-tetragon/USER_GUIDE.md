@@ -43,15 +43,15 @@ what the other cannot see.
 ```mermaid
 flowchart LR
   subgraph host["Linux machine or runner VM"]
-    job["Job step\nnpm, pip, curl, bash"]
-    pmg["PMG daemon\nTLS proxy, malware and cooldown checks,\nnetwork profile"]
-    tg["Tetragon\neBPF process, file and\nconnection events"]
+    job["Job step<br/>npm, pip, curl, bash"]
+    pmg["PMG daemon<br/>TLS proxy, malware and cooldown checks,<br/>network profile"]
+    tg["Tetragon<br/>eBPF process, file and<br/>connection events"]
     job -- "TCP 80/443, routed by the kernel" --> pmg
     tg -. "watches every process" .-> job
   end
   pmg -- "allowed requests" --> reg["npm, PyPI, Go, Cargo"]
   pmg -- "verdicts" --> sd["SafeDep threat intel"]
-  pmg --> sum["Job summary\nPMG event log"]
+  pmg --> sum["Job summary<br/>PMG event log"]
   tg --> exp["Tetragon JSON export"]
   sum --> rep["Report: one row per incident"]
   exp --> rep
