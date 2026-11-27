@@ -142,8 +142,17 @@ The POC ships two sets of the same four policies:
 | --- | --- | --- | --- |
 | [`ci-egress`](tetragon/audit/ci-egress.yaml) | `tcp_connect` to a port other than 80 and 443, outside private ranges | Report | Kill `curl`, `wget` and `nc` |
 | [`reverse-shell`](tetragon/audit/reverse-shell.yaml) | `tcp_connect` by `bash`, `sh`, `dash` or `nc` to a non-loopback address | Report | Kill |
-| [`runner-secrets`](tetragon/audit/runner-secrets.yaml) | Open of `/proc/<pid>/mem`, credential files, `ptrace` | Report | Kill on `/proc/<pid>/mem`, report the rest |
+| [`runner-secrets`](tetragon/audit/runner-secrets.yaml) | `security_ptrace_access_check` in attach mode (one process opens another's `/proc/<pid>/mem`, or attaches with `ptrace`); opens of `/proc/*/mem` and credential files | Report | Kill on the attach-mode check, report the rest |
 | [`pmg-tamper`](tetragon/audit/pmg-tamper.yaml) | `kill` with `SIGKILL`, `SIGTERM` or `SIGSTOP`, and BPF program loads | Report | Report |
+
+Two lessons from the POC runs:
+
+- **Do not hook a file path when the kernel has a better check.** The first version of
+  `runner-secrets` killed any open of `/proc/*/mem`. It killed `pmg proxy start`, which opens its own
+  `/proc/<pid>/mem`. The kernel calls `security_ptrace_access_check` only when one process accesses
+  another, so the policy now hooks that.
+- **Exclude both loopback addresses.** PMG listens on `127.0.0.1` and on `::1`. A policy that excludes
+  only `127.0.0.0/8` reports every IPv6 connection that PMG routes.
 
 Tetragon matches a binary by its resolved path. A tool from a toolcache path (for example Node.js from
 `actions/setup-node`) needs its own path in `matchBinaries`.
@@ -172,6 +181,7 @@ report in the job summary and in [`README.md`](README.md#results).
 | A job hangs until `timeout-minutes` | The PMG daemon hung. The runner's own traffic to GitHub goes through it | Check `sudo cat /root/.cache/safedep/pmg/proxy.log` in a later step with `if: always()` |
 | Tetragon policy shows `error` state | A hook does not exist in this kernel | Run `sudo tetra tracingpolicy list` and read the error. Remove that hook or add `ignore: callNotFound: true` |
 | A legitimate tool is killed | An enforce policy matched it | Add the tool's path to `NotIn` in that policy, or move the policy back to audit |
+| `Start PMG` fails with status 137 (`Killed`) | A Tetragon enforce policy killed PMG | Read the `process_kprobe` events with `action: KPROBE_ACTION_SIGKILL` in the Tetragon export. Narrow that policy |
 
 ## Part 2: deploy on other Linux machines
 
@@ -395,8 +405,9 @@ Example: the POC test T4. An install script reads `.npmrc` and sends data out.
   script does.
 - A job with root and the `CAP_SYS_ADMIN` capability can detach BPF programs. Hardening and the
   `pmg-tamper` policy reduce this risk. They do not remove it.
-- Tetragon open source cannot refuse a connect without `CONFIG_BPF_KPROBE_OVERRIDE`. The POC uses
-  `Sigkill`.
+- The POC policies kill the process (`Sigkill`). To make a call fail instead, Tetragon needs
+  `CONFIG_BPF_KPROBE_OVERRIDE` for `Override`. The GitHub-hosted Ubuntu kernel in the POC runs
+  (`7.0.0-1020-azure`) has it, and has `CONFIG_BPF_LSM` too. Check other kernels before you rely on it.
 - The join of PMG and Tetragon events is a POC script, not a product feature.
 
 ## Reference
