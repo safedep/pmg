@@ -49,6 +49,10 @@ func Close() error {
 	return global.close()
 }
 
+func eventsDispatched() bool {
+	return global != nil && global.dispatched.Load()
+}
+
 func logEvent(event AuditEvent) {
 	if global == nil {
 		return

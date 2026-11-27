@@ -134,6 +134,7 @@ func newWorkloadRevokeCommand() *cobra.Command {
 		Short: "Revoke a SafeDep Cloud credential that 'pmg cloud workload exchange' wrote",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A detached sync child would inherit the ID token request token.
 			audit.SuppressBackgroundSync()
 			if credential == "" {
 				ui.ErrorExit(usefulerror.NewUsefulError().

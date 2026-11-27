@@ -26,6 +26,7 @@ func newSyncBackgroundCommand() *cobra.Command {
 // runSyncBackground fetches the cloud policy when cloud.policy is on, also
 // when auto_sync is off. It checks auto_sync only before it sends events.
 func runSyncBackground(cmd *cobra.Command, args []string) error {
+	audit.SuppressBackgroundSync()
 	cfg := config.Get()
 	if !cfg.Config.Cloud.Enabled {
 		log.Debugf("Auto-sync: cloud disabled; exiting")

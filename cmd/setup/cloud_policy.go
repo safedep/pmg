@@ -46,7 +46,7 @@ func cloudPolicyResults(st *cloudpolicy.Status, now time.Time) []doctor.CheckRes
 	switch {
 	case st.State == recordv1.ApplyState_APPLY_STATE_NONE:
 		results = append(results, warn(
-			"cloud policy is on, but no policy cache exists. pmg fetches it after the next command",
+			"cloud policy is on, but no policy cache exists. pmg fetches it after the next package manager command or pmg cloud login",
 			"Run: pmg cloud sync"))
 	case st.Applied == nil:
 		results = append(results, warn(

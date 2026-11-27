@@ -360,8 +360,9 @@ cloud:
   endpoint_id: ""
 
   # Auto sync drains the local cloud-sync WAL to SafeDep Cloud opportunistically
-  # at the end of each PMG invocation, gated by a per-host cooldown so it does
-  # not fire on every command. The drain runs as a short-lived detached child
+  # at the end of each PMG invocation that records events, such as a package
+  # manager run. A per-host cooldown gates it so it does not fire on every
+  # command. The drain runs as a short-lived detached child
   # so the user-facing CLI returns immediately.
   #
   # Disable this in ephemeral environments (CI runners, throwaway VMs) where
@@ -382,6 +383,7 @@ cloud:
   # Policy applies the cloud policy of your tenant: package rules and the
   # dependency cooldown that your security admin sets in SafeDep Cloud. The
   # policy applies when cloud.enabled is true. Set policy: false to turn it
-  # off. PMG fetches the policy in the background, also when auto_sync is off,
-  # and keeps the last policy when it is offline.
+  # off. PMG fetches the policy in the background after a package manager
+  # command or pmg cloud login, also when auto_sync is off, and keeps the last
+  # policy when it is offline.
   policy: true

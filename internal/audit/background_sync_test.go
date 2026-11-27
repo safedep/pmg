@@ -2,7 +2,6 @@ package audit
 
 import (
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -44,9 +43,7 @@ func (r *spawnRecorder) callCount() int {
 func withMockSpawner(t *testing.T) *spawnRecorder {
 	t.Helper()
 	rec := &spawnRecorder{}
-	prev := spawnDetached
-	spawnDetached = rec.spawn
-	t.Cleanup(func() { spawnDetached = prev })
+	t.Cleanup(UseSpawnerForTest(rec.spawn))
 	return rec
 }
 
@@ -57,7 +54,6 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 	// Make sure no PMG_DISABLE_TELEMETRY leak from the host environment can
 	// fool the analytics short-circuit in MaybeSpawnBackgroundSync.
 	t.Setenv("PMG_DISABLE_TELEMETRY", "false")
-	t.Setenv(backgroundSyncChildEnv, "")
 
 	// Re-init the config so configDir picks up the tmpDir we just set.
 	// Without this, cfg.CloudSyncLastRunPath() points at the user's real
@@ -77,9 +73,16 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 	return cfg
 }
 
+func sendAuditEvent(t *testing.T) {
+	t.Helper()
+	t.Cleanup(UseSinksForTest())
+	LogInstallStarted("npm", []string{"install"})
+}
+
 func TestMaybeSpawnBackgroundSyncSpawnsByDefault(t *testing.T) {
 	rec := withMockSpawner(t)
 	cfg := newAutoSyncConfig(t)
+	sendAuditEvent(t)
 
 	MaybeSpawnBackgroundSync(cfg)
 
@@ -91,6 +94,7 @@ func TestMaybeSpawnBackgroundSyncSpawnsByDefault(t *testing.T) {
 func TestMaybeSpawnBackgroundSyncIgnoresTelemetryDisabled(t *testing.T) {
 	rec := withMockSpawner(t)
 	cfg := newAutoSyncConfig(t)
+	sendAuditEvent(t)
 	cfg.Config.DisableTelemetry = true
 
 	MaybeSpawnBackgroundSync(cfg)
@@ -107,6 +111,7 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 	t.Run("cloud disabled", func(t *testing.T) {
 		rec := withMockSpawner(t)
 		cfg := newAutoSyncConfig(t)
+		sendAuditEvent(t)
 		cfg.Config.Cloud.Enabled = false
 
 		MaybeSpawnBackgroundSync(cfg)
@@ -116,6 +121,7 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 	t.Run("auto_sync disabled", func(t *testing.T) {
 		rec := withMockSpawner(t)
 		cfg := newAutoSyncConfig(t)
+		sendAuditEvent(t)
 		cfg.Config.Cloud.AutoSync.Enabled = false
 
 		MaybeSpawnBackgroundSync(cfg)
@@ -132,52 +138,40 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 		assert.Equal(t, 0, rec.callCount())
 	})
 
-	t.Run("we are the sync-background child", func(t *testing.T) {
+	t.Run("no audit event", func(t *testing.T) {
 		rec := withMockSpawner(t)
 		cfg := newAutoSyncConfig(t)
+		t.Cleanup(UseSinksForTest())
 
-		t.Setenv(backgroundSyncChildEnv, "1")
+		MaybeSpawnBackgroundSync(cfg)
+		assert.Equal(t, 0, rec.callCount())
+	})
+
+	t.Run("suppressed after an audit event", func(t *testing.T) {
+		rec := withMockSpawner(t)
+		cfg := newAutoSyncConfig(t)
+		sendAuditEvent(t)
+		SuppressBackgroundSync()
 
 		MaybeSpawnBackgroundSync(cfg)
 		assert.Equal(t, 0, rec.callCount())
 	})
 }
 
-// spawnEnvOutEnv names the file where the helper child writes the mark that
-// it got from spawnDetachedExec.
-const spawnEnvOutEnv = "PMG_TEST_SPAWN_ENV_OUT"
+func TestMaybeSpawnBackgroundSyncOnRequest(t *testing.T) {
+	rec := withMockSpawner(t)
+	cfg := newAutoSyncConfig(t)
+	t.Cleanup(UseSinksForTest())
+	RequestBackgroundSync()
 
-func TestSpawnDetachedExecMarksTheChild(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "child-env")
-	t.Setenv(spawnEnvOutEnv, out)
-	t.Setenv(backgroundSyncChildEnv, "")
-
-	require.NoError(t, spawnDetachedExec(os.Args[0], "-test.run=^TestSpawnDetachedExecHelper$"))
-
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(out)
-		return err == nil
-	}, 10*time.Second, 50*time.Millisecond)
-	got, err := os.ReadFile(out)
-	require.NoError(t, err)
-	assert.Equal(t, "1", string(got))
-}
-
-// TestSpawnDetachedExecHelper is the child of TestSpawnDetachedExecMarksTheChild.
-// It does nothing in a normal test run.
-func TestSpawnDetachedExecHelper(t *testing.T) {
-	out := os.Getenv(spawnEnvOutEnv)
-	if out == "" {
-		return
-	}
-	tmp := out + ".tmp"
-	require.NoError(t, os.WriteFile(tmp, []byte(os.Getenv(backgroundSyncChildEnv)), 0o600))
-	require.NoError(t, os.Rename(tmp, out))
+	MaybeSpawnBackgroundSync(cfg)
+	assert.Equal(t, 1, rec.callCount())
 }
 
 func TestMaybeSpawnBackgroundSyncRespectsCooldown(t *testing.T) {
 	rec := withMockSpawner(t)
 	cfg := newAutoSyncConfig(t)
+	sendAuditEvent(t)
 
 	// Recent attempt → cooldown still in effect → no spawn.
 	require.NoError(t, WriteLastSyncAttempt(cfg.CloudSyncLastRunPath()))
@@ -189,6 +183,7 @@ func TestMaybeSpawnBackgroundSyncRespectsCooldown(t *testing.T) {
 func TestMaybeSpawnBackgroundSyncSpawnsAfterCooldownElapses(t *testing.T) {
 	rec := withMockSpawner(t)
 	cfg := newAutoSyncConfig(t)
+	sendAuditEvent(t)
 
 	old := time.Now().Add(-time.Hour).Unix()
 	require.NoError(t, os.WriteFile(cfg.CloudSyncLastRunPath(),
@@ -202,6 +197,7 @@ func TestMaybeSpawnBackgroundSyncSwallowsSpawnError(t *testing.T) {
 	rec := withMockSpawner(t)
 	rec.err = os.ErrPermission
 	cfg := newAutoSyncConfig(t)
+	sendAuditEvent(t)
 
 	// We can't observe log.Warnf directly, but we can assert the function
 	// neither panics nor blocks when the underlying spawn fails.
@@ -238,6 +234,7 @@ func TestMaybeSpawnBackgroundSyncForThePolicyFetch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := withMockSpawner(t)
 			cfg := newAutoSyncConfig(t)
+			sendAuditEvent(t)
 			cfg.Config.Cloud.AutoSync.Enabled = tt.autoSync
 			cfg.Config.Cloud.Policy = tt.policy
 			if tt.eventRun != nil {

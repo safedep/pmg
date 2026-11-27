@@ -5,6 +5,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -111,6 +112,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			WithHelp("Your system may not support secure credential storage"))
 	}
 
+	audit.RequestBackgroundSync()
 	ui.Successf("Credentials saved securely")
 	return nil
 }

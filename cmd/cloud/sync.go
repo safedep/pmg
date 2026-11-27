@@ -46,9 +46,6 @@ func runSync(cmd *cobra.Command, args []string) error {
 	cfg := config.Get()
 
 	if requirePolicy {
-		// The command sends no events, so it must not start the background
-		// event sync either.
-		audit.SuppressBackgroundSync()
 		timeout := cloudsync.DefaultFetchTimeout
 		if cmd.Flags().Changed("timeout") {
 			timeout = syncTimeout

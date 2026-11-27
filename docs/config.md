@@ -99,8 +99,9 @@ pmg config set cloud.policy false
 With the policy on, PMG reads your SafeDep Cloud credentials when a command starts, and fetches the
 policy in the background at most every 5 minutes. Set `cloud.policy: false` to stop both.
 
-- PMG fetches the policy in the background after a command, at most every 5 minutes, also when
-  `cloud.auto_sync.enabled` is false. `pmg cloud sync` fetches it at once.
+- PMG fetches the policy in the background after a package manager command or `pmg cloud login`,
+  at most every 5 minutes, also when `cloud.auto_sync.enabled` is false. `pmg cloud sync` fetches
+  it at once.
 - A new machine has no policy cache, so its first command applies only the PMG config.
 - `pmg cloud sync --require-policy` fetches the policy when no policy applies, and when the 5
   minutes since the last fetch have passed. It waits up to 5 seconds for the sync lock, then

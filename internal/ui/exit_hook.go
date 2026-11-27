@@ -12,7 +12,7 @@ var (
 
 // SetExitHook sets a function that runs once before pmg exits through this
 // package. main uses it to close the audit system and to start the
-// background sync child on every exit path, also after a blocked install.
+// background sync child also after a blocked install.
 func SetExitHook(hook func()) {
 	exitHookMu.Lock()
 	defer exitHookMu.Unlock()

@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// pmg starts a background cloud sync when a command exits with cloud on, also
-// after --help. When policy.sh probed for --require-policy with cloud on, that
-// sync held the sync lock, and the policy fetch that followed failed with
-// "Another cloud sync is already in progress".
+// An older pmg release starts a background cloud sync when a command exits
+// with cloud on, also after --help. When policy.sh probed for
+// --require-policy with cloud on, that sync held the sync lock, and the policy
+// fetch that followed failed with "Another cloud sync is already in progress".
 func TestPolicyScriptProbesHelpWithCloudOff(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the action runs only on Linux")

@@ -14,23 +14,19 @@ import (
 // command can't desync the spawn args from the cobra registration.
 const SyncBackgroundSubcommand = "sync-background"
 
-// backgroundSyncChildEnv marks the detached child. The parent sets it when it
-// spawns the child. A child that exits early leaves the lastrun files stale,
-// so the next spawn is always due. The child can exit through ui.ErrorExit in
-// the root pre-run, before any command code runs, and the exit hook then
-// calls MaybeSpawnBackgroundSync. Without the mark, each child spawns the
-// next one in an endless chain.
-const backgroundSyncChildEnv = "PMG_BACKGROUND_SYNC_CHILD"
+var (
+	backgroundSyncRequested  bool
+	backgroundSyncSuppressed bool
+)
 
-// backgroundSyncSuppressed lets a command opt out of the detached auto-sync
-// spawn for its process. The proxy daemon uses this: it delivers events itself
-// (periodic sync + shutdown flush), so the detached child would be redundant
-// and, from `pmg proxy stop`, would route cloud traffic through the now-stopped
-// proxy.
-var backgroundSyncSuppressed bool
+// RequestBackgroundSync asks MaybeSpawnBackgroundSync to start the child also
+// when the current process sent no audit event. The pacing still applies.
+func RequestBackgroundSync() {
+	backgroundSyncRequested = true
+}
 
 // SuppressBackgroundSync disables MaybeSpawnBackgroundSync for the current
-// process.
+// process. It wins over RequestBackgroundSync and over the audit events.
 func SuppressBackgroundSync() {
 	backgroundSyncSuppressed = true
 }
@@ -60,11 +56,14 @@ func EventSyncDue(cfg *config.RuntimeConfig) bool {
 }
 
 // MaybeSpawnBackgroundSync forks a detached `pmg cloud sync-background` child
-// when cloud.enabled is on and one of two paces passed: the event pacing of
+// when this process sent an audit event or called RequestBackgroundSync,
+// cloud.enabled is on and one of two paces passed: the event pacing of
 // auto_sync, or the policy pacing of cloud.policy. The policy fetch runs also
-// when auto_sync is off. The call returns as
-// soon as `cmd.Start()` finishes (~milliseconds), so it must only be called
-// after audit.Close() has released the parent's SQLite handle on the WAL.
+// when auto_sync is off. A child holds the sync lock that the next pmg cloud
+// sync needs, so a command without events starts none.
+// The call returns as soon as `cmd.Start()` finishes (~milliseconds), so it
+// must only be called after audit.Close() has released the parent's SQLite
+// handle on the WAL.
 //
 // All failures are logged and swallowed: auto-sync is opportunistic and must
 // never affect the parent PMG invocation's exit behavior or user-visible
@@ -73,7 +72,10 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	if cfg == nil {
 		return
 	}
-	if os.Getenv(backgroundSyncChildEnv) != "" || backgroundSyncSuppressed {
+	if backgroundSyncSuppressed {
+		return
+	}
+	if !eventsDispatched() && !backgroundSyncRequested {
 		return
 	}
 	if !cfg.Config.Cloud.Enabled {
@@ -122,7 +124,6 @@ func spawnDetachedExec(name string, args ...string) error {
 	}()
 
 	cmd := exec.Command(name, args...)
-	cmd.Env = append(os.Environ(), backgroundSyncChildEnv+"=1")
 	cmd.Stdin = devNull
 	cmd.Stdout = devNull
 	cmd.Stderr = devNull

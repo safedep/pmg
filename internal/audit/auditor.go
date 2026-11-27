@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -23,9 +24,10 @@ type session struct {
 }
 
 type auditor struct {
-	sinks   []Sink
-	session *session
-	mu      sync.RWMutex
+	sinks      []Sink
+	session    *session
+	mu         sync.RWMutex
+	dispatched atomic.Bool
 }
 
 func newAuditor(sinks ...Sink) *auditor {
@@ -33,6 +35,7 @@ func newAuditor(sinks ...Sink) *auditor {
 }
 
 func (a *auditor) dispatch(ctx context.Context, event AuditEvent) {
+	a.dispatched.Store(true)
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
 	}

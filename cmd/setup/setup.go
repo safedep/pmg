@@ -43,9 +43,8 @@ func NewInstallCommand() *cobra.Command {
 		Short:        "Setup PMG config, aliases, and shims for package managers (npm, pnpm, pip, and more)",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// The Windows installer runs the system install as SYSTEM inside
-			// its transaction. A detached sync child would hold the binary the
-			// installer may still roll back.
+			// The Windows installer runs the system install inside its
+			// transaction. A sync child would hold the binary of a rollback.
 			if system {
 				audit.SuppressBackgroundSync()
 			}
@@ -145,6 +144,8 @@ func NewRemoveCommand() *cobra.Command {
 		Short:        "Removes pmg aliases and shims from the user's shell config.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// An uninstaller runs the removal and then deletes the binary. A
+			// sync child would hold that binary.
 			audit.SuppressBackgroundSync()
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 			return remove(system, removeConfig)
