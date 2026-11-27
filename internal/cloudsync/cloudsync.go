@@ -74,6 +74,10 @@ type Result struct {
 	// CheckInErr is the error of the check-in, or the error that kept pmg
 	// from sending it.
 	CheckInErr error
+
+	// Key is the status of the credentials that the steps used. It is nil
+	// when no step ran.
+	Key *cloudauth.KeyStatus
 }
 
 // steps are the cloud calls of a sync. A test replaces them.
@@ -127,31 +131,32 @@ const (
 // wait of at most 5 seconds for the sync lock. It returns the status after
 // the fetch. The error is a *PolicyWarning when the command can go on, and
 // wraps ErrNoPolicy when no cloud policy applies. With cloud or cloud.policy
-// off, it does not fetch and returns no error.
-func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig, timeout time.Duration) (*cloudpolicy.Status, error) {
+// off, it does not fetch and returns no error. The key status is that of the
+// credentials of the fetch, or nil when no fetch ran.
+func RequirePolicy(ctx context.Context, cfg *config.RuntimeConfig, timeout time.Duration) (*cloudpolicy.Status, *cloudauth.KeyStatus, error) {
 	policy := cloudpolicy.Global()
 	if !cfg.CloudPolicyEnabled() {
-		return policy.Peek(cfg), nil
+		return policy.Peek(cfg), nil, nil
 	}
 
-	fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Status(), timeout)
+	key, fetchErr := defaultSteps.fetchIfNeeded(ctx, cfg, policy.Status(), timeout)
 	st := policy.Peek(cfg)
-	return st, checkPolicy(fetchErr, st)
+	return st, key, checkPolicy(fetchErr, st)
 }
 
-func (s steps) fetchIfNeeded(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status, timeout time.Duration) error {
+func (s steps) fetchIfNeeded(ctx context.Context, cfg *config.RuntimeConfig, st *cloudpolicy.Status, timeout time.Duration) (*cloudauth.KeyStatus, error) {
 	if !cfg.CloudPolicyEnabled() {
-		return nil
+		return nil, nil
 	}
 	if st != nil && st.Applied != nil && !audit.PolicyFetchDue(cfg) {
-		return nil
+		return nil, nil
 	}
 
 	res, err := s.run(ctx, cfg, Plan{Policy: StepForce, LockTimeout: fetchLockWait, Timeout: timeout})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return res.PolicyErr
+	return res.Key, res.PolicyErr
 }
 
 func (s steps) run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*Result, error) {
@@ -218,7 +223,8 @@ func (s steps) run(ctx context.Context, cfg *config.RuntimeConfig, plan Plan) (*
 		defer cancel()
 	}
 
-	res := &Result{}
+	key := cloudauth.StatusOf(creds, time.Now())
+	res := &Result{Key: &key}
 	if runPolicy {
 		res.PolicyRan = true
 		res.Policy, res.PolicyErr = s.fetchPolicy(runCtx, cfg, creds)

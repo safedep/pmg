@@ -14,6 +14,7 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/doctor"
 	"github.com/safedep/pmg/internal/fsutil"
 	"github.com/safedep/pmg/internal/netenforce"
@@ -250,6 +251,17 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 	// report a false problem.
 	if !pmgplatform.Supports(pmgplatform.ShellAliases) {
 		checks = slices.DeleteFunc(checks, func(c doctor.Check) bool { return c.Name == checkShellAliases })
+	}
+
+	if cfg.Config.Cloud.Enabled {
+		checks = append(checks, doctor.Check{
+			Name:     checkCloudCredentials,
+			Category: categoryCloud,
+			Run: func() doctor.CheckResult {
+				status, err := cloudauth.ResolveStatus(time.Now())
+				return cloudCredentialsResult(status, err)
+			},
+		})
 	}
 
 	if cfg.IsManaged() || cfg.ManagedConfigError() != nil {
@@ -578,6 +590,7 @@ var checkDisplayNames = map[string]string{
 	checkManagedConfig:      "Managed config",
 	checkProxyEnforce:       "Proxy enforcement",
 	checkCloudPolicy:        "Cloud policy",
+	checkCloudCredentials:   "Cloud credentials",
 }
 
 var checkFixes = map[string]string{
