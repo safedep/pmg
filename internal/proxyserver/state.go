@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"syscall"
 
 	"github.com/safedep/pmg/internal/platform"
 	pmgproxy "github.com/safedep/pmg/proxy"
@@ -110,19 +109,9 @@ func removeState(path string) error {
 	return os.Remove(path)
 }
 
-// IsRunning reports whether the recorded PID is a live process. Signal(0)
-// succeeds for a zombie, so a daemon that exited counts as live until its
-// parent reaps it. A container whose PID 1 never reaps (the GitHub Actions
-// job container runs `tail -f /dev/null`) keeps the zombie forever.
+// IsRunning reports whether the recorded PID is a live process.
 func (s State) IsRunning() bool {
-	if s.PID <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(s.PID)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil && !platform.IsZombieProcess(s.PID)
+	return platform.IsProcessAlive(s.PID)
 }
 
 // ResolveStatePath returns the effective state file path: the flag override

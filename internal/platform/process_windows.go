@@ -1,10 +1,14 @@
 package platform
 
 import (
+	"math"
 	"path/filepath"
 
+	"github.com/safedep/dry/log"
 	"golang.org/x/sys/windows"
 )
+
+const stillActive uint32 = 259
 
 func parentProcessName() (string, error) {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(windows.Getppid()))
@@ -19,4 +23,25 @@ func parentProcessName() (string, error) {
 		return "", err
 	}
 	return filepath.Base(windows.UTF16ToString(buf[:size])), nil
+}
+
+func isProcessAlive(pid int) bool {
+	if pid <= 0 || uint64(pid) > math.MaxUint32 {
+		return false
+	}
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer func() {
+		if cerr := windows.CloseHandle(handle); cerr != nil {
+			log.Warnf("platform: close process handle for pid %d: %v", pid, cerr)
+		}
+	}()
+
+	var exitCode uint32
+	if err := windows.GetExitCodeProcess(handle, &exitCode); err != nil {
+		return false
+	}
+	return exitCode == stillActive
 }

@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"syscall"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -104,12 +102,8 @@ func Stop(statePath string) (StopResult, error) {
 		return StopResult{}, fmt.Errorf("proxy process (pid %d) is not running; state file cleaned up", state.PID)
 	}
 
-	proc, err := os.FindProcess(state.PID)
-	if err != nil {
-		return StopResult{}, fmt.Errorf("find proxy process (pid %d): %w", state.PID, err)
-	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		return StopResult{}, fmt.Errorf("send SIGTERM to proxy (pid %d): %w", state.PID, err)
+	if err := requestStop(state.PID); err != nil {
+		return StopResult{}, err
 	}
 
 	deadline := time.Now().Add(stopWaitTimeout)

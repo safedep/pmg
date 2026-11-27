@@ -1,0 +1,43 @@
+# guarantee: pmg proxy starts, serves, and shuts down without a leaked process.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec sh lifecycle.sh
+stdout 'PMG proxy: running'
+stdout 'PMG proxy stopped — 0 package\(s\) blocked'
+stdout 'PMG proxy: not running'
+! exists proxy-state.json
+
+-- lifecycle.sh --
+set -eu
+state="$PWD/proxy-state.json"
+
+pmg proxy start --port 0 --state "$state" >proxy.log 2>&1 &
+proxy_pid=$!
+proxy_waited=0
+cleanup() {
+  if [ "$proxy_waited" -eq 0 ]; then
+    pmg proxy stop --if-running --state "$state" >/dev/null 2>&1 || true
+    kill "$proxy_pid" 2>/dev/null || true
+    wait "$proxy_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+i=0
+while ! status_out=$(pmg proxy status --state "$state" 2>/dev/null) || ! printf '%s\n' "$status_out" | grep -q 'PMG proxy: running'; do
+  i=$((i + 1))
+  if [ "$i" -ge 100 ]; then
+    echo "proxy did not become ready" >&2
+    cat proxy.log >&2 || true
+    exit 1
+  fi
+  sleep 0.1
+done
+printf '%s\n' "$status_out"
+
+pmg proxy stop --state "$state"
+wait "$proxy_pid"
+proxy_waited=1
+pmg proxy status --state "$state"
