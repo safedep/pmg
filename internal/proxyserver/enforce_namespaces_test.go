@@ -197,6 +197,8 @@ func TestNamespaceRedirectWarnsAboutAnInputDropFirewall(t *testing.T) {
 	require.NoError(t, err)
 	w := n.warnings()
 	require.Len(t, w, 2)
+	assert.Contains(t, w[0], "PMG_CONTAINER_TRUST=1")
+	assert.Contains(t, w[0], "PMG_CA_BUNDLE")
 	assert.Contains(t, w[1], "ip filter INPUT")
 	assert.Contains(t, w[1], "iptables -I INPUT -i docker0 -d 169.254.200.1 -j ACCEPT")
 	assert.Contains(t, w[1], "ufw allow in on docker0 to 169.254.200.1")

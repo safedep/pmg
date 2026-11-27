@@ -18,12 +18,15 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/cloudauth"
+	"github.com/safedep/pmg/internal/cloudauth/cloudauthtest"
 	"github.com/safedep/pmg/internal/cloudpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type recorder struct {
+	creds       *cloud.Credentials
 	order       []string
 	fetchErr    error
 	syncErr     error
@@ -33,6 +36,9 @@ type recorder struct {
 func (r *recorder) steps(t *testing.T) steps {
 	return steps{
 		resolveCredentials: func() (*cloud.Credentials, func() error, error) {
+			if r.creds != nil {
+				return r.creds, func() error { return nil }, nil
+			}
 			creds, err := cloud.NewAPIKeyCredential("sk_test", "acme.safedep.io")
 			require.NoError(t, err)
 			return creds, func() error { return nil }, nil
@@ -140,8 +146,35 @@ func TestRunOrder(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantOrder, rec.order)
 			assert.Equal(t, tt.fetchErr, res.PolicyErr)
+			assert.Equal(t, tt.wantOrder != nil, res.Key != nil, "a key status only when a step used the credentials")
 		})
 	}
+}
+
+func TestRunReportsTheKeyStatusOfItsCredentials(t *testing.T) {
+	expiresAt := time.Now().Add(3 * 24 * time.Hour).Truncate(time.Second)
+
+	t.Run("run", func(t *testing.T) {
+		rec := &recorder{creds: cloudauthtest.KeychainKey(t, expiresAt)}
+
+		res, err := rec.steps(t).run(context.Background(), newSyncConfig(t), Plan{Policy: StepForce, Events: StepForce})
+
+		require.NoError(t, err)
+		require.NotNil(t, res.Key)
+		assert.Equal(t, cloudauth.KeyOriginKeychain, res.Key.Origin)
+		assert.Equal(t, cloudauth.KeyStateExpiring, res.Key.State)
+		assert.True(t, expiresAt.Equal(res.Key.ExpiresAt))
+	})
+
+	t.Run("the fetch of RequirePolicy", func(t *testing.T) {
+		rec := &recorder{creds: cloudauthtest.KeychainKey(t, expiresAt)}
+
+		key, err := rec.steps(t).fetchIfNeeded(context.Background(), newSyncConfig(t), nil, DefaultFetchTimeout)
+
+		require.NoError(t, err)
+		require.NotNil(t, key)
+		assert.Equal(t, cloudauth.KeyStateExpiring, key.State)
+	})
 }
 
 func TestRunChecksThePacingUnderTheLock(t *testing.T) {
@@ -215,11 +248,12 @@ func TestRequirePolicyWithCloudOrPolicyOff(t *testing.T) {
 				cfg.Config.Cloud.Policy = false
 			}
 
-			st, err := RequirePolicy(context.Background(), cfg, DefaultFetchTimeout)
+			st, key, err := RequirePolicy(context.Background(), cfg, DefaultFetchTimeout)
 
 			assert.NoError(t, err)
 			require.NotNil(t, st)
 			assert.Nil(t, st.Applied)
+			assert.Nil(t, key)
 		})
 	}
 }
@@ -326,7 +360,7 @@ func TestFetchIfNeeded(t *testing.T) {
 			}
 			rec := &recorder{fetchErr: tt.fetchErr}
 
-			err := rec.steps(t).fetchIfNeeded(context.Background(), cfg, tt.st, DefaultFetchTimeout)
+			key, err := rec.steps(t).fetchIfNeeded(context.Background(), cfg, tt.st, DefaultFetchTimeout)
 
 			if tt.wantErr == "" {
 				assert.NoError(t, err)
@@ -334,6 +368,7 @@ func TestFetchIfNeeded(t *testing.T) {
 				assert.EqualError(t, err, tt.wantErr)
 			}
 			assert.Equal(t, tt.wantFetch, slices.Contains(rec.order, "policy"))
+			assert.Equal(t, tt.wantFetch, key != nil, "a key status only for a fetch that ran")
 			assert.NotContains(t, rec.order, "events", "the required fetch sends no events")
 		})
 	}

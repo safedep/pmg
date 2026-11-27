@@ -52,6 +52,9 @@ func (r *githubActionsEnvResolver) Metadata() map[string]string {
 		{"workflow", "GITHUB_WORKFLOW"},
 		{"job", "GITHUB_JOB"},
 		{"run_attempt", "GITHUB_RUN_ATTEMPT"},
+		{"run_number", "GITHUB_RUN_NUMBER"},
+		{"event_name", "GITHUB_EVENT_NAME"},
+		{"runner_environment", "RUNNER_ENVIRONMENT"},
 		{"server_url", "GITHUB_SERVER_URL"},
 	}
 

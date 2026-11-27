@@ -19,7 +19,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/posthog/posthog-go v1.30.0
 	github.com/rogpeppe/go-internal v1.14.1
-	github.com/safedep/dry v0.0.0-20261121081517-bfb93f2d6a55
+	github.com/safedep/dry v0.0.0-20261125120423-f9cd9e28f207
 	github.com/safedep/ptyx v0.2.1-0.20260930140859-2a30ff447821
 	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.10.2
@@ -103,3 +103,10 @@ require (
 )
 
 tool github.com/cilium/ebpf/cmd/bpf2go
+
+// The post-quantum key share makes the TLS ClientHello about 1.5 KB. Some
+// network paths drop it with no error (#624). This default applies to the main
+// packages of this module and workspace, not to other Go programs. Set
+// GODEBUG=tlsmlkem=1 to send the post-quantum key share again.
+// Keep in sync with go.work.
+godebug tlsmlkem=0

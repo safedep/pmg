@@ -136,6 +136,28 @@ policy in the background at most every 5 minutes. Set `cloud.policy: false` to s
 
 `pmg setup doctor` and `pmg setup info --json` show the applied revision and the age of the cache.
 
+### API key expiry
+
+The keychain records the expiry of an API key that was saved with it. `pmg cloud login` saves a
+pasted key with no expiry. When the keychain records an expiry:
+
+- When SafeDep Cloud rejects an expired key, `pmg cloud sync` prints the date of the expiry.
+- `pmg cloud sync` prints a warning when it uses a key that expires within 14 days.
+- `pmg setup doctor` fails the Cloud credentials check when the key has expired, and warns when
+  it expires within 14 days. The check makes no network call.
+- `pmg setup info` shows the expiry next to the keychain.
+
+When the keychain records no expiry, `pmg setup doctor` cannot know if the key expired. The check
+passes and names the source of the credentials only. `pmg cloud sync` reports the key when SafeDep
+Cloud rejects it.
+
+pmg shows the expiry in UTC. pmg does not stop a sync because of the recorded expiry. SafeDep Cloud
+decides if it accepts the key.
+
+To replace the key, run `pmg cloud login` with a new API key. When SafeDep Cloud rejects a key,
+`pmg cloud sync` names the fix for the source of the key: the keychain, `SAFEDEP_API_KEY` and
+`SAFEDEP_TENANT_ID`, or the file that `PMG_CLOUD_CREDENTIAL_FILE` names.
+
 ## Environment Variables
 
 Use environment variables to override scalar values or lists of scalars for one process.
