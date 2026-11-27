@@ -1,0 +1,14 @@
+# PMG network profile for the POC jobs. It inherits the built-in
+# github-actions profile, which allows the hosts of the runner, its cache and
+# artifact storage, and the SafeDep hosts. The job reaches only the npm and
+# PyPI registries on top of that.
+name: poc-network
+inherits: github-actions
+network:
+  deny_ip_literals: true
+  allow_outbound:
+    - registry.npmjs.org:443
+    - pypi.org:443
+    - files.pythonhosted.org:443
+  deny_outbound:
+    - "*:*"

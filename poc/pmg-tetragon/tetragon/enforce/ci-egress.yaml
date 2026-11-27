@@ -1,0 +1,40 @@
+# Kills curl, wget and nc when they open a TCP connection that PMG does not
+# route: a destination port other than 80 and 443, outside loopback and
+# private ranges. PMG rewrites routed connections to a loopback listener, so
+# tcp_connect sees 127.0.0.1 for them.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "ci-egress"
+spec:
+  kprobes:
+  - call: "tcp_connect"
+    syscall: false
+    args:
+    - index: 0
+      type: "sock"
+    selectors:
+    - matchBinaries:
+      - operator: "In"
+        values:
+        - "/usr/bin/curl"
+        - "/usr/bin/wget"
+        - "/usr/bin/nc.openbsd"
+        - "/usr/bin/ncat"
+      matchArgs:
+      - index: 0
+        operator: "NotDAddr"
+        values:
+        - "127.0.0.0/8"
+        - "10.0.0.0/8"
+        - "172.16.0.0/12"
+        - "192.168.0.0/16"
+        - "169.254.0.0/16"
+        - "168.63.129.16/32"
+      - index: 0
+        operator: "NotDPort"
+        values:
+        - "80"
+        - "443"
+      matchActions:
+      - action: Sigkill

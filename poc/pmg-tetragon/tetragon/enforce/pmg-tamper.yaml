@@ -1,0 +1,29 @@
+# Signals that stop or kill a process, and BPF program loads. The report
+# script matches the target PID against the PMG daemon and flags BPF loads by
+# any binary other than pmg and tetragon.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "pmg-tamper"
+spec:
+  kprobes:
+  - call: "sys_kill"
+    syscall: true
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "int"
+    selectors:
+    - matchArgs:
+      - index: 1
+        operator: "Equal"
+        values:
+        - "9"
+        - "15"
+        - "19"
+  - call: "bpf_check"
+    syscall: false
+    args:
+    - index: 1
+      type: "bpf_attr"

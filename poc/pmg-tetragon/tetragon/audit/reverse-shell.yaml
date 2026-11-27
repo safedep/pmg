@@ -1,0 +1,28 @@
+# A shell has no reason to open a TCP connection. bash does so only for
+# /dev/tcp/<host>/<port>, the usual reverse shell. nc and ncat cover "nc -e".
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "reverse-shell"
+spec:
+  kprobes:
+  - call: "tcp_connect"
+    syscall: false
+    args:
+    - index: 0
+      type: "sock"
+    selectors:
+    - matchBinaries:
+      - operator: "In"
+        values:
+        - "/usr/bin/bash"
+        - "/usr/bin/sh"
+        - "/usr/bin/dash"
+        - "/usr/bin/nc.openbsd"
+        - "/usr/bin/nc.traditional"
+        - "/usr/bin/ncat"
+      matchArgs:
+      - index: 0
+        operator: "NotDAddr"
+        values:
+        - "127.0.0.0/8"

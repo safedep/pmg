@@ -1,0 +1,122 @@
+# POC: PMG and Tetragon together on a GitHub-hosted runner. See
+# poc/pmg-tetragon/README.md. Each mode runs the same attack scenarios:
+#   unprotected  no PMG, no Tetragon: the baseline
+#   audit        PMG blocks packages, reports network policy; Tetragon reports
+#   enforce      PMG denies off-profile hosts; Tetragon kills on detections
+name: POC PMG + Tetragon
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/keen-curie-o98ono
+    paths:
+      - "poc/pmg-tetragon/**"
+      - ".github/workflows/poc-pmg-tetragon.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: poc-pmg-tetragon-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  poc:
+    name: poc (${{ matrix.mode }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [unprotected, audit, enforce]
+    env:
+      POC_MODE: ${{ matrix.mode }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare
+        run: |
+          echo "POC_RESULTS=$RUNNER_TEMP/poc-results" >>"$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/poc-results"
+          echo '{}' >"$RUNNER_TEMP/poc-results/timings.json"
+          uname -r
+          ls -l /sys/kernel/btf/vmlinux
+          grep -E '^CONFIG_(KPROBES|BPF_KPROBE_OVERRIDE|BPF_LSM)=' "/boot/config-$(uname -r)" || true
+
+      - name: Pick an npm version younger than the cooldown
+        run: |
+          fresh=$(poc/pmg-tetragon/scripts/find-fresh-version.sh || true)
+          echo "Fresh version: ${fresh:-none}"
+          echo "POC_FRESH_VERSION=$fresh" >>"$GITHUB_ENV"
+
+      - name: Start Tetragon
+        if: matrix.mode != 'unprotected'
+        run: |
+          secs=$(poc/pmg-tetragon/scripts/start-tetragon.sh "$POC_MODE")
+          python3 - "$POC_RESULTS/timings.json" "$secs" <<'PY'
+          import json, sys
+          path, secs = sys.argv[1], sys.argv[2]
+          data = json.load(open(path))
+          data["Tetragon"] = secs
+          json.dump(data, open(path, "w"))
+          PY
+
+      - name: Mark PMG start
+        if: matrix.mode != 'unprotected'
+        run: echo "POC_PMG_START=$(date +%s)" >>"$GITHUB_ENV"
+
+      - name: Start PMG
+        if: matrix.mode != 'unprotected'
+        uses: ./
+        with:
+          enforce: "true"
+          network-profile: poc/pmg-tetragon/pmg/network.yml
+          network-mode: ${{ matrix.mode == 'enforce' && 'enforce' || 'audit' }}
+          fail-on-violation: "false"
+
+      - name: Mark PMG ready
+        if: matrix.mode != 'unprotected'
+        run: |
+          python3 - "$POC_RESULTS/timings.json" "$(($(date +%s) - POC_PMG_START))" <<'PY'
+          import json, sys
+          path, secs = sys.argv[1], sys.argv[2]
+          data = json.load(open(path))
+          data["PMG"] = secs
+          json.dump(data, open(path, "w"))
+          PY
+
+      - name: Run attack scenarios
+        run: |
+          start=$(date +%s)
+          poc/pmg-tetragon/scripts/scenarios.sh
+          python3 - "$POC_RESULTS/timings.json" "$(($(date +%s) - start))" <<'PY'
+          import json, sys
+          path, secs = sys.argv[1], sys.argv[2]
+          data = json.load(open(path))
+          data["scenarios"] = secs
+          json.dump(data, open(path, "w"))
+          PY
+
+      - name: Collect evidence
+        if: always()
+        run: poc/pmg-tetragon/scripts/collect.sh
+
+      - name: Report
+        if: always()
+        env:
+          POC_STRICT: "1"
+        run: |
+          set -o pipefail
+          python3 poc/pmg-tetragon/scripts/report.py | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: poc-${{ matrix.mode }}
+          path: ${{ runner.temp }}/poc-results
+          retention-days: 14

@@ -1,0 +1,9 @@
+{
+  "name": "poc-evil-postinstall",
+  "version": "1.0.0",
+  "description": "Harmless stand-in for a malicious package that reached the runner from a cache. Its install script does what a credential stealer does, against test targets only.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "postinstall": "sh ./postinstall.sh"
+  }
+}
