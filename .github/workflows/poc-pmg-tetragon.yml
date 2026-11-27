@@ -103,6 +103,7 @@ jobs:
 
       - name: Collect evidence
         if: always()
+        timeout-minutes: 3
         run: poc/pmg-tetragon/scripts/collect.sh
 
       - name: Report

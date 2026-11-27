@@ -8,7 +8,9 @@ mkdir -p "$POC_RESULTS"
 # Tetragon writes its export through a buffer. Give it a moment to flush.
 sleep 5
 
-sudo find / -xdev \( -path /proc -o -path /sys \) -prune -o -name '*-pmg.log' -path '*safedep*' -print 2>/dev/null |
+# PMG writes its event log under the data directory of the user that runs
+# the daemon: root under kernel enforcement, the runner user otherwise.
+sudo find /root "$HOME" -maxdepth 6 -name '*-pmg.log' -path '*safedep*' 2>/dev/null |
   while read -r f; do sudo cat "$f"; done >"$POC_RESULTS/pmg-events.jsonl" || true
 
 for f in /root/.cache/safedep/pmg/proxy.log "$HOME/.cache/safedep/pmg/proxy.log"; do
