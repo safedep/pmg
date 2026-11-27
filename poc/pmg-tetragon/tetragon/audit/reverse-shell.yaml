@@ -26,3 +26,4 @@ spec:
         operator: "NotDAddr"
         values:
         - "127.0.0.0/8"
+        - "::1/128"

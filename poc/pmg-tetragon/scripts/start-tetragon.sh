@@ -17,7 +17,7 @@ base="https://github.com/cilium/tetragon/releases/download/${version}"
 
 curl -sSfL -o "$work/$tarball" "$base/$tarball"
 curl -sSfL -o "$work/$tarball.sha256sum" "$base/$tarball.sha256sum"
-(cd "$work" && sha256sum -c "$tarball.sha256sum")
+(cd "$work" && sha256sum -c --quiet "$tarball.sha256sum") >&2
 tar -xzf "$work/$tarball" -C "$work"
 
 sudo install -d /etc/tetragon/tetragon.tp.d /etc/tetragon/tetragon.conf.d
@@ -36,7 +36,8 @@ except Exception:
     print(0); sys.exit()
 pols = data.get("policies", []) if isinstance(data, dict) else data
 print(sum(1 for p in pols if str(p.get("state", "")).upper().endswith("ENABLED")))
-' || echo 0)
+' || true)
+  enabled=${enabled:-0}
   if [ "$enabled" -ge "$want" ]; then
     echo $(($(date +%s) - start))
     exit 0

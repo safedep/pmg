@@ -77,6 +77,7 @@ for e in pmg_events:
 # Tetragon process index: exec_id -> process, from every event that carries one.
 procs = {}
 kprobes = []
+execs = []
 for e in tg_events:
     for kind in ("process_exec", "process_exit", "process_kprobe"):
         body = e.get(kind)
@@ -89,6 +90,9 @@ for e in tg_events:
         if kind == "process_kprobe":
             body["_t"] = parse_time(e.get("time"))
             kprobes.append(body)
+        if kind == "process_exec" and body.get("process"):
+            body["process"]["_t"] = parse_time(e.get("time"))
+            execs.append(body["process"])
 
 
 def short(p):
@@ -100,7 +104,7 @@ def short(p):
     return f"{binary} {tail}".strip()
 
 
-def chain(p, depth=6):
+def chain(p, depth=5):
     names = []
     seen = set()
     while p and depth > 0 and p.get("exec_id") not in seen:
@@ -195,6 +199,14 @@ def client_chain(r, host_hint=None):
     return ""
 
 
+def exec_chain(r, needle):
+    """Process chain of the first process in the window whose arguments name needle."""
+    for p in window(execs, r):
+        if needle in (p.get("arguments") or ""):
+            return chain(p)
+    return ""
+
+
 def tg_chain(events):
     for k in events:
         if k.get("process"):
@@ -213,8 +225,9 @@ def judge(tid, r):
         return None, f"skipped: {r.get('detail')}", "", "", ""
 
     if tid in ("T1", "T2", "T7"):
-        eco_hint = "pypi" if tid == "T2" else "npm"
-        blocked = pmg_in(r, {"malware_blocked", "malware_confirmed"})
+        version = "0.0.4" if tid == "T2" else "0.1.3"
+        blocked = [e for e in pmg_in(r, {"malware_blocked", "malware_confirmed"})
+                   if e.get("version") == version]
         if tid == "T7":
             got = d.get("http_code", "")
             res = f"HTTP {got}, rc {rc}"
@@ -223,8 +236,9 @@ def judge(tid, r):
             stopped = d.get("installed") == "no"
             res = f"installed: {d.get('installed')}, rc {rc}"
         ok = (stopped and bool(blocked)) if protected else not stopped
-        host = "pythonhosted" if eco_hint == "pypi" else "npmjs"
-        return ok, res, describe_pmg(blocked), "", client_chain(r, host)
+        needle = {"T1": "safedep-test-pkg@0.1.3", "T2": "safedep-test-pkg==0.0.4",
+                  "T7": "safedep-test-pkg-0.1.3.tgz"}[tid]
+        return ok, res, describe_pmg(blocked), "", exec_chain(r, needle)
 
     if tid == "T3":
         held = pmg_in(r, {"dependency_cooldown"})
@@ -232,13 +246,15 @@ def judge(tid, r):
         # npm sees the version stripped from metadata, so PMG may record no
         # download event. A failed install with PMG in the path is the result.
         ok = (rc != 0) if protected else (rc == 0)
-        return ok, res, describe_pmg(held) if held else ("version hidden from metadata" if protected and rc != 0 else "nothing"), "", client_chain(r, "npmjs")
+        pmg_txt = describe_pmg(held) if held else ("version hidden from metadata" if protected and rc != 0 else "nothing")
+        return ok, res, pmg_txt, "", exec_chain(r, d.get("package", "?"))
 
     if tid == "T4":
         code = d.get("https_code", "")
         port_rc = d.get("port8080_rc", "")
-        net = pmg_in(r, {"network_policy"})
-        egress = tg_in(r, "ci-egress")
+        net = [e for e in pmg_in(r, {"network_policy"})
+               if "example.com" in str((e.get("details") or {}).get("hostname", ""))]
+        egress = [k for k in tg_in(r, "ci-egress") if sock(k).endswith(":8080")]
         res = f"HTTPS exfil: {code}; port 8080 curl rc {port_rc}"
         if MODE == "unprotected":
             ok = code == "200" and port_rc != "137"
@@ -249,7 +265,9 @@ def judge(tid, r):
         return ok, res, describe_pmg(net), describe_tg(egress), tg_chain(egress) or client_chain(r, "example.com")
 
     if tid == "T5":
-        ev = [k for k in tg_in(r, "runner-secrets") if file_path(k).endswith("/mem")]
+        ev = [k for k in tg_in(r, "runner-secrets")
+              if k.get("function_name") == "security_ptrace_access_check" or file_path(k).endswith("/mem")]
+        ev.sort(key=lambda k: k.get("function_name") != "security_ptrace_access_check")
         res = f"rc {rc}"
         if MODE == "unprotected":
             ok = rc == 0
