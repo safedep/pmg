@@ -20,7 +20,7 @@ func (c ClosedUnixSocketRoute) Warning() string {
 }
 
 type unixSocketWriteRule struct {
-	root   string
+	roots  []string
 	rule   string
 	source string
 }
@@ -56,9 +56,11 @@ func (p *SandboxPolicy) UnixSocketRoutesByWriters() ([]UnixSocketRoute, []Closed
 
 func routeWriteRule(route UnixSocketRoute, rules []unixSocketWriteRule) (unixSocketWriteRule, bool) {
 	for _, rule := range rules {
-		for _, name := range route.Names {
-			if rule.root == "/" || name == rule.root || strings.HasPrefix(name, rule.root+"/") {
-				return rule, true
+		for _, root := range rule.roots {
+			for _, name := range route.Names {
+				if root == "/" || name == root || strings.HasPrefix(name, root+"/") {
+					return rule, true
+				}
 			}
 		}
 	}
@@ -121,9 +123,32 @@ func writeRulesOf(patterns []string, source string) ([]unixSocketWriteRule, erro
 	}
 	rules := make([]unixSocketWriteRule, 0, len(expanded))
 	for _, pattern := range expanded {
-		rules = append(rules, unixSocketWriteRule{root: writeRuleRoot(pattern), rule: pattern, source: source})
+		root := writeRuleRoot(pattern)
+		roots := []string{root}
+		if resolved := resolveExistingPrefix(root); resolved != root {
+			roots = append(roots, resolved)
+		}
+		rules = append(rules, unixSocketWriteRule{roots: roots, rule: pattern, source: source})
 	}
 	return rules, nil
+}
+
+// resolveExistingPrefix resolves the links in the longest part of path that
+// exists. Landlock and Seatbelt apply a rule to the target of a link, so a
+// rule on a linked cache directory lets a run write the target. The part
+// that does not exist yet stays as it is.
+func resolveExistingPrefix(path string) string {
+	var missing []string
+	for dir := path; ; dir = filepath.Dir(dir) {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(append([]string{resolved}, missing...)...)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return path
+		}
+		missing = append([]string{filepath.Base(dir)}, missing...)
+	}
 }
 
 // writeRuleRoot returns the path below which a write rule can change names:

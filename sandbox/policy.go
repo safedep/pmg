@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"unicode"
@@ -183,8 +184,15 @@ func expandUnixSocketPath(entry string, opts ResolveOptions) (string, error) {
 	return filepath.Clean(raw), nil
 }
 
-// maxUnixConnectLinks matches the kernel limit on symlinks in one lookup.
-const maxUnixConnectLinks = 40
+// maxUnixConnectLinks matches the kernel limit on symlinks in one lookup:
+// 40 on Linux and MAXSYMLINKS, 32, on macOS. The kernel refuses a path with
+// more links, so the walk must not open the socket at its end.
+var maxUnixConnectLinks = func() int {
+	if runtime.GOOS == "darwin" {
+		return 32
+	}
+	return 40
+}()
 
 // UnixSocketRoute is the way from one listed path to its socket.
 type UnixSocketRoute struct {

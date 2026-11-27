@@ -1,8 +1,10 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -535,6 +537,23 @@ func TestUnixSocketRoutes(t *testing.T) {
 	require.NoError(t, os.WriteFile(in("plain"), nil, 0o600))
 	require.NoError(t, os.Symlink("plain/../other.sock", in("through-file.sock")))
 
+	// macOS refuses a lookup past 32 links and Linux past 40. A chain of 33
+	// reaches the socket on Linux only.
+	require.NoError(t, os.Symlink("real.sock", in("hop0.sock")))
+	for i := 1; i < 33; i++ {
+		require.NoError(t, os.Symlink(fmt.Sprintf("hop%d.sock", i-1), in(fmt.Sprintf("hop%d.sock", i))))
+	}
+	longChain := in("hop32.sock")
+	var longChainNames []string
+	for i := 32; i >= 0; i-- {
+		longChainNames = append(longChainNames, in(fmt.Sprintf("hop%d.sock", i)))
+	}
+	longChainNames = append(longChainNames, socket)
+	longChainErr := ""
+	if runtime.GOOS == "darwin" {
+		longChainErr = "more than 32"
+	}
+
 	tests := []struct {
 		name       string
 		entry      string
@@ -550,6 +569,7 @@ func TestUnixSocketRoutes(t *testing.T) {
 		{name: "each linked directory is an ancestor of a name", entry: in("a", "host.sock"), wantNames: []string{in("a", "host.sock"), in("b", "host.sock"), in("real2", "host.sock")}, wantSocket: in("real2", "host.sock")},
 		{name: "a file on the way ends the route without a socket", entry: in("through-file.sock"), wantNames: []string{in("through-file.sock"), in("plain")}},
 		{name: "a link loop fails", entry: in("loop.sock"), wantErr: "more than"},
+		{name: "a chain of 33 links fails only on macOS", entry: longChain, wantErr: longChainErr, wantNames: longChainNames, wantSocket: socket},
 		{name: "a link to an invalid path fails", entry: in("unsafe.sock"), wantErr: "links to an invalid path"},
 		{name: "a link to a path with a glob character fails", entry: in("glob.sock"), wantErr: "not a glob"},
 		{name: "a link to a path with a variable fails", entry: in("variable.sock"), wantErr: "unexpanded variable"},
@@ -597,6 +617,22 @@ func TestUnixSocketRoutesByWriters(t *testing.T) {
 	assert.Equal(t, ClosedUnixSocketRoute{Path: underOwnRule, Rule: ownDir + "/**", Source: "this profile"}, closed[0])
 	assert.Equal(t, underBuiltinRule, closed[1].Path)
 	assert.True(t, strings.HasPrefix(closed[1].Source, "profile "), "closed by %s", closed[1].Source)
+
+	// Landlock and Seatbelt apply a rule on a link to its target, so a
+	// socket below the target stays closed too.
+	target := dirOutsideBuiltinWriteRules(t)
+	link := filepath.Join(dirOutsideBuiltinWriteRules(t), "cache")
+	require.NoError(t, os.Symlink(target, link))
+	underLinkedRule := filepath.Join(target, "agent.sock")
+	policy = &SandboxPolicy{
+		Filesystem: FilesystemPolicy{AllowWrite: []string{link + "/**"}},
+		Network:    NetworkPolicy{AllowUnixConnect: []string{underLinkedRule}},
+	}
+	open, closed, err = policy.UnixSocketRoutesByWriters()
+	require.NoError(t, err)
+	assert.Empty(t, open)
+	require.Len(t, closed, 1)
+	assert.Equal(t, ClosedUnixSocketRoute{Path: underLinkedRule, Rule: link + "/**", Source: "this profile"}, closed[0])
 }
 
 // A rule counts for every name below the part before its first glob
