@@ -406,7 +406,7 @@ func TestCloudSinkFlushesRepeatCountAfterWindow(t *testing.T) {
 	assert.Equal(t, []uint64{3}, repeatCounts(transport))
 }
 
-func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
+func TestCloudSinkSetsInvocationContextOnEveryEvent(t *testing.T) {
 	sink, walPath := newTestCloudSink(t)
 
 	ctx := context.Background()
@@ -449,16 +449,14 @@ func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
 	events := transport.requests[0].GetEvents()
 	require.Equal(t, 2, len(events))
 
-	malwareEvent := events[0]
-	assert.Nil(t, malwareEvent.GetInvocationContext(), "non-session events should not have invocation context")
-
-	sessionEvent := events[1]
-	invCtx := sessionEvent.GetInvocationContext()
-	require.NotNil(t, invCtx, "session complete event must have invocation context")
-	assert.Contains(t, invCtx.GetCommand(), "npm")
-	assert.NotEmpty(t, invCtx.GetWorkingDirectory())
-	assert.NotEmpty(t, invCtx.GetUsername())
-	assert.NotEmpty(t, invCtx.GetUsernameUid())
+	for _, event := range events {
+		invCtx := event.GetInvocationContext()
+		require.NotNil(t, invCtx, "event %s has no invocation context", event.GetPmgEvent().GetEventType())
+		assert.Contains(t, invCtx.GetCommand(), "npm")
+		assert.NotEmpty(t, invCtx.GetWorkingDirectory())
+		assert.NotEmpty(t, invCtx.GetUsername())
+		assert.NotEmpty(t, invCtx.GetUsernameUid())
+	}
 }
 
 func TestCloudSinkReplaysSessionErrorInfo(t *testing.T) {
@@ -552,7 +550,7 @@ func TestFailedChildQueuesSessionErrorBeforeExit(t *testing.T) {
 	assert.Equal(t, uint32(42), info.GetExitCode())
 }
 
-func TestCloudSinkSetsKubernetesContextOnSessionSummary(t *testing.T) {
+func TestCloudSinkSetsKubernetesContextOnEveryEvent(t *testing.T) {
 	sink, walPath := newTestCloudSink(t)
 	sink.kubernetes = &cloudSinkKubernetesContext{
 		Cluster:      "prod-eu",
@@ -597,20 +595,16 @@ func TestCloudSinkSetsKubernetesContextOnSessionSummary(t *testing.T) {
 	events := transport.requests[0].GetEvents()
 	require.Equal(t, 2, len(events))
 
-	// Per-package events share the invocation ID and carry no invocation
-	// context. The backend reads Kubernetes details from the summary once.
-	assert.Nil(t, events[0].GetInvocationContext(), "per-package events must not duplicate invocation context")
-
-	invCtx := events[1].GetInvocationContext()
-	require.NotNil(t, invCtx, "session summary must carry invocation context")
-	k8s := invCtx.GetKubernetes()
-	require.NotNil(t, k8s, "session summary invocation context must include Kubernetes details")
-	assert.Equal(t, "prod-eu", k8s.GetCluster())
-	assert.Equal(t, "payments", k8s.GetNamespace())
-	assert.Equal(t, "checkout", k8s.GetWorkloadName())
-	assert.Equal(t, controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_DEPLOYMENT, k8s.GetWorkloadKind())
-	assert.Equal(t, "checkout-75d84f5bdf-abc12", k8s.GetPodName())
-	assert.Equal(t, "pod-uid-123", k8s.GetPodUid())
+	for _, event := range events {
+		k8s := event.GetInvocationContext().GetKubernetes()
+		require.NotNil(t, k8s, "event %s has no Kubernetes context", event.GetPmgEvent().GetEventType())
+		assert.Equal(t, "prod-eu", k8s.GetCluster())
+		assert.Equal(t, "payments", k8s.GetNamespace())
+		assert.Equal(t, "checkout", k8s.GetWorkloadName())
+		assert.Equal(t, controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_DEPLOYMENT, k8s.GetWorkloadKind())
+		assert.Equal(t, "checkout-75d84f5bdf-abc12", k8s.GetPodName())
+		assert.Equal(t, "pod-uid-123", k8s.GetPodUid())
+	}
 }
 
 func TestCloudSinkCapturesExecCommand(t *testing.T) {

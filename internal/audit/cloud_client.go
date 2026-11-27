@@ -12,6 +12,8 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudauth"
 	appVersion "github.com/safedep/pmg/internal/version"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding/gzip"
 )
 
 // ErrSyncInProgress is returned when another process already holds the
@@ -102,7 +104,10 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 // NewSyncClientBundleWithCredentials creates a SyncClient with credentials
 // that the caller resolved, so one sync resolves them once.
 func NewSyncClientBundleWithCredentials(cfg *config.RuntimeConfig, creds *cloud.Credentials) (*SyncClientBundle, error) {
-	cloudClient, err := cloud.NewDataPlaneClient("pmg", creds)
+	// The invocation context on every event makes a CI batch about 2.7 times
+	// larger. Gzip makes it about 4 times smaller than a batch without it.
+	cloudClient, err := cloud.NewDataPlaneClientWithOptions("pmg", creds,
+		cloud.WithDialOptions(grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name))))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create data plane client: %w", err)
 	}
