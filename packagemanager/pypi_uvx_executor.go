@@ -82,7 +82,7 @@ func (p *pypiPackageExecutor) parseUvxCommand(command Command, args []string) (*
 func (p *pypiPackageExecutor) buildUvxInstallTargets(command Command, specs []string) (*ParsedCommand, error) {
 	normalized := make([]string, 0, len(specs))
 	for _, spec := range specs {
-		if !uvxIsAuditableSpec(spec) {
+		if !pypiIsRegistrySpec(spec) {
 			log.Debugf("uvx: skipping non-registry spec %q for audit", spec)
 			continue
 		}
@@ -95,7 +95,7 @@ func (p *pypiPackageExecutor) buildUvxInstallTargets(command Command, specs []st
 // uvxNormalizeSpec converts uvx's `name@version` shorthand (e.g. ruff@0.3.0,
 // ruff@latest) into a standard PEP 508 specifier so the shared PyPI parser can
 // extract the name and version. `@latest` (or a bare `@`) means no constraint.
-// It is only called for registry specs (see uvxIsAuditableSpec), so the `@` is
+// It is only called for registry specs (see pypiIsRegistrySpec), so the `@` is
 // always the version separator and never part of a URL.
 func uvxNormalizeSpec(spec string) string {
 	at := strings.Index(spec, "@")
@@ -126,31 +126,6 @@ func uvxIsInterpreterRequest(spec string) bool {
 	}
 
 	return uvxInterpreterRequestRe.MatchString(name)
-}
-
-// uvxIsAuditableSpec reports whether a uvx specifier can be resolved against the
-// PyPI registry. VCS, URL and local-path specifiers cannot, so we skip auditing
-// them here; the proxy still guards any registry traffic they trigger.
-func uvxIsAuditableSpec(spec string) bool {
-	if spec == "" {
-		return false
-	}
-
-	if strings.Contains(spec, "://") || strings.HasPrefix(spec, "git+") || strings.HasPrefix(spec, "file:") {
-		return false
-	}
-
-	if strings.HasPrefix(spec, ".") || strings.HasPrefix(spec, "~") || strings.Contains(spec, "/") {
-		return false
-	}
-
-	for _, ext := range []string{".whl", ".tar.gz", ".tar.bz2", ".zip"} {
-		if strings.HasSuffix(spec, ext) {
-			return false
-		}
-	}
-
-	return true
 }
 
 // setupUvxFlags registers uvx's options on flagSet and returns the --from and
