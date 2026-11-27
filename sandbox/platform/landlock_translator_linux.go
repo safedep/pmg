@@ -51,22 +51,15 @@ type landlockNetworkPolicy struct {
 	// UnixConnectByKernel is true when Landlock checks each connect. The
 	// supervisor checks it otherwise. UnixConnectClosed lists the entries
 	// that stay closed.
-	UnixConnect         []string            `json:"unix_connect,omitempty"`
-	UnixConnectByKernel bool                `json:"unix_connect_by_kernel,omitempty"`
-	UnixConnectClosed   []closedUnixConnect `json:"unix_connect_closed,omitempty"`
+	UnixConnect         []string                        `json:"unix_connect,omitempty"`
+	UnixConnectByKernel bool                            `json:"unix_connect_by_kernel,omitempty"`
+	UnixConnectClosed   []sandbox.ClosedUnixSocketRoute `json:"unix_connect_closed,omitempty"`
 }
 
 // supervisesUnixConnect reports whether the supervisor must check each
 // unix socket connect against UnixConnect.
 func (n landlockNetworkPolicy) supervisesUnixConnect() bool {
 	return len(n.UnixConnect) > 0 && !n.UnixConnectByKernel
-}
-
-// closedUnixConnect is an allow_unix_connect entry that a write rule makes
-// unsafe to open.
-type closedUnixConnect struct {
-	Path      string `json:"path"`
-	WriteRule string `json:"write_rule"`
 }
 
 // landlockPathRule represents a single Landlock filesystem rule mapping a path
@@ -517,8 +510,8 @@ const landlockNameChangeAccess = uint64(llsyscall.AccessFSRemoveDir | llsyscall.
 // ABI 9. It runs after every other rule, because the write rules decide
 // which entries stay closed.
 func landlockTranslateUnixConnect(policy *sandbox.SandboxPolicy, abi *landlockABI, ep *landlockExecPolicy) error {
-	routes, err := policy.UnixSocketRoutes()
-	if err != nil || len(routes) == 0 {
+	routes, closed, err := policy.UnixSocketRoutesByWriters()
+	if err != nil || len(routes)+len(closed) == 0 {
 		return err
 	}
 	if !abi.HasResolveUnix && !utils.SafelyGetValue(policy.Network.AllowUnixConnectWithoutKernelCheck) {
@@ -537,12 +530,14 @@ func landlockTranslateUnixConnect(policy *sandbox.SandboxPolicy, abi *landlockAB
 		ep.FilesystemRules[i].Access &^= uint64(llsyscall.AccessFSMakeSock)
 	}
 
+	ep.Network.UnixConnectClosed = closed
 	for _, route := range routes {
 		// A run that can change a name on the route chooses the socket of
 		// the next run. The supervisor deny on that name can be raced, so
-		// only the kernel write rules decide.
+		// only the kernel write rules decide. A rule path that is a link
+		// binds the inode of its target, which the profile rules do not show.
 		if rule, covered := landlockRouteWriteRule(route, ep.FilesystemRules); covered {
-			ep.Network.UnixConnectClosed = append(ep.Network.UnixConnectClosed, closedUnixConnect{Path: route.Path, WriteRule: rule})
+			ep.Network.UnixConnectClosed = append(ep.Network.UnixConnectClosed, sandbox.ClosedUnixSocketRoute{Path: route.Path, Rule: rule, Source: "this profile"})
 			continue
 		}
 		ep.Network.UnixConnect = append(ep.Network.UnixConnect, route.Path)

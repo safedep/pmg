@@ -1,92 +1,92 @@
 # guarantee: a profile with network.allow_unix_connect opens the listed unix
 # socket under `pmg sandbox exec` and keeps every other unix socket closed.
-# A run cannot replace a name on the way to the socket. Bubblewrap cannot
-# check a socket path, so it refuses the profile. The Landlock driver
-# refuses it below Landlock ABI 9, unless the profile sets
-# network.allow_unix_connect_without_kernel_check. It leaves closed an entry
-# that a write rule could replace.
+# A run cannot replace a name on the way to the socket. An entry stays
+# closed when a write rule of the profile, of a built-in profile or of a
+# built-in preset covers a name on its route, because a run under that
+# profile could replace the name. Bubblewrap cannot check a socket path, so
+# it refuses the profile. The Landlock driver refuses the list below
+# Landlock ABI 9, unless the profile sets
+# network.allow_unix_connect_without_kernel_check.
 
 [!exec:python3] skip
 
 env HOME=$WORK/home
-mkdir $WORK/home
+mkdir $WORK/home/sock
 env PMG_CACHE_DIR=$WORK/cache
-cd $WORK/proj
 
+# No built-in profile can write $HOME/sock. Built-in profiles can write the
+# project and the temporary directories.
+cd $WORK/home/sock
 exec python3 $WORK/sock.py listen &listener&
 exec python3 $WORK/sock.py wait
+cd $WORK/proj
+exec python3 $WORK/sock.py listen &projlistener&
+exec python3 $WORK/sock.py wait
 
-[bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/bwrap.yml -- python3 $WORK/sock.py host.sock
+[bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/bwrap.yml -- python3 $WORK/sock.py $WORK/home/sock/host.sock
 [bubblewrap] stderr 'network.allow_unix_connect is not supported'
 
 # Linux below Landlock ABI 9: the Landlock driver refuses the list.
-[linux] [!bubblewrap] [!landlock-unix-connect] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[linux] [!bubblewrap] [!landlock-unix-connect] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py $WORK/home/sock/host.sock
 [linux] [!bubblewrap] [!landlock-unix-connect] stderr 'needs Landlock ABI 9'
 [linux] [!bubblewrap] [!landlock-unix-connect] ! stdout .
 
-# Linux below Landlock ABI 9 with network.allow_unix_connect_without_kernel_check:
-# the supervisor checks the list. host.sock is in the project, which the exec
-# profile can write, so the entry stays closed there too.
-[linux] [!bubblewrap] [!landlock-unix-connect] ! exec pmg sandbox exec --sandbox-profile $WORK/race.yml -- python3 $WORK/sock.py host.sock
-[linux] [!bubblewrap] [!landlock-unix-connect] stderr 'leaves .*/host.sock closed'
-[linux] [!bubblewrap] [!landlock-unix-connect] ! stderr 'needs Landlock ABI 9'
-[linux] [!bubblewrap] [!landlock-unix-connect] stdout '^DENIED (socket|connect) E(ACCES|PERM)$'
-
-# A profile that cannot write the project keeps host.sock open. Below
-# Landlock ABI 9 the supervisor checks the list and pmg warns about the race.
-# AppArmor userns confinement refuses the connect, so the allowed run skips
-# there.
-[linux] [!bubblewrap] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py host.sock
-[linux] [!bubblewrap] [!apparmor-userns] stdout '^OK host$'
-[linux] [!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py other.sock
-[linux] [!bubblewrap] stdout '^DENIED connect E(ACCES|PERM)$'
-[linux] [!bubblewrap] [!landlock-unix-connect] stderr 'The supervisor checks it'
-[landlock-unix-connect] ! stderr 'The supervisor checks it'
-
-# Linux from Landlock ABI 9: host.sock is in the project, which the exec
-# profile can write, so a run could replace it. The entry stays closed.
-[landlock-unix-connect] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
-[landlock-unix-connect] stderr 'leaves .*/host.sock closed'
-[landlock-unix-connect] stdout '^DENIED (socket|connect) E(ACCES|PERM)$'
+# Linux: $WORK is below /tmp, which built-in profiles can write. A run under
+# one of them could replace host.sock and choose the socket of the next run,
+# so the entry stays closed, also for a profile that cannot write there.
+[linux] [!bubblewrap] ! exec pmg sandbox exec --sandbox-profile $WORK/sup.yml -- python3 $WORK/sock.py $WORK/home/sock/host.sock
+[linux] [!bubblewrap] stderr 'leaves .*/home/sock/host.sock closed, because the write rule .* of profile '
+[linux] [!bubblewrap] ! stderr 'needs Landlock ABI 9'
+[linux] [!bubblewrap] stdout '^DENIED socket EACCES$'
 
 # macOS: Seatbelt checks each connect and each write in the kernel.
-[darwin] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py $WORK/home/sock/host.sock
 [darwin] stdout '^OK host$'
 
-[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py other.sock
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py $WORK/home/sock/other.sock
+[darwin] stdout '^DENIED connect E(ACCES|PERM)$'
+
+# A run could replace a socket in the project, so the entry stays closed.
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/cwd.yml -- python3 $WORK/sock.py $WORK/proj/host.sock
+[darwin] stderr 'leaves .*/proj/host.sock closed, because the write rule .* of this profile'
 [darwin] stdout '^DENIED connect E(ACCES|PERM)$'
 
 # A run cannot replace the listed socket, so it cannot choose the socket
 # that the next run reaches.
-[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py plant host.sock
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py plant $WORK/home/sock/host.sock
 [darwin] stdout '^DENIED plant E(ACCES|PERM)$'
-[darwin] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py host.sock
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py $WORK/home/sock/host.sock
 [darwin] stdout '^OK host$'
 
 # The same holds for each link that a listed path follows, and for the
 # socket at the end.
+cd $WORK/home/sock
 symlink mid.sock -> host.sock
 symlink link.sock -> mid.sock
-[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant mid.sock
+cd $WORK/proj
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant $WORK/home/sock/mid.sock
 [darwin] stdout '^DENIED plant E(ACCES|PERM)$'
-[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant host.sock
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py plant $WORK/home/sock/host.sock
 [darwin] stdout '^DENIED plant E(ACCES|PERM)$'
-[darwin] exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py link.sock
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/link.yml -- python3 $WORK/sock.py $WORK/home/sock/link.sock
 [darwin] stdout '^OK host$'
 
 # A run cannot repoint a linked directory on the way either. Before the
 # swap, a/host.sock -> b/host.sock -> host.sock. After it, b names decoy,
 # where host.sock links to other.sock.
+cd $WORK/home/sock
 mkdir decoy
 symlink decoy/host.sock -> ../other.sock
 symlink b -> .
 symlink a -> b
-[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py swap b decoy
+cd $WORK/proj
+[darwin] ! exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py swap $WORK/home/sock/b decoy
 [darwin] stdout '^DENIED plant E(ACCES|PERM)$'
-[darwin] exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py a/host.sock
+[darwin] exec pmg sandbox exec --sandbox-profile $WORK/dir.yml -- python3 $WORK/sock.py $WORK/home/sock/a/host.sock
 [darwin] stdout '^OK host$'
 
 kill listener
+kill projlistener
 
 -- proj/.keep --
 -- allow.yml --
@@ -95,15 +95,14 @@ inherits: exec
 package_managers: [exec]
 network:
   allow_unix_connect:
-    - ${CWD}/host.sock
--- race.yml --
-name: exec-one-socket-race
+    - ${HOME}/sock/host.sock
+-- cwd.yml --
+name: exec-one-socket-in-project
 inherits: exec
 package_managers: [exec]
 network:
   allow_unix_connect:
     - ${CWD}/host.sock
-  allow_unix_connect_without_kernel_check: true
 -- sup.yml --
 name: exec-one-socket-supervised
 package_managers: [exec]
@@ -116,7 +115,7 @@ process:
     - /bin/**
 network:
   allow_unix_connect:
-    - ${CWD}/host.sock
+    - ${HOME}/sock/host.sock
   allow_unix_connect_without_kernel_check: true
 -- link.yml --
 name: exec-one-socket-link
@@ -124,14 +123,14 @@ inherits: exec
 package_managers: [exec]
 network:
   allow_unix_connect:
-    - ${CWD}/link.sock
+    - ${HOME}/sock/link.sock
 -- dir.yml --
 name: exec-one-socket-dir
 inherits: exec
 package_managers: [exec]
 network:
   allow_unix_connect:
-    - ${CWD}/a/host.sock
+    - ${HOME}/sock/a/host.sock
 -- bwrap.yml --
 name: exec-one-socket-bwrap
 inherits: exec
@@ -139,7 +138,7 @@ package_managers: [exec]
 network_via_proxy_only: false
 network:
   allow_unix_connect:
-    - ${CWD}/host.sock
+    - ${HOME}/sock/host.sock
 -- sock.py --
 import errno, os, signal, socket, sys, threading, time
 
@@ -171,11 +170,15 @@ def wait():
     sys.exit("listener did not start")
 
 def connect(path):
+    # A relative name stays below the macOS sun_path limit.
+    directory, name = os.path.split(path)
+    if directory:
+        os.chdir(directory)
     stage = "socket"
     try:
         s = socket.socket(socket.AF_UNIX)
         stage = "connect"
-        s.connect(path)
+        s.connect(name)
         name = s.recv(16).decode()
     except OSError as e:
         print("DENIED " + stage + " " + errno.errorcode.get(e.errno, str(e.errno)))
@@ -185,7 +188,7 @@ def connect(path):
 def plant(path):
     try:
         os.unlink(path)
-        os.symlink(os.path.abspath("other.sock"), path)
+        os.symlink(os.path.join(os.path.dirname(os.path.abspath(path)), "other.sock"), path)
     except OSError as e:
         print("DENIED plant " + errno.errorcode.get(e.errno, str(e.errno)))
         sys.exit(1)

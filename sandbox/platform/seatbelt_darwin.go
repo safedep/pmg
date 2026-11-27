@@ -48,6 +48,16 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 		return nil, fmt.Errorf("failed to translate sandbox policy: %w", err)
 	}
 
+	_, closed, err := policy.UnixSocketRoutesByWriters()
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range closed {
+		if _, err := fmt.Fprintf(os.Stderr, "pmg: warning: %s\n", c.Warning()); err != nil {
+			return nil, err
+		}
+	}
+
 	// Log pattern referred in sandbox.md as debugging guidance
 	s.logTag = s.translator.LogTag()
 	s.policyName = policy.Name

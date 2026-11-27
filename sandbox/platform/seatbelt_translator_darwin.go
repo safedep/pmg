@@ -733,8 +733,10 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 		sb.WriteString("(allow network-outbound (remote unix-socket))\n\n")
 	}
 	// Seatbelt matches the resolved path. Docker Desktop, for one, links
-	// /var/run/docker.sock into the home directory.
-	routes, err := policy.UnixSocketRoutes()
+	// /var/run/docker.sock into the home directory. The write denies on a
+	// route bind only this run, so an entry that another sandboxed run
+	// could change stays closed.
+	routes, _, err := policy.UnixSocketRoutesByWriters()
 	if err != nil {
 		return err
 	}

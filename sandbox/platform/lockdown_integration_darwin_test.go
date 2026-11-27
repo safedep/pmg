@@ -277,9 +277,7 @@ func TestLockdownEnforcementDarwin(t *testing.T) {
 		assert.NoError(t, err, "loopback self-dial must pass under lockdown with allow_network_bind")
 	})
 
-	dir, err := os.MkdirTemp("/tmp", "pmg")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	dir := dirOutsideBuiltinWriteRules(t)
 	listed := mustListenUnix(t, dir, "listed.sock")
 	other := mustListenUnix(t, dir, "other.sock")
 

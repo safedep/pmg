@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/safedep/dry/utils"
@@ -571,6 +572,61 @@ func TestUnixSocketRoutes(t *testing.T) {
 			assert.Equal(t, tt.wantSocket, routes[0].Socket)
 		})
 	}
+}
+
+// The write denies on a route bind only a run with the same list. A run
+// under a built-in profile can replace a name below its write rules and
+// choose the socket of the next run, so such an entry stays closed for every
+// profile.
+func TestUnixSocketRoutesByWriters(t *testing.T) {
+	underBuiltinRule := filepath.Join(t.TempDir(), "agent.sock")
+	ownDir := dirOutsideBuiltinWriteRules(t)
+	underOwnRule := filepath.Join(ownDir, "own.sock")
+	outside := filepath.Join(dirOutsideBuiltinWriteRules(t), "host.sock")
+
+	policy := &SandboxPolicy{
+		Filesystem: FilesystemPolicy{AllowWrite: []string{ownDir + "/**"}},
+		Network:    NetworkPolicy{AllowUnixConnect: []string{outside, underOwnRule, underBuiltinRule}},
+	}
+	open, closed, err := policy.UnixSocketRoutesByWriters()
+	require.NoError(t, err)
+
+	require.Len(t, open, 1)
+	assert.Equal(t, outside, open[0].Path)
+	require.Len(t, closed, 2)
+	assert.Equal(t, ClosedUnixSocketRoute{Path: underOwnRule, Rule: ownDir + "/**", Source: "this profile"}, closed[0])
+	assert.Equal(t, underBuiltinRule, closed[1].Path)
+	assert.True(t, strings.HasPrefix(closed[1].Source, "profile "), "closed by %s", closed[1].Source)
+}
+
+// A rule counts for every name below the part before its first glob
+// character, so a glob inside a name cannot hide a directory from the check.
+func TestWriteRuleRoot(t *testing.T) {
+	tests := map[string]string{
+		"/tmp/**":                   "/tmp",
+		"/p/**/node_modules":        "/p",
+		"/h/Library/pnpm/_tmp_*/**": "/h/Library/pnpm",
+		"/p/package.json.*":         "/p",
+		"/p/.git":                   "/p/.git",
+		"**/x":                      "/",
+	}
+	for pattern, want := range tests {
+		assert.Equal(t, want, writeRuleRoot(pattern), pattern)
+	}
+}
+
+// dirOutsideBuiltinWriteRules returns a directory that no built-in write
+// rule covers. t.TempDir is below /tmp or TMPDIR, which built-in profiles
+// can write.
+func dirOutsideBuiltinWriteRules(t *testing.T) string {
+	t.Helper()
+	if _, err := os.Stat("/dev/shm"); err != nil {
+		t.Skip("needs /dev/shm, a directory outside every built-in write rule")
+	}
+	dir, err := os.MkdirTemp("/dev/shm", "pmg-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+	return dir
 }
 
 func TestUnixConnectPaths(t *testing.T) {

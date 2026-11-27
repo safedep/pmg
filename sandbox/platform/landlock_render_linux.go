@@ -66,7 +66,7 @@ func RenderLandlock(policy *sandbox.SandboxPolicy) ([]byte, error) {
 	if len(ep.Network.UnixConnectClosed) > 0 {
 		fmt.Fprintf(&sb, "allow_unix_connect_closed:\n")
 		for _, closed := range ep.Network.UnixConnectClosed {
-			fmt.Fprintf(&sb, "  - %s (write rule %s)\n", closed.Path, closed.WriteRule)
+			fmt.Fprintf(&sb, "  - %s (write rule %s of %s)\n", closed.Path, closed.Rule, closed.Source)
 		}
 	}
 	fmt.Fprintf(&sb, "skip_pid_namespace: %t\n", ep.SkipPIDNamespace)

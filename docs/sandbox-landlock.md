@@ -338,8 +338,9 @@ These are the known holes in the current enforcement, in approximate priority or
 - **`network.allow_unix_connect` needs Landlock ABI 9.** Landlock checks each connect in the
   kernel there. Below ABI 9 PMG refuses a profile with the list, unless the profile sets
   `network.allow_unix_connect_without_kernel_check`. PMG leaves an entry closed when a
-  write rule covers a name on the way to the socket, because the supervisor deny on that name can
-  be raced.
+  write rule of the profile, of a built-in profile or of a built-in preset covers a name on the
+  way to the socket. A run under that profile could replace the name, and the supervisor deny
+  on the name can be raced.
 - **`network.allow_unix_connect_without_kernel_check` accepts a race below ABI 9.** The
   supervisor then reads the socket path from process memory, resolves it in the view of the
   process, and continues a connect to a listed socket inode. It holds an `O_PATH` descriptor on

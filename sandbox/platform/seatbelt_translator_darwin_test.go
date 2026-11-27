@@ -934,7 +934,7 @@ func TestTranslateNetworkUnixSockets(t *testing.T) {
 	dnsAllow := `(allow network-outbound (remote unix-socket (path-literal "/var/run/mDNSResponder")))`
 	blanketAllow := "(allow network-outbound)\n"
 
-	linkDir := t.TempDir()
+	linkDir := dirOutsideBuiltinWriteRules(t)
 	target := filepath.Join(linkDir, "target.sock")
 	require.NoError(t, os.WriteFile(target, nil, 0o600))
 	link := filepath.Join(linkDir, "link.sock")
@@ -1083,4 +1083,22 @@ func TestTranslateNetworkUnixSocketLinkTargetIsChecked(t *testing.T) {
 	_, err := newSeatbeltPolicyTranslator().translate(policy, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "links to an invalid path")
+}
+
+// dirOutsideBuiltinWriteRules returns a directory that no built-in write
+// rule covers. A built-in profile can write TMPDIR, /tmp and the current
+// directory, so the helper points TMPDIR at a directory below the test's
+// own temporary directory for the rest of the test.
+func dirOutsideBuiltinWriteRules(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "pmg")
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+	resolved, err := filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+	if strings.HasPrefix(resolved, "/private/tmp/") {
+		t.Skip("TMPDIR is below /tmp, which a built-in profile can write")
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+	return dir
 }

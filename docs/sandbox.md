@@ -184,8 +184,16 @@ network:
   listed path, to the socket name through each symlink on the way (a symlink to a directory
   included), and to the socket, the same way as the mandatory credential denies. When a name on
   the way does not exist, or is a file where the path needs a directory, PMG denies writes to
-  that name instead of the socket. A run cannot create, remove, move or replace any of them, so
-  it cannot choose the socket that a later run reaches.
+  that name instead of the socket. A run with the list cannot create, remove, move or replace
+  any of them.
+- The denies bind only a run with the same list. A run under another profile can replace a name
+  below its own write rules, and so choose the socket that the next run with the list reaches.
+  So PMG leaves an entry closed, and prints a warning, when a write rule of the profile, of a
+  built-in profile or of a built-in preset covers a name on the way to the socket. Built-in
+  profiles can write the project directory, `/tmp`, `/var/tmp`, `${TMPDIR}` and some caches
+  below the home directory. Put a listed socket outside these directories. PMG cannot know a
+  user profile, a user preset or a `--sandbox-allow write=` value of another run, so keep a
+  listed socket outside the directories that those can write too.
 - macOS: Seatbelt allows each path. It also allows the `/private` form of a path under `/var`,
   `/tmp` or `/etc`, and each symlink target. Seatbelt enforces the write denies in the kernel.
 - Linux, Landlock driver: the list needs Landlock ABI 9 or later, where Landlock checks each
@@ -203,10 +211,8 @@ network:
     missing then, or that its server makes again later, stays blocked. So does another socket
     that a process moves or links to the path. A socket that a process in the sandbox makes
     itself also connects. An entry that names a directory or another kind of file opens nothing.
-  - The supervisor enforces the write denies on Landlock, and a hostile process can race it. So
-    PMG leaves an entry closed when a write rule of the profile covers a name on the way to the
-    socket, and prints a warning. Put a listed socket outside the directories that the profile
-    can write.
+  - The supervisor enforces the write denies on Landlock, and a hostile process can race it. The
+    closed entries above make the denies a second line of defense.
   - `pmg sandbox profile show <name> --driver landlock` lists the open and the closed entries,
     and prints whether the kernel or the supervisor checks the list.
 - Linux, Bubblewrap driver: PMG refuses a profile with this list.

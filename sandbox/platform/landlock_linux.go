@@ -107,8 +107,7 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 		}
 	}
 	for _, closed := range execPolicy.Network.UnixConnectClosed {
-		if _, err := fmt.Fprintf(os.Stderr, "pmg: warning: network.allow_unix_connect leaves %s closed, because the write rule for %s could replace it\n",
-			closed.Path, closed.WriteRule); err != nil {
+		if _, err := fmt.Fprintf(os.Stderr, "pmg: warning: %s\n", closed.Warning()); err != nil {
 			return nil, err
 		}
 	}

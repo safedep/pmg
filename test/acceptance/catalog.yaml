@@ -255,7 +255,7 @@
   title: "sandbox exec opens only the unix sockets that a profile lists"
   category: sandbox
   tier: P0
-  guarantee: "Under `pmg sandbox exec`, a profile with network.allow_unix_connect connects to the listed socket, another unix socket stays closed, and a run cannot replace a name on the way to the socket. Bubblewrap refuses the profile. The Landlock driver refuses it below Landlock ABI 9 unless the profile sets network.allow_unix_connect_without_kernel_check, and leaves closed an entry that a write rule covers."
+  guarantee: "Under `pmg sandbox exec`, a profile with network.allow_unix_connect connects to the listed socket, another unix socket stays closed, and a run cannot replace a name on the way to the socket. An entry stays closed when a write rule of the profile, a built-in profile or a built-in preset covers a name on its route. Bubblewrap refuses the profile. The Landlock driver refuses it below Landlock ABI 9 unless the profile sets network.allow_unix_connect_without_kernel_check."
   labels: [sandbox, exec, allow, offline]
 - id: sandbox/exec/allows-loopback-bind
   title: "sandbox exec runs with a net-bind value that pmg accepts"

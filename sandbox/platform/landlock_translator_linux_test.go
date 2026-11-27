@@ -950,9 +950,8 @@ func TestLandlockTranslatePolicy_UnixConnect(t *testing.T) {
 // choose the socket of the next run. Landlock leaves such an entry closed.
 // The list opens sockets for connect only, so no rule grants MAKE_SOCK.
 func TestLandlockTranslatePolicy_UnixConnectUnderWriteRuleStaysClosed(t *testing.T) {
-	outside := t.TempDir()
-	writable := t.TempDir()
-	t.Setenv("TMPDIR", t.TempDir())
+	outside := dirOutsideBuiltinWriteRules(t)
+	writable := dirOutsideBuiltinWriteRules(t)
 	hostSocket := filepath.Join(outside, "host.sock")
 	require.NoError(t, os.WriteFile(hostSocket, nil, 0o600))
 	inWritable := filepath.Join(writable, "agent.sock")
@@ -980,7 +979,7 @@ func TestLandlockTranslatePolicy_UnixConnectUnderWriteRuleStaysClosed(t *testing
 
 	assert.Equal(t, []string{hostSocket}, ep.Network.UnixConnect)
 	require.Len(t, ep.Network.UnixConnectClosed, 2)
-	assert.Equal(t, inWritable, ep.Network.UnixConnectClosed[0].Path)
+	assert.Equal(t, sandbox.ClosedUnixSocketRoute{Path: inWritable, Rule: writable + "/**", Source: "this profile"}, ep.Network.UnixConnectClosed[0])
 	assert.Equal(t, filepath.Join(viaLink, "host.sock"), ep.Network.UnixConnectClosed[1].Path)
 	assert.Nil(t, findRule(ep.FilesystemRules, inWritable), "a closed entry gets no resolve-unix rule")
 	require.NotNil(t, findRule(ep.FilesystemRules, hostSocket))
@@ -994,4 +993,18 @@ func TestLandlockTranslatePolicy_UnixConnectUnderWriteRuleStaysClosed(t *testing
 	rule := findRule(ep.FilesystemRules, writable)
 	require.NotNil(t, rule)
 	assert.NotZero(t, rule.Access&uint64(llsyscall.AccessFSMakeSock), "without the list, write rules keep MAKE_SOCK")
+}
+
+// dirOutsideBuiltinWriteRules returns a directory that no built-in write
+// rule covers. t.TempDir is below /tmp or TMPDIR, which built-in profiles
+// can write.
+func dirOutsideBuiltinWriteRules(t *testing.T) string {
+	t.Helper()
+	if _, err := os.Stat("/dev/shm"); err != nil {
+		t.Skip("needs /dev/shm, a directory outside every built-in write rule")
+	}
+	dir, err := os.MkdirTemp("/dev/shm", "pmg-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+	return dir
 }
