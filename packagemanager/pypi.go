@@ -20,7 +20,110 @@ type pypiCommandParser interface {
 type PypiPackageManagerConfig struct {
 	InstallCommands     []string
 	NonDownloadCommands []string
+	InstallBoolFlags    []BoolFlag
 	CommandName         string
+}
+
+// The boolean flag lists below were checked against the help output of the
+// install commands of pip 26.3, uv 0.13 and poetry 2.5.
+var pipInstallBoolFlags = []BoolFlag{
+	{Name: "upgrade", Shorthand: "U"},
+	{Name: "ignore-installed", Shorthand: "I"},
+	{Name: "force-reinstall"},
+	{Name: "user"},
+	{Name: "no-deps"},
+	{Name: "only-deps"},
+	{Name: "dry-run"},
+	{Name: "ignore-requires-python"},
+	{Name: "no-build-isolation"},
+	{Name: "check-build-dependencies"},
+	{Name: "break-system-packages"},
+	{Name: "compile"},
+	{Name: "no-compile"},
+	{Name: "no-warn-script-location"},
+	{Name: "no-warn-conflicts"},
+	{Name: "require-hashes"},
+	{Name: "no-require-hashes"},
+	{Name: "no-clean"},
+	{Name: "pre"},
+	{Name: "prefer-binary"},
+	{Name: "no-index"},
+	{Name: "debug"},
+	{Name: "isolated"},
+	{Name: "require-virtualenv"},
+	{Name: "verbose", Shorthand: "v"},
+	{Name: "quiet", Shorthand: "q"},
+	{Name: "no-input"},
+	{Name: "no-proxy-env"},
+	{Name: "no-cache-dir"},
+	{Name: "disable-pip-version-check"},
+	{Name: "no-color"},
+}
+
+// uv add, uv pip install and uv tool install share a parser. A flag that takes
+// a value in any of them, such as --editable or --no-binary, is not listed.
+var uvInstallBoolFlags = []BoolFlag{
+	{Name: "upgrade", Shorthand: "U"},
+	{Name: "dev"},
+	{Name: "raw"},
+	{Name: "lfs"},
+	{Name: "no-sync"},
+	{Name: "locked"},
+	{Name: "frozen"},
+	{Name: "active"},
+	{Name: "workspace"},
+	{Name: "no-workspace"},
+	{Name: "no-install-project"},
+	{Name: "no-install-workspace"},
+	{Name: "no-install-local"},
+	{Name: "no-index"},
+	{Name: "no-sources"},
+	{Name: "reinstall"},
+	{Name: "compile-bytecode"},
+	{Name: "no-build-isolation"},
+	{Name: "no-build"},
+	{Name: "require-build-hashes"},
+	{Name: "no-require-build-hashes"},
+	{Name: "no-cache", Shorthand: "n"},
+	{Name: "refresh"},
+	{Name: "managed-python"},
+	{Name: "no-managed-python"},
+	{Name: "no-python-downloads"},
+	{Name: "quiet", Shorthand: "q"},
+	{Name: "verbose", Shorthand: "v"},
+	{Name: "system-certs"},
+	{Name: "offline"},
+	{Name: "no-progress"},
+	{Name: "no-config"},
+	{Name: "no-editable"},
+	{Name: "all-extras"},
+	{Name: "no-deps"},
+	{Name: "require-hashes"},
+	{Name: "no-verify-hashes"},
+	{Name: "system"},
+	{Name: "break-system-packages"},
+	{Name: "no-break-system-packages"},
+	{Name: "exact"},
+	{Name: "strict"},
+	{Name: "dry-run"},
+	{Name: "check"},
+	{Name: "user"},
+	{Name: "force"},
+}
+
+var poetryAddBoolFlags = []BoolFlag{
+	{Name: "dev", Shorthand: "D"},
+	{Name: "editable", Shorthand: "e"},
+	{Name: "allow-prereleases"},
+	{Name: "dry-run"},
+	{Name: "lock"},
+	{Name: "quiet", Shorthand: "q"},
+	{Name: "verbose", Shorthand: "v"},
+	{Name: "ansi"},
+	{Name: "no-ansi"},
+	{Name: "no-interaction", Shorthand: "n"},
+	{Name: "no-plugins"},
+	{Name: "no-cache"},
 }
 
 func DefaultPipPackageManagerConfig() PypiPackageManagerConfig {
@@ -32,7 +135,8 @@ func DefaultPipPackageManagerConfig() PypiPackageManagerConfig {
 			// Inspection / read-only
 			"list", "show", "check", "freeze", "config",
 		},
-		CommandName: "pip",
+		InstallBoolFlags: pipInstallBoolFlags,
+		CommandName:      "pip",
 	}
 }
 
@@ -43,7 +147,8 @@ func DefaultPip3PackageManagerConfig() PypiPackageManagerConfig {
 			"uninstall",
 			"list", "show", "check", "freeze", "config",
 		},
-		CommandName: "pip3",
+		InstallBoolFlags: pipInstallBoolFlags,
+		CommandName:      "pip3",
 	}
 }
 
@@ -54,6 +159,7 @@ func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
 		// unsafe to classify commands by a single arg scan. Run the proxy for all
 		// non-install uv commands to avoid missing coverage.
 		NonDownloadCommands: []string{},
+		InstallBoolFlags:    uvInstallBoolFlags,
 		CommandName:         "uv",
 	}
 }
@@ -67,7 +173,8 @@ func DefaultPoetryPackageManagerConfig() PypiPackageManagerConfig {
 			// Inspection / read-only
 			"show", "config", "check",
 		},
-		CommandName: "poetry",
+		InstallBoolFlags: poetryAddBoolFlags,
+		CommandName:      "poetry",
 	}
 }
 
@@ -156,6 +263,7 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 
 	// Define flags
 	var requirementFiles []string
+	registerBoolFlags(flagSet, p.config.InstallBoolFlags)
 	flagSet.StringArrayVarP(&requirementFiles, "requirement", "r", nil, "Install from requirement file")
 
 	// Parse arguments (supports interleaved flags + positional args)
@@ -175,6 +283,10 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Process packages
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
+		if !pypiIsRegistrySpec(pkg) {
+			continue
+		}
+
 		packageName, version, err := pypiParsePackageInfo(pkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
@@ -288,6 +400,7 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 
 	var manifestFiles []string
 
+	registerBoolFlags(flagSet, u.config.InstallBoolFlags)
 	flagSet.StringArrayVarP(&manifestFiles, "requirement", "r", nil, "Install from requirement file")
 
 	err := flagSet.Parse(installArgs)
@@ -302,6 +415,10 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
+		if !pypiIsRegistrySpec(pkg) {
+			continue
+		}
+
 		packageName, version, err := pypiParsePackageInfo(pkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
@@ -422,6 +539,7 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 	flagSet := pflag.NewFlagSet("poetry", pflag.ContinueOnError)
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 	flagSet.SetOutput(io.Discard)
+	registerBoolFlags(flagSet, p.config.InstallBoolFlags)
 
 	err := flagSet.Parse(installArgs)
 	if err != nil {
@@ -432,6 +550,10 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
+		if !pypiIsRegistrySpec(pkg) {
+			continue
+		}
+
 		// Convert Poetry version constraints (^, ~, *) to standard format
 		convertedPkg, err := pypiConvertPoetryVersionConstraints(pkg)
 		if err != nil {
@@ -467,6 +589,31 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 		InstallTargets:    installTargets,
 		IsManifestInstall: false,
 	}, nil
+}
+
+// pypiIsRegistrySpec reports whether a specifier can be resolved against the
+// PyPI registry. VCS, URL and local-path specifiers cannot, so we skip auditing
+// them here; the proxy still guards any registry traffic they trigger.
+func pypiIsRegistrySpec(spec string) bool {
+	if spec == "" {
+		return false
+	}
+
+	if strings.Contains(spec, "://") || strings.HasPrefix(spec, "git+") || strings.HasPrefix(spec, "file:") {
+		return false
+	}
+
+	if strings.HasPrefix(spec, ".") || strings.HasPrefix(spec, "~") || strings.Contains(spec, "/") {
+		return false
+	}
+
+	for _, ext := range []string{".whl", ".tar.gz", ".tar.bz2", ".zip"} {
+		if strings.HasSuffix(spec, ext) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // pypiParsePackageInfo parses a python package installation specification,

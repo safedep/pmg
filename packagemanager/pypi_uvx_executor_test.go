@@ -323,7 +323,7 @@ func TestUvxIsAuditableSpec(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.input, func(t *testing.T) {
-			assert.Equal(t, tc.auditable, uvxIsAuditableSpec(tc.input))
+			assert.Equal(t, tc.auditable, pypiIsRegistrySpec(tc.input))
 		})
 	}
 }

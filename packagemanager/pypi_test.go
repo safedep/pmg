@@ -1039,3 +1039,50 @@ func TestPypiProxyBehavior(t *testing.T) {
 		})
 	}
 }
+
+func TestPypiParseCommandBoolFlags(t *testing.T) {
+	pip := DefaultPipPackageManagerConfig()
+	pip3 := DefaultPip3PackageManagerConfig()
+	uv := DefaultUvPackageManagerConfig()
+	poetry := DefaultPoetryPackageManagerConfig()
+
+	cases := []struct {
+		config PypiPackageManagerConfig
+		args   string
+		want   []string
+	}{
+		{pip, "install -U requests==2.31.0", []string{"requests@2.31.0"}},
+		{pip, "install --upgrade requests==2.31.0", []string{"requests@2.31.0"}},
+		{pip, "install -qU --no-cache-dir requests==2.31.0", []string{"requests@2.31.0"}},
+		{pip3, "install --user --force-reinstall requests==2.31.0", []string{"requests@2.31.0"}},
+		{pip, "install --index-url https://example.com/simple requests==2.31.0", []string{"requests@2.31.0"}},
+		{uv, "add --dev requests==2.31.0", []string{"requests@2.31.0"}},
+		{uv, "pip install -U requests==2.31.0", []string{"requests@2.31.0"}},
+		{poetry, "add -D requests==2.31.0", []string{"requests@2.31.0"}},
+		{poetry, "add --group dev --dry-run requests==2.31.0", []string{"requests@2.31.0"}},
+		{pip, "install -U .", nil},
+		{pip, "install .", nil},
+		{pip, "install git+https://github.com/psf/requests", nil},
+		{uv, "pip install ./x", nil},
+		{pip, "install --no-deps ./dist/pkg-1.0-py3-none-any.whl", nil},
+		{pip, "install --upgrade git+https://github.com/psf/requests", nil},
+		{uv, "add --raw git+https://github.com/psf/requests", nil},
+		{poetry, "add --editable ./lib", nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.config.CommandName+" "+tc.args, func(t *testing.T) {
+			pm, err := NewPypiPackageManager(tc.config)
+			require.NoError(t, err)
+
+			parsed, err := pm.ParseCommand(strings.Fields(tc.args))
+			require.NoError(t, err)
+
+			var got []string
+			for _, target := range parsed.InstallTargets {
+				got = append(got, target.PackageVersion.GetPackage().GetName()+"@"+target.PackageVersion.GetVersion())
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
