@@ -21,6 +21,7 @@ import (
 
 	"github.com/elazarl/goproxy"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/netpolicy"
 )
@@ -168,6 +169,9 @@ type ProxyConfig struct {
 	// OnBlock receives the reason and the facts of each request that an
 	// interceptor blocks.
 	OnBlock func(BlockReason, *BlockContext)
+
+	// FailClosed blocks a request with HTTP 503 when an interceptor fails.
+	FailClosed bool
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -719,7 +723,11 @@ func (ps *proxyServer) registerHandlers() {
 			resp, err := interceptor.HandleRequest(reqCtx)
 			if err != nil {
 				log.Errorf("[%s] Interceptor %s error: %v", reqCtx.RequestID, interceptor.Name(), err)
-				continue
+				if !ps.config.FailClosed {
+					continue
+				}
+				audit.LogNoVerdictBlocked(nil, fmt.Errorf("interceptor %s: %w", interceptor.Name(), err))
+				resp = &InterceptorResponse{Action: ActionBlock, BlockCode: http.StatusServiceUnavailable, BlockReason: BlockReasonNoVerdict}
 			}
 
 			if resp == nil {

@@ -28,7 +28,7 @@ func TestAnalysisFailureLogWritesALine(t *testing.T) {
 
 	l.Record(npmPackage("0.1.2"), status.Error(codes.DeadlineExceeded, "context deadline exceeded"))
 
-	assert.Equal(t, "2026-11-25T05:07:34Z Allowed pkg:npm/safedep-test-pkg@0.1.2 without malware analysis: "+
+	assert.Equal(t, "2026-11-25T05:07:34Z Blocked pkg:npm/safedep-test-pkg@0.1.2 without malware analysis: "+
 		"rpc error: code = DeadlineExceeded desc = context deadline exceeded\n", out.String())
 }
 
@@ -38,12 +38,12 @@ func TestAnalysisFailureLogRemovesControlCharacters(t *testing.T) {
 	l.now = func() time.Time { return time.Date(2026, 11, 25, 5, 7, 34, 0, time.UTC) }
 
 	forged := status.Error(codes.Unavailable,
-		"bad\n2026-11-25T05:07:35Z Allowed pkg:npm/forged@1.0.0 without malware analysis\x1b[2J")
+		"bad\n2026-11-25T05:07:35Z Blocked pkg:npm/forged@1.0.0 without malware analysis\x1b[2J")
 	l.Record(npmPackage("0.1.2"), forged)
 
 	assert.Equal(t, 1, strings.Count(out.String(), "\n"), "the error text cannot start a new line")
 	assert.NotContains(t, out.String(), "\x1b")
-	assert.Contains(t, out.String(), "desc = bad2026-11-25T05:07:35Z Allowed pkg:npm/forged@1.0.0")
+	assert.Contains(t, out.String(), "desc = bad2026-11-25T05:07:35Z Blocked pkg:npm/forged@1.0.0")
 }
 
 func TestAnalysisFailureLogLimitsABurst(t *testing.T) {
@@ -82,5 +82,5 @@ func TestAnalysisFailureLogFlushWritesTheHeldBackCount(t *testing.T) {
 
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	require.Len(t, lines, analysisFailureMaxLines+1)
-	assert.Contains(t, lines[analysisFailureMaxLines], "pmg did not write 3 more lines")
+	assert.Contains(t, lines[analysisFailureMaxLines], "pmg did not write 3 more lines about packages blocked without malware analysis")
 }

@@ -16,8 +16,9 @@ const (
 	analysisFailureMaxLines = 20
 )
 
-// analysisFailureLog writes to the proxy log, because the logger is off
-// without --debug. An outage fails every download, so the lines are limited.
+// analysisFailureLog writes paranoid blocks to the proxy log, because the
+// logger is off without --debug. An outage fails every download, so the lines
+// are limited.
 type analysisFailureLog struct {
 	out io.Writer
 	now func() time.Time
@@ -49,7 +50,7 @@ func (l *analysisFailureLog) Record(pkg *packagev1.PackageVersion, err error) {
 	}
 	l.written++
 
-	l.write(now, fmt.Sprintf("Allowed %s without malware analysis: %s",
+	l.write(now, fmt.Sprintf("Blocked %s without malware analysis: %s",
 		ui.PackageVersionPurl(pkg), ui.RemoveControlChars(err.Error())))
 }
 
@@ -66,7 +67,7 @@ func (l *analysisFailureLog) flushLocked(now time.Time) {
 	if l.suppressed == 0 {
 		return
 	}
-	l.write(now, fmt.Sprintf("pmg did not write %d more lines about packages allowed without malware analysis", l.suppressed))
+	l.write(now, fmt.Sprintf("pmg did not write %d more lines about packages blocked without malware analysis", l.suppressed))
 	l.suppressed = 0
 }
 

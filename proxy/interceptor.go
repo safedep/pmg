@@ -57,6 +57,7 @@ const (
 	BlockReasonDependencyCooldown
 	BlockReasonNetworkPolicy
 	BlockReasonPolicyRule
+	BlockReasonNoVerdict
 )
 
 // blockReasonNames are the names of the reasons in JSON. A stored reason
@@ -69,6 +70,7 @@ var blockReasonNames = map[BlockReason]string{
 	BlockReasonDependencyCooldown: "dependency_cooldown",
 	BlockReasonNetworkPolicy:      "network_policy",
 	BlockReasonPolicyRule:         "policy_rule",
+	BlockReasonNoVerdict:          "no_verdict",
 }
 
 // MarshalText writes a reason with no name as "none". It never fails, because

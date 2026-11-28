@@ -30,6 +30,10 @@ type ProxyPresenter struct {
 // BlockMessage renders the response body for a blocked proxy request
 // from the interceptor's structured block decision.
 func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.BlockContext) string {
+	if reason == proxy.BlockReasonNoVerdict {
+		// An outage blocked the package, not a policy, so no advisory message.
+		return noVerdictMessage(blockCtx)
+	}
 	if blockCtx == nil {
 		return ""
 	}
@@ -144,33 +148,54 @@ func PolicyRuleBlockMessage(blockCtx *proxy.BlockContext) string {
 
 // BlockedPackageLine names a package that the persistent proxy blocked and
 // the reason, in one line of the stop report. A package manager shows only
-// an HTTP 403 for a block of the daemon, so this line is where a user finds
-// the rule id.
+// an HTTP 403 or 503 for a block of the daemon, so this line is where a user
+// finds the rule id.
 func BlockedPackageLine(reason proxy.BlockReason, blockCtx *proxy.BlockContext) string {
-	pkg := packagePurl(blockCtx)
-	if blockCtx.Ecosystem == packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED {
-		pkg = RemoveControlChars(blockCtx.PackageName + "@" + blockCtx.PackageVersion)
-	}
+	return BlockedPackageName(blockCtx) + " · " + BlockedPackageReason(reason, blockCtx)
+}
 
+// BlockedPackageName names a package that the persistent proxy blocked.
+func BlockedPackageName(blockCtx *proxy.BlockContext) string {
+	if blockCtx.Ecosystem == packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED {
+		return RemoveControlChars(blockCtx.PackageName + "@" + blockCtx.PackageVersion)
+	}
+	return packagePurl(blockCtx)
+}
+
+// BlockedPackageReason says why the persistent proxy blocked a package.
+func BlockedPackageReason(reason proxy.BlockReason, blockCtx *proxy.BlockContext) string {
 	switch reason {
 	case proxy.BlockReasonPolicyRule:
 		rule := blockCtx.PolicyRule
 		if rule == nil {
-			return pkg + " · package rule"
+			return "package rule"
 		}
 		if rule.Cloud {
-			return fmt.Sprintf("%s · rule %s · policy revision %d", pkg, RemoveControlChars(rule.RuleID), rule.Revision)
+			return fmt.Sprintf("rule %s · policy revision %d", RemoveControlChars(rule.RuleID), rule.Revision)
 		}
-		return fmt.Sprintf("%s · blocked_packages in %s", pkg, RemoveControlChars(rule.File))
+		return "blocked_packages in " + RemoveControlChars(rule.File)
 	case proxy.BlockReasonDependencyCooldown:
-		return pkg + " · dependency cooldown"
+		return "dependency cooldown"
 	case proxy.BlockReasonUserDeclined, proxy.BlockReasonConfirmationFailed:
-		return pkg + " · suspicious"
+		return "suspicious"
 	case proxy.BlockReasonMalware:
-		return pkg + " · malware"
+		return "malware"
+	case proxy.BlockReasonNoVerdict:
+		return "no malware verdict"
 	default:
-		return pkg + " · blocked"
+		return "blocked"
 	}
+}
+
+// NoVerdictRetry tells the user why paranoid mode blocked the package.
+const NoVerdictRetry = "Paranoid mode blocks a package that has no verdict. Retry the install in a few minutes."
+
+// noVerdictMessage has no package name when an interceptor failed before it read one.
+func noVerdictMessage(blockCtx *proxy.BlockContext) string {
+	if blockCtx == nil {
+		return "PMG could not check this request. " + NoVerdictRetry
+	}
+	return fmt.Sprintf("PMG could not get a malware verdict for %s. %s", packagePurl(blockCtx), NoVerdictRetry)
 }
 
 // packagePurl names the blocked package as a PURL, the form of the rule

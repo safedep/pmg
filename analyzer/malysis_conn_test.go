@@ -26,14 +26,17 @@ const missingVersion = "missing"
 
 type testMalysisServer struct {
 	malysisv1grpc.UnimplementedMalwareAnalysisServiceServer
-	delay time.Duration
-	stall string
-	calls atomic.Int32
+	delay    time.Duration
+	stall    string
+	failures []codes.Code
+	calls    atomic.Int32
 }
 
 func (s *testMalysisServer) QueryPackageAnalysis(ctx context.Context,
 	req *malysisv1.QueryPackageAnalysisRequest) (*malysisv1.QueryPackageAnalysisResponse, error) {
-	s.calls.Add(1)
+	if n := int(s.calls.Add(1)); n <= len(s.failures) {
+		return nil, status.Error(s.failures[n-1], "try again")
+	}
 	delay := s.delay
 	if req.GetTarget().GetPackageVersion().GetVersion() == s.stall {
 		delay = time.Hour
@@ -284,6 +287,34 @@ func TestReconnectingConnRetriesCanceledOnTheCurrentConnection(t *testing.T) {
 	assert.Equal(t, int32(2), dialer.dials.Load())
 }
 
+func TestReconnectingConnRetryFollowsAPromotion(t *testing.T) {
+	conn, dialer, _ := deadConn(t, time.Minute, 0)
+	entered := make(chan struct{}, 1)
+	old := &enteredConn{closableConn: conn.current(), entered: entered}
+	conn.conn = old
+
+	done := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, err := query(withoutHedge(ctx), conn, "1.0.0")
+		done <- err
+	}()
+	<-entered
+
+	fresh, _, err := conn.next(old)
+	require.NoError(t, err)
+	conn.promote(old, fresh)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err, "a retry that the closed connection canceled goes on the current connection")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "the retry waited on a closed connection")
+	}
+	assert.Equal(t, int32(2), dialer.dials.Load())
+}
+
 func TestReconnectingConnKeepsTheSpareWhenShortCallersTimeOut(t *testing.T) {
 	conn, dialer, _ := deadConn(t, 100*time.Millisecond, 800*time.Millisecond)
 
@@ -461,6 +492,20 @@ func TestReconnectingConnFollowsTwoPromotions(t *testing.T) {
 		require.Fail(t, "the call waited on a closed connection")
 	}
 	assert.Equal(t, int32(3), dialer.dials.Load())
+}
+
+// enteredConn signals when a call starts on it.
+type enteredConn struct {
+	closableConn
+	entered chan<- struct{}
+}
+
+func (c *enteredConn) Invoke(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
+	select {
+	case c.entered <- struct{}{}:
+	default:
+	}
+	return c.closableConn.Invoke(ctx, method, args, reply, opts...)
 }
 
 type stubConn struct {

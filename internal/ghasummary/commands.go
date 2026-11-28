@@ -8,10 +8,10 @@ import (
 const annotationTitle = "PMG"
 
 // Commands are the workflow commands that annotate the run: an error or a
-// warning per denial and per blocked package set, a warning per new host
-// when the workflow names a profile, and a notice that points at the
-// proposal when the workflow names a profile. Each kind stops at a fixed count, so a noisy run does not
-// bury the job.
+// warning per denial, per blocked package set and per set with no verdict, a
+// warning per new host when the workflow names a profile, and a notice that
+// points at the proposal when the workflow names a profile. Each kind stops at
+// a fixed count, so a noisy run does not bury the job.
 func Commands(in Input) []string {
 	var out []string
 	kind := "warning"
@@ -23,6 +23,9 @@ func Commands(in Input) []string {
 	}
 	if in.Stop.BlockedCount > 0 {
 		out = append(out, command(kind, fmt.Sprintf("PMG blocked %d package(s). See the job summary.", in.Stop.BlockedCount)))
+	}
+	if n := countNoVerdict(in.Stop.Blocked); n > 0 {
+		out = append(out, command(kind, fmt.Sprintf("PMG blocked %d package(s) with no malware verdict. Re-run the job in a few minutes.", n)))
 	}
 	out = append(out, denialCommands(in, kind)...)
 	out = append(out, newHostCommands(in)...)

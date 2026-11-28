@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/interceptors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -453,6 +456,7 @@ func TestProxyFlow_Npm(t *testing.T) {
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.False(t, res.Blocked())
 				assert.True(t, h.Registry.DownloadedTarball("flaky", "1.0.0"))
+				assert.Empty(t, h.Blocks())
 				assertUnanalyzed(t, h, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0")
 			},
 		},
@@ -501,6 +505,230 @@ func TestProxyFlow_AnalyzerErrorFailsOpenInEveryEcosystem(t *testing.T) {
 			},
 		},
 	})
+}
+
+func paranoid(rc *config.RuntimeConfig) { rc.Config.Paranoid = true }
+
+func TestProxyFlow_ParanoidBlocksWithoutAVerdict(t *testing.T) {
+	ecosystems := []struct {
+		name      string
+		ecosystem packagev1.Ecosystem
+		pkg       string
+		version   string
+		setup     func(h *Harness, v Verdict)
+		install   func(h *Harness) ExecResult
+	}{
+		{
+			name: "npm", ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, pkg: "flaky", version: "1.0.0",
+			setup: func(h *Harness, v Verdict) {
+				h.Registry.AddNpm(NpmPackage{Name: "flaky", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("flaky", "1.0.0", v)
+			},
+			install: func(h *Harness) ExecResult { return h.Npm().Install("flaky", "1.0.0") },
+		},
+		{
+			name: "pypi", ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI, pkg: "flaky", version: "1.0.0",
+			setup: func(h *Harness, v Verdict) {
+				h.Registry.AddPypi(PypiPackage{Name: "flaky", Versions: []PypiVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetPypi("flaky", "1.0.0", v)
+			},
+			install: func(h *Harness) ExecResult { return h.Pypi().Install("flaky", "1.0.0") },
+		},
+		{
+			name: "go", ecosystem: packagev1.Ecosystem_ECOSYSTEM_GO, pkg: "example.com/flaky", version: "v1.0.0",
+			setup: func(h *Harness, v Verdict) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/flaky",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/flaky", "v1.0.0", v)
+			},
+			install: func(h *Harness) ExecResult { return h.Go().Install("example.com/flaky", "v1.0.0") },
+		},
+		{
+			name: "cargo", ecosystem: packagev1.Ecosystem_ECOSYSTEM_CARGO, pkg: "flaky", version: "1.0.0",
+			setup: func(h *Harness, v Verdict) {
+				h.Registry.AddCargo(CargoCrate{Name: "flaky", Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetCargo("flaky", "1.0.0", v)
+			},
+			install: func(h *Harness) ExecResult { return h.Cargo().Install("flaky", "1.0.0") },
+		},
+	}
+
+	var cases []TestCase
+	for _, eco := range ecosystems {
+		cases = append(cases,
+			TestCase{
+				Name:   eco.name + " analyzer error blocks with 503",
+				Config: paranoid,
+				Setup:  func(h *Harness) { eco.setup(h, ServerError()) },
+				Exec:   eco.install,
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					assertNoVerdictBlock(t, h, lastRequest(t, res), eco.ecosystem, eco.pkg, eco.version)
+					assertUnanalyzed(t, h, eco.ecosystem, eco.pkg, eco.version)
+				},
+			},
+			TestCase{
+				Name:   eco.name + " NotFound allows",
+				Config: paranoid,
+				Setup:  func(h *Harness) { eco.setup(h, NotFound()) },
+				Exec:   eco.install,
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					assert.Equal(t, http.StatusOK, lastRequest(t, res).StatusCode)
+					assert.Empty(t, h.Blocks())
+					assert.Empty(t, h.Unanalyzed())
+				},
+			},
+		)
+	}
+
+	addNpm := func(h *Harness, name string, v Verdict) {
+		h.Registry.AddNpm(NpmPackage{Name: name, DistTagLatest: "1.0.0",
+			Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+		h.Analyzer.SetNpm(name, "1.0.0", v)
+	}
+	tripBreaker := func(h *Harness) ExecResult {
+		var res ExecResult
+		for _, name := range []string{"down-0", "down-1", "down-2"} {
+			res.add(h.Npm().Download(name, "1.0.0"))
+		}
+		return res
+	}
+	setupTrip := func(h *Harness) {
+		for _, name := range []string{"down-0", "down-1", "down-2"} {
+			addNpm(h, name, ServerError())
+		}
+	}
+	burst := []string{"burst-0", "burst-1", "burst-2", "burst-3", "burst-4"}
+
+	cases = append(cases,
+		TestCase{
+			Name: "insecure installation allows without a verdict",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.Paranoid = true
+				rc.InsecureInstallation = true
+			},
+			Setup: func(h *Harness) { addNpm(h, "flaky", ServerError()) },
+			Exec:  func(h *Harness) ExecResult { return h.Npm().Install("flaky", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Equal(t, http.StatusOK, lastRequest(t, res).StatusCode)
+				assert.Zero(t, h.Analyzer.AnalyzedCount("flaky", "1.0.0"))
+				assert.Empty(t, h.Blocks())
+			},
+		},
+		TestCase{
+			Name:   "open breaker blocks with no query",
+			Config: paranoid,
+			Setup: func(h *Harness) {
+				setupTrip(h)
+				addNpm(h, "left-pad", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := tripBreaker(h)
+				res.add(h.Npm().Download("left-pad", "1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Len(t, res.Requests, 4)
+				for _, r := range res.Requests {
+					assert.Equal(t, http.StatusServiceUnavailable, r.StatusCode)
+				}
+				assert.Zero(t, h.Analyzer.AnalyzedCount("left-pad", "1.0.0"), "the open breaker answers before the analyzer")
+				blocks := h.Blocks()
+				require.Len(t, blocks, 4)
+				assert.Equal(t, proxy.BlockReasonNoVerdict, blocks[3].Reason)
+			},
+		},
+		TestCase{
+			Name:   "a retried download that gets a verdict heals the block",
+			Config: paranoid,
+			Setup:  func(h *Harness) { addNpm(h, "flaky", ServerError()) },
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.Npm().Download("flaky", "1.0.0"))
+				h.Analyzer.SetNpm("flaky", "1.0.0", Clean())
+				res.add(h.Npm().Download("flaky", "1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Len(t, res.Requests, 2)
+				assert.Equal(t, http.StatusServiceUnavailable, res.Requests[0].StatusCode)
+				assert.Equal(t, http.StatusOK, res.Requests[1].StatusCode)
+				assert.Zero(t, h.Stats().BlockedCount, "the install got the package")
+				assert.Equal(t, 1, h.Stats().AllowedCount)
+			},
+		},
+		TestCase{
+			Name:   "a retry keeps a malware verdict",
+			Config: paranoid,
+			Setup:  func(h *Harness) { addNpm(h, "evil", FailOnce(VerifiedMalware())) },
+			Exec:   func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Equal(t, http.StatusForbidden, lastRequest(t, res).StatusCode)
+				assert.Equal(t, 2, h.Analyzer.AnalyzedCount("evil", "1.0.0"), "the analyzer retries the transient failure")
+				blocks := h.Blocks()
+				require.Len(t, blocks, 1)
+				assert.Equal(t, proxy.BlockReasonMalware, blocks[0].Reason)
+				assert.Empty(t, h.Unanalyzed())
+			},
+		},
+		TestCase{
+			Name:    "half-open breaker lets a burst wait for the probe",
+			Config:  paranoid,
+			Options: []Option{WithBreakerOpenPeriod(time.Second)},
+			Setup: func(h *Harness) {
+				setupTrip(h)
+				for _, name := range burst {
+					addNpm(h, name, Delayed(Clean(), 300*time.Millisecond))
+				}
+			},
+			Exec: func(h *Harness) ExecResult {
+				tripBreaker(h)
+				time.Sleep(1500 * time.Millisecond)
+
+				outcomes := make([]RequestOutcome, len(burst))
+				var wg sync.WaitGroup
+				for i, name := range burst {
+					wg.Go(func() { outcomes[i] = h.Npm().Download(name, "1.0.0") })
+				}
+				wg.Wait()
+				return ExecResult{Requests: outcomes}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				for i, r := range res.Requests {
+					require.NoError(t, r.Err)
+					assert.Equal(t, http.StatusOK, r.StatusCode, "burst request %d", i)
+				}
+				for _, name := range burst {
+					assert.Equal(t, 1, h.Analyzer.AnalyzedCount(name, "1.0.0"))
+				}
+			},
+		},
+	)
+	RunCases(t, cases)
+}
+
+func lastRequest(t *testing.T, res ExecResult) RequestOutcome {
+	t.Helper()
+	require.NotEmpty(t, res.Requests)
+	last := res.Requests[len(res.Requests)-1]
+	require.NoError(t, last.Err)
+	return last
+}
+
+func assertNoVerdictBlock(t *testing.T, h *Harness, r RequestOutcome, ecosystem packagev1.Ecosystem, name, version string) {
+	t.Helper()
+	assert.Equal(t, http.StatusServiceUnavailable, r.StatusCode)
+	assert.True(t, r.Blocked)
+	assert.Contains(t, r.Body, "could not get a malware verdict")
+	want := &proxy.BlockContext{Ecosystem: ecosystem, PackageName: name, PackageVersion: version}
+	assert.Equal(t, []Block{{Reason: proxy.BlockReasonNoVerdict, Context: want}}, h.Blocks())
+	assert.Equal(t, 1, h.Stats().BlockedCount)
+
+	events := h.Audit.Events(audit.EventTypeNoVerdictBlocked)
+	require.NotEmpty(t, events)
+	assert.Equal(t, name, events[0].PackageVersion.GetPackage().GetName())
+	assert.Equal(t, version, events[0].PackageVersion.GetVersion())
+	assert.Error(t, events[0].Error)
 }
 
 func assertUnanalyzed(t *testing.T, h *Harness, ecosystem packagev1.Ecosystem, name, version string) {

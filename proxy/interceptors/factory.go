@@ -3,6 +3,7 @@ package interceptors
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
@@ -37,8 +38,13 @@ type InterceptorContext struct {
 	// process, cloudpolicy.Global.
 	Policy cloudpolicy.Source
 
-	// OnAnalysisFailure is called for each package allowed without analysis.
-	OnAnalysisFailure func(pkg *packagev1.PackageVersion, err error)
+	// BreakerOpenPeriod overrides the open period of the circuit breaker. Zero
+	// keeps the default of the mode.
+	BreakerOpenPeriod time.Duration
+
+	// OnNoVerdictBlocked is called for each package that paranoid mode blocks
+	// without a malware verdict.
+	OnNoVerdictBlocked func(pkg *packagev1.PackageVersion, err error)
 }
 
 // currentPolicy returns the policy of src, or the policy of the process when

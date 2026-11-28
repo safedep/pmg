@@ -136,7 +136,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 
 	statePath := opts.StatePath
 	if existing, err := readState(statePath); err == nil && existing.IsRunning() {
-		return fmt.Errorf("proxy already running (pid %d, addr %s) — run 'pmg proxy stop' first", existing.PID, existing.Addr)
+		return fmt.Errorf("proxy already running (pid %d, addr %s). Run 'pmg proxy stop' first", existing.PID, existing.Addr)
 	}
 
 	startTime := time.Now()
@@ -232,6 +232,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
 	proxyConfig.BlockMessageRenderer = opts.BlockMessage
+	proxyConfig.FailClosed = cfg.FailClosed()
 	proxyConfig.OnUpstreamFailure = opts.UpstreamFailed
 
 	blocks := &blockLog{seen: map[string]bool{}}
@@ -373,7 +374,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	// keeps `stop --fail-on-violation` correct in those cases.
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
-	state.Blocked = blocks.List()
+	state.Blocked = blocks.List(statsCollector.HasNoVerdictBlock)
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}
@@ -446,14 +447,14 @@ func buildInterceptors(
 	confirmationChan chan *interceptors.ConfirmationRequest,
 	registries []config.ProxyRegistryConfig,
 	ecosystems []packagev1.Ecosystem,
-	onAnalysisFailure func(*packagev1.PackageVersion, error),
+	onNoVerdictBlocked func(*packagev1.PackageVersion, error),
 ) ([]pmgproxy.Interceptor, error) {
 	factory, err := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,
 		cache,
 		statsCollector,
 		confirmationChan,
-		interceptors.InterceptorContext{Policy: cloudpolicy.Global(), OnAnalysisFailure: onAnalysisFailure},
+		interceptors.InterceptorContext{Policy: cloudpolicy.Global(), OnNoVerdictBlocked: onNoVerdictBlocked},
 		registries,
 	)
 	if err != nil {
@@ -481,26 +482,31 @@ func proxiedEcosystems(caDir string, goTrustsCA func(caDir string) error) ([]pac
 }
 
 // logSessionSummary emits an aggregate session-complete audit event for the
-// daemon's lifetime, mapping the proxy stats collector onto SessionData. The
-// outcome is blocked when anything was blocked, otherwise success.
+// daemon's lifetime.
 func logSessionSummary(cfg *config.RuntimeConfig, stats interceptors.AnalysisStats, duration time.Duration) {
+	audit.LogSessionSummary(daemonSessionData(cfg, stats, duration))
+}
+
+// daemonSessionData leaves the no-verdict blocks out of the blocked count, as
+// the one-shot flow does, because the cloud gets no event for them.
+func daemonSessionData(cfg *config.RuntimeConfig, stats interceptors.AnalysisStats, duration time.Duration) audit.SessionData {
 	outcome := audit.OutcomeSuccess
 	if stats.BlockedCount > 0 {
 		outcome = audit.OutcomeBlocked
 	}
 
-	audit.LogSessionSummary(audit.SessionData{
+	return audit.SessionData{
 		FlowType:             audit.FlowTypeProxy,
 		Outcome:              outcome,
 		TotalAnalyzed:        uint32(stats.TotalAnalyzed),
 		AllowedCount:         uint32(stats.AllowedCount),
-		BlockedCount:         uint32(stats.BlockedCount),
+		BlockedCount:         uint32(stats.BlockedCount - stats.NoVerdictBlockedCount),
 		ConfirmedCount:       uint32(stats.ConfirmedCount),
 		CooldownBlockedCount: uint32(stats.CooldownBlockedCount),
 		Duration:             duration,
 		SandboxEnabled:       cfg.Config.Sandbox.Enabled,
 		ParanoidMode:         cfg.Config.Paranoid,
-	})
+	}
 }
 
 // cloudFlush drains whatever the periodic sync left and returns the outcome
@@ -630,10 +636,13 @@ func (l *blockLog) Record(reason pmgproxy.BlockReason, blockCtx *pmgproxy.BlockC
 	l.blocked = append(l.blocked, BlockedPackage{Reason: reason, Context: blockCtx})
 }
 
-func (l *blockLog) List() []BlockedPackage {
+// List leaves out a no-verdict block that a later download of the package healed.
+func (l *blockLog) List(blockedWithoutVerdict func(*pmgproxy.BlockContext) bool) []BlockedPackage {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return slices.Clone(l.blocked)
+	return slices.DeleteFunc(slices.Clone(l.blocked), func(p BlockedPackage) bool {
+		return p.Reason == pmgproxy.BlockReasonNoVerdict && !blockedWithoutVerdict(p.Context)
+	})
 }
 
 // reloadIfCacheMoved reloads the policy when the cache holds another policy

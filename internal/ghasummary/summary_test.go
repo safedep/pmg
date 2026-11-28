@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/internal/proxyserver"
+	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox/propose"
 	"github.com/stretchr/testify/assert"
@@ -62,6 +64,29 @@ func TestSummary(t *testing.T) {
 	twoPrograms := bootstrap()
 	twoPrograms.Destinations = append(twoPrograms.Destinations,
 		destination("api.example.com", 443, "node", propose.VerdictAdd, "api.example.com:443"))
+
+	noVerdict := clean()
+	noVerdict.BlockedCount = 2
+	noVerdict.Blocked = []proxyserver.BlockedPackage{
+		{Reason: pmgproxy.BlockReasonNoVerdict, Context: &pmgproxy.BlockContext{
+			Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "lodash", PackageVersion: "4.17.20"}},
+		{Reason: pmgproxy.BlockReasonMalware, Context: &pmgproxy.BlockContext{
+			Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "safedep-test-pkg", PackageVersion: "0.1.3"}},
+	}
+	noVerdict.Violation = "2 package(s) were blocked by the proxy"
+
+	defaultBlocks := clean()
+	defaultBlocks.BlockedCount = 3
+	defaultBlocks.Blocked = []proxyserver.BlockedPackage{
+		{Reason: pmgproxy.BlockReasonMalware, Context: &pmgproxy.BlockContext{
+			Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "safedep-test-pkg", PackageVersion: "0.1.3"}},
+		{Reason: pmgproxy.BlockReasonPolicyRule, Context: &pmgproxy.BlockContext{
+			Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI, PackageName: "left-pad", PackageVersion: "1.0.0",
+			PolicyRule: &pmgproxy.PolicyRuleBlock{File: "/home/runner/work/app/app/.pmg/config.yml"}}},
+		{Reason: pmgproxy.BlockReasonDependencyCooldown, Context: &pmgproxy.BlockContext{
+			Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "fresh", PackageVersion: "2.0.0", CooldownDays: 2}},
+	}
+	defaultBlocks.Violation = "3 package(s) were blocked by the proxy"
 
 	unverified := clean()
 	unverified.StateVerified = false
@@ -145,6 +170,21 @@ func TestSummary(t *testing.T) {
 				"::error title=PMG::PMG blocked 1 package(s). See the job summary.",
 				"::error title=PMG::PMG denied pastebin.com:443 by rule *:* (node)",
 			},
+		},
+		{
+			name:   "paranoid run that blocked a package with no verdict",
+			golden: "no-verdict.md",
+			in:     Input{Stop: noVerdict, FailOnViolation: true},
+			cmds: []string{
+				"::error title=PMG::PMG blocked 2 package(s). See the job summary.",
+				"::error title=PMG::PMG blocked 1 package(s) with no malware verdict. Re-run the job in a few minutes.",
+			},
+		},
+		{
+			name:   "default mode run that blocked packages names each one",
+			golden: "default-mode-blocks.md",
+			in:     Input{Stop: defaultBlocks, FailOnViolation: true},
+			cmds:   []string{"::error title=PMG::PMG blocked 3 package(s). See the job summary."},
 		},
 		{
 			name:   "unverified final state",

@@ -148,6 +148,7 @@ func TestStopReport(t *testing.T) {
 		name      string
 		res       proxyserver.StopResult
 		violation string
+		json      string
 	}{
 		{
 			name: "clean run",
@@ -157,6 +158,15 @@ func TestStopReport(t *testing.T) {
 			name:      "block is a violation without the flag",
 			res:       proxyserver.StopResult{PID: 7, StateVerified: true, BlockedCount: 2},
 			violation: "2 package(s) were blocked by the proxy",
+		},
+		{
+			name: "block with no verdict keeps its reason",
+			res: proxyserver.StopResult{PID: 7, StateVerified: true, BlockedCount: 1, Blocked: []proxyserver.BlockedPackage{
+				{Reason: proxy.BlockReasonNoVerdict, Context: &proxy.BlockContext{
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "lodash", PackageVersion: "4.17.20"}},
+			}},
+			violation: "1 package(s) were blocked by the proxy",
+			json:      `"reason": "no_verdict"`,
 		},
 		{
 			name:      "unverified state is a violation",
@@ -177,6 +187,8 @@ func TestStopReport(t *testing.T) {
 			assert.True(t, got.Stopped)
 			assert.Equal(t, tc.res.PID, got.PID)
 			assert.Equal(t, tc.res.BlockedCount, got.BlockedCount)
+			assert.Equal(t, tc.res.Blocked, got.Blocked)
+			assert.Contains(t, string(data), tc.json)
 			assert.Equal(t, tc.res.RunID, got.RunID)
 			assert.Equal(t, tc.res.Observed, got.Observed)
 			if tc.violation == "" {

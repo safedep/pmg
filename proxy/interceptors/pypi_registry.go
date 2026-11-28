@@ -47,7 +47,7 @@ func newPypiRegistryInterceptor(
 			cache:            cache,
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
-			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-pypi"),
+			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-pypi", execContext.BreakerOpenPeriod),
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
@@ -110,7 +110,7 @@ func (i *PypiRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, _ *r
 
 	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, name, version)
 	if err != nil {
-		return i.allowUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, name, version, err), nil
+		return i.handleUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, name, version, err), nil
 	}
 
 	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, name, version, result)

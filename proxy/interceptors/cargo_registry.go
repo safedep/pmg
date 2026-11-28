@@ -49,7 +49,7 @@ func newCargoRegistryInterceptor(
 			cache:            cache,
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
-			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-cargo"),
+			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-cargo", execContext.BreakerOpenPeriod),
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
@@ -110,7 +110,7 @@ func (i *CargoRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, mat
 
 	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, name, version)
 	if err != nil {
-		return i.allowUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, name, version, err), nil
+		return i.handleUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, name, version, err), nil
 	}
 
 	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, name, version, result)

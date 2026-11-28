@@ -3,8 +3,10 @@ package proxye2e
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	malysisv1pb "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
@@ -19,8 +21,10 @@ import (
 // raw upstream signal: the real analyzer's verdict-mapping (suspicious→confirm,
 // paranoid upgrade, verified→block, exclusion→allow) runs on top of it.
 type Verdict struct {
-	resp *malysisv1.QueryPackageAnalysisResponse
-	err  error
+	resp     *malysisv1.QueryPackageAnalysisResponse
+	err      error
+	delay    time.Duration
+	failOnce bool
 }
 
 // Clean reports no malware (allow).
@@ -77,9 +81,21 @@ func NotFound() Verdict {
 	return Verdict{err: status.Error(codes.NotFound, "package not found")}
 }
 
-// ServerError reports an upstream failure, exercising the fail-open path.
+// ServerError reports a transient upstream failure on every attempt.
 func ServerError() Verdict {
 	return Verdict{err: status.Error(codes.Unavailable, "analysis service unavailable")}
+}
+
+// Delayed answers v after d, so that concurrent queries overlap.
+func Delayed(v Verdict, d time.Duration) Verdict {
+	v.delay = d
+	return v
+}
+
+// FailOnce answers the first query with Unavailable and later queries with v.
+func FailOnce(v Verdict) Verdict {
+	v.failOnce = true
+	return v
 }
 
 type AnalyzedPackage struct {
@@ -161,14 +177,21 @@ func (r *AnalyzerRecorder) handle(req *malysisv1.QueryPackageAnalysisRequest) (*
 	name := pv.GetPackage().GetName()
 	version := pv.GetVersion()
 
+	key := verdictKey(eco, name, version)
 	r.mu.Lock()
+	first := !slices.ContainsFunc(r.calls, func(c AnalyzedPackage) bool { return verdictKey(c.Ecosystem, c.Name, c.Version) == key })
 	r.calls = append(r.calls, AnalyzedPackage{Ecosystem: eco, Name: name, Version: version})
-	v, ok := r.verdicts[verdictKey(eco, name, version)]
+	v, ok := r.verdicts[key]
 	r.mu.Unlock()
+
+	if v.failOnce && first {
+		return nil, status.Error(codes.Unavailable, "analysis service unavailable")
+	}
 
 	if !ok {
 		v = Clean()
 	}
+	time.Sleep(v.delay)
 	if v.err != nil {
 		return nil, v.err
 	}

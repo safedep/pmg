@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/audit"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -104,4 +106,40 @@ proxy:
 	err := Run(context.Background(), config.Get(), RunOptions{StatePath: filepath.Join(dir, "state.json"), Host: "127.0.0.1"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid proxy registries")
+}
+
+func TestDaemonSessionData(t *testing.T) {
+	cases := []struct {
+		name        string
+		stats       interceptors.AnalysisStats
+		wantOutcome audit.Outcome
+		wantBlocked uint32
+	}{
+		{name: "clean run", wantOutcome: audit.OutcomeSuccess},
+		{
+			name:        "malware block",
+			stats:       interceptors.AnalysisStats{BlockedCount: 1},
+			wantOutcome: audit.OutcomeBlocked,
+			wantBlocked: 1,
+		},
+		{
+			name:        "no-verdict block is in the outcome but not in the count",
+			stats:       interceptors.AnalysisStats{BlockedCount: 1, NoVerdictBlockedCount: 1},
+			wantOutcome: audit.OutcomeBlocked,
+		},
+		{
+			name:        "malware and no-verdict blocks",
+			stats:       interceptors.AnalysisStats{BlockedCount: 3, NoVerdictBlockedCount: 2},
+			wantOutcome: audit.OutcomeBlocked,
+			wantBlocked: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := daemonSessionData(&config.RuntimeConfig{}, tc.stats, time.Second)
+			assert.Equal(t, tc.wantOutcome, data.Outcome)
+			assert.Equal(t, tc.wantBlocked, data.BlockedCount)
+		})
+	}
 }

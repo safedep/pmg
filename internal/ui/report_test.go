@@ -390,36 +390,27 @@ func TestReportInsecureModeShowsRuleAndCooldownBlocks(t *testing.T) {
 	}
 }
 
-func TestReportListsUnanalyzedPackages(t *testing.T) {
-	tests := []struct {
-		level VerbosityLevel
-		shown bool
-	}{
-		{level: VerbosityLevelSilent, shown: false},
-		{level: VerbosityLevelNormal, shown: true},
-		{level: VerbosityLevelVerbose, shown: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(fmt.Sprint(tt.level), func(t *testing.T) {
-			withVerbosity(t, tt.level)
+func TestReportListsNoVerdictBlocks(t *testing.T) {
+	for _, level := range []VerbosityLevel{VerbosityLevelSilent, VerbosityLevelNormal, VerbosityLevelVerbose} {
+		t.Run(fmt.Sprint(level), func(t *testing.T) {
+			withVerbosity(t, level)
 
 			data := NewReportData()
-			data.UnanalyzedPackages = []*packagev1.PackageVersion{{
-				Package: &packagev1.Package{Name: "safedep-test-pkg", Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM},
-				Version: "0.1.2",
+			data.Outcome = OutcomeBlocked
+			data.BlockedCount = 1
+			data.ParanoidMode = true
+			data.NoVerdictBlockedPackages = []*proxy.BlockContext{{
+				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM, PackageName: "lodash", PackageVersion: "4.17.21",
 			}}
-			data.UnanalyzedMore = 4
+			data.NoVerdictMore = 2
 
 			out := captureStdout(t, func() { Report(data) })
 
-			if !tt.shown {
-				assert.NotContains(t, out, UnanalyzedHeadline, "silent mode shows only blocks")
-				return
-			}
-			assert.Contains(t, out, UnanalyzedHeadline)
-			assert.Contains(t, out, "pkg:npm/safedep-test-pkg@0.1.2")
-			assert.Contains(t, out, "and 4 more")
+			assert.Contains(t, out, NoVerdictBlockedHeadline, "a block shows in every mode")
+			assert.Contains(t, out, "pkg:npm/lodash@4.17.21")
+			assert.Contains(t, out, "and 2 more")
+			assert.NotContains(t, out, MalwareBlockedHeadline, "a package with no verdict is not malicious")
+			assert.NotContains(t, out, "malicious package detected")
 		})
 	}
 }

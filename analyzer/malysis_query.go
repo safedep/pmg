@@ -3,7 +3,10 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
+	"strings"
+	"time"
 
 	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	malysisv1pb "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
@@ -15,17 +18,28 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
 	communityMalysisHost = "community-api.safedep.io"
 	communityMalysisPort = "443"
+
+	malysisMaxAttempts = 3
+	malysisRetryMargin = 100 * time.Millisecond
+
+	// grpc-go reports an HTTP 429 from a proxy as Unavailable with this message.
+	grpcHTTP429 = "status code received from server: 429"
 )
 
 type MalysisQueryAnalyzerConfig struct {
 	// Cache, when non-nil, enables a persistent read-through verdict cache
 	// applied as a decorator by newMalysisAnalyzer. nil = no caching.
 	Cache MalysisCache
+
+	// RetryWait maps the base wait of a retry to the real wait. Nil adds jitter.
+	RetryWait func(base time.Duration) time.Duration
 }
 
 type malysisQueryAnalyzer struct {
@@ -101,7 +115,7 @@ func (a *malysisQueryAnalyzer) Name() string {
 func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 	packageVersion *packagev1.PackageVersion) (*PackageVersionAnalysisResult, error) {
 
-	res, err := a.client.QueryPackageAnalysis(ctx, &malysisv1.QueryPackageAnalysisRequest{
+	res, err := a.query(ctx, &malysisv1.QueryPackageAnalysisRequest{
 		Target: &malysisv1pb.PackageAnalysisTarget{
 			PackageVersion: packageVersion,
 		},
@@ -151,6 +165,71 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 	a.applyExclusion(analysisResult, res)
 
 	return analysisResult, nil
+}
+
+// query retries only in paranoid mode. Default mode allows the package on a
+// failure, so a retry would only add load to an outage.
+func (a *malysisQueryAnalyzer) query(ctx context.Context,
+	req *malysisv1.QueryPackageAnalysisRequest) (*malysisv1.QueryPackageAnalysisResponse, error) {
+	if !config.Get().FailClosed() {
+		return a.client.QueryPackageAnalysis(ctx, req)
+	}
+
+	jitter := a.Config.RetryWait
+	if jitter == nil {
+		jitter = malysisJitter
+	}
+
+	attemptCtx := ctx
+	for attempt := 1; ; attempt++ {
+		res, err := a.client.QueryPackageAnalysis(attemptCtx, req)
+		if err == nil || attempt == malysisMaxAttempts {
+			return res, err
+		}
+
+		base, ok := malysisRetryBase(err, attempt)
+		if !ok {
+			return nil, err
+		}
+		wait := jitter(base)
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < wait+malysisRetryMargin {
+			return nil, err
+		}
+
+		log.Debugf("Malysis query failed with %s, retrying in %s", status.Code(err), wait)
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, err
+		case <-timer.C:
+		}
+		attemptCtx = withoutHedge(ctx)
+	}
+}
+
+// malysisRetryBase gives the wait before the next attempt, or false for an
+// error that a retry cannot fix, such as Internal from a backend bug.
+func malysisRetryBase(err error, attempt int) (time.Duration, bool) {
+	s := status.Convert(err)
+	var base time.Duration
+	switch {
+	case s.Code() == codes.ResourceExhausted,
+		s.Code() == codes.Unavailable && strings.Contains(s.Message(), grpcHTTP429):
+		base = time.Second
+	case s.Code() == codes.Unavailable:
+		base = 200 * time.Millisecond
+	default:
+		return 0, false
+	}
+	for range attempt - 1 {
+		base *= 3
+	}
+	return base, true
+}
+
+func malysisJitter(base time.Duration) time.Duration {
+	return base/2 + rand.N(base)
 }
 
 // dropExclusionUnderCloudPolicy removes the tenant exclusion from the reply

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -50,6 +51,9 @@ type Harness struct {
 	decisionMu sync.Mutex
 	decisions  []proxy.NetworkDecision
 
+	blockMu sync.Mutex
+	blocks  []Block
+
 	caPool *x509.CertPool
 }
 
@@ -63,6 +67,7 @@ type options struct {
 	networkEnforce bool
 	noInterceptors bool
 	policy         cloudpolicy.Source
+	breakerOpen    time.Duration
 	upstreamConn   func(net.Conn) net.Conn
 }
 
@@ -105,6 +110,12 @@ func WithRedirectOnlyListener(ip string) Option {
 // them the policy of the process.
 func WithPolicy(src cloudpolicy.Source) Option {
 	return func(o *options) { o.policy = src }
+}
+
+// WithBreakerOpenPeriod shortens the open period of the analyzer circuit
+// breaker, so a case can reach the half-open state fast.
+func WithBreakerOpenPeriod(d time.Duration) Option {
+	return func(o *options) { o.breakerOpen = d }
 }
 
 // WithoutInterceptors builds the exec proxy. See flows.NetworkProxy.
@@ -160,8 +171,11 @@ func New(t *testing.T, opts ...Option) *Harness {
 	confirm := newConfirmController()
 	stats := interceptors.NewAnalysisStatsCollector()
 
+	// The retry runs with 1 ms waits, so a case with a transient failure stays fast.
 	malysisAnalyzer, err := analyzer.NewMalysisQueryAnalyzerWithClient(
-		&stubAnalyzerClient{rec: rec}, analyzer.MalysisQueryAnalyzerConfig{}, true)
+		&stubAnalyzerClient{rec: rec}, analyzer.MalysisQueryAnalyzerConfig{
+			RetryWait: func(time.Duration) time.Duration { return time.Millisecond },
+		}, true)
 	require.NoError(t, err)
 
 	confChan := make(chan *interceptors.ConfirmationRequest, 10)
@@ -180,6 +194,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 			// the plain-HTTP mock index instead of the real registries.
 			CargoUpstreamOrigin: registry.cargoBaseURL(),
 			Policy:              o.policy,
+			BreakerOpenPeriod:   o.breakerOpen,
 		},
 		config.Get().Config.Proxy.Registries,
 	)
@@ -206,7 +221,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 		confChan: confChan,
 	}
 
-	h.proxy = buildProxy(t, certMgr, registry, interceptorList, h.recordDial, h.recordDecision, o)
+	h.proxy = buildProxy(t, certMgr, registry, interceptorList, h.recordDial, h.recordDecision, h.recordBlock, o)
 
 	caPool := x509.NewCertPool()
 	caPool.AddCert(caCert.X509Cert)
@@ -226,7 +241,9 @@ func New(t *testing.T, opts ...Option) *Harness {
 	return h
 }
 
-func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *Registry, interceptorList []proxy.Interceptor, recordDial func(string), recordDecision func(proxy.NetworkDecision), o options) proxy.ProxyServer {
+func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *Registry, interceptorList []proxy.Interceptor,
+	recordDial func(string), recordDecision func(proxy.NetworkDecision), recordBlock func(proxy.BlockReason, *proxy.BlockContext),
+	o options) proxy.ProxyServer {
 	t.Helper()
 
 	cfg := proxy.DefaultProxyConfig()
@@ -242,6 +259,8 @@ func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *
 	cfg.NetworkPolicy = o.network
 	cfg.NetworkEnforce = o.networkEnforce
 	cfg.OnNetworkDecision = recordDecision
+	cfg.OnBlock = recordBlock
+	cfg.FailClosed = config.Get().FailClosed()
 	if o.redirectOnlyIP != "" {
 		cfg.AdditionalListenAddrs = []string{net.JoinHostPort(o.redirectOnlyIP, "0")}
 		cfg.RedirectOnlyAddrs = []string{o.redirectOnlyIP}
@@ -334,6 +353,25 @@ func (h *Harness) Destinations() []proxy.NetworkDecision {
 	h.decisionMu.Lock()
 	defer h.decisionMu.Unlock()
 	return append([]proxy.NetworkDecision(nil), h.decisions...)
+}
+
+// Block is one block that the proxy sent, with its reason.
+type Block struct {
+	Reason  proxy.BlockReason
+	Context *proxy.BlockContext
+}
+
+func (h *Harness) recordBlock(reason proxy.BlockReason, blockCtx *proxy.BlockContext) {
+	h.blockMu.Lock()
+	defer h.blockMu.Unlock()
+	h.blocks = append(h.blocks, Block{Reason: reason, Context: blockCtx})
+}
+
+// Blocks returns every block that the proxy sent, in order.
+func (h *Harness) Blocks() []Block {
+	h.blockMu.Lock()
+	defer h.blockMu.Unlock()
+	return append([]Block(nil), h.blocks...)
 }
 
 func (h *Harness) recordDial(addr string) {
@@ -455,8 +493,10 @@ func readOutcome(resp *http.Response, out RequestOutcome) RequestOutcome {
 	}
 
 	out.StatusCode = resp.StatusCode
-	out.Blocked = resp.StatusCode == http.StatusForbidden
 	out.Body = string(body)
+	// An upstream 503 is not a block, so a 503 counts only with the PMG message.
+	out.Blocked = resp.StatusCode == http.StatusForbidden ||
+		resp.StatusCode == http.StatusServiceUnavailable && strings.Contains(out.Body, ui.NoVerdictRetry)
 	out.Headers = resp.Header.Clone()
 	return out
 }

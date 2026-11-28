@@ -41,7 +41,7 @@ var configFlagSpecs = []flagSpec{
 		},
 	},
 	{
-		name: "paranoid", usage: "Enable high-security defaults (treat suspicious as malicious)", managed: true,
+		name: "paranoid", usage: "Enable high-security defaults (treat suspicious as malicious, block a package with no verdict)", managed: true,
 		keys: []string{"paranoid"},
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Paranoid, name, globalConfig.Config.Paranoid, usage)

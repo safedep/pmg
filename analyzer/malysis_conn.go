@@ -26,6 +26,13 @@ var malysisKeepalive = grpc.WithKeepaliveParams(keepalive.ClientParameters{
 // connection. Normal answers take 0.7 to 1.8 seconds.
 const malysisHedgeDelay = 3 * time.Second
 
+type noHedgeKey struct{}
+
+// withoutHedge marks a retry, which goes on the current connection only.
+func withoutHedge(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noHedgeKey{}, true)
+}
+
 type closableConn interface {
 	grpc.ClientConnInterface
 	Close() error
@@ -64,8 +71,8 @@ type attemptResult struct {
 
 func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
 	out, ok := reply.(proto.Message)
-	if !ok {
-		return c.current().Invoke(ctx, method, args, reply, opts...)
+	if !ok || ctx.Value(noHedgeKey{}) != nil {
+		return c.invokeCurrent(ctx, method, args, reply, opts...)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -150,6 +157,19 @@ func (c *reconnectingConn) Invoke(ctx context.Context, method string, args, repl
 	}
 
 	return err
+}
+
+// invokeCurrent follows the current connection when another call closed this one.
+func (c *reconnectingConn) invokeCurrent(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
+	conn := c.current()
+	for {
+		err := conn.Invoke(ctx, method, args, reply, opts...)
+		next := c.current()
+		if status.Code(err) != codes.Canceled || ctx.Err() != nil || next == conn {
+			return err
+		}
+		conn = next
+	}
 }
 
 func (c *reconnectingConn) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string,

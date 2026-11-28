@@ -20,6 +20,10 @@ type AnalysisStats struct {
 	BlockedCount         int
 	UserCancelledCount   int
 	CooldownBlockedCount int
+
+	// NoVerdictBlockedCount is the part of BlockedCount that paranoid mode
+	// blocked with no verdict.
+	NoVerdictBlockedCount int
 }
 
 // AnalysisStatsCollector tracks analysis statistics during proxy execution.
@@ -40,6 +44,9 @@ type AnalysisStatsCollector struct {
 
 	unanalyzed     []*packagev1.PackageVersion
 	unanalyzedSeen map[string]bool
+
+	noVerdictBlocks []*proxy.BlockContext
+	noVerdictSeen   map[string]bool
 }
 
 // maxUnanalyzedPackages caps the list, because an outage in a long-running
@@ -237,10 +244,72 @@ func (c *AnalysisStatsCollector) GetCooldownWithheld() []models.CooldownWithheld
 	return result
 }
 
+// RecordNoVerdictBlocked records a package that PMG blocked because the
+// analysis failed. It keeps each version once, because npm and pip retry a 503.
+func (c *AnalysisStatsCollector) RecordNoVerdictBlocked(block *proxy.BlockContext) {
+	key := blockKey(block)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.noVerdictSeen[key] {
+		return
+	}
+	if c.noVerdictSeen == nil {
+		c.noVerdictSeen = make(map[string]bool)
+	}
+	c.noVerdictSeen[key] = true
+	c.stats.BlockedCount++
+	c.stats.NoVerdictBlockedCount++
+	if len(c.noVerdictBlocks) < maxUnanalyzedPackages {
+		c.noVerdictBlocks = append(c.noVerdictBlocks, block)
+	}
+}
+
+// ClearNoVerdictBlock removes the block of a package that a later download analyzed.
+func (c *AnalysisStatsCollector) ClearNoVerdictBlock(ecosystem packagev1.Ecosystem, name, version string) {
+	key := packageKey(ecosystem, name, version)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.noVerdictSeen[key] {
+		return
+	}
+	delete(c.noVerdictSeen, key)
+	c.stats.BlockedCount--
+	c.stats.NoVerdictBlockedCount--
+	c.noVerdictBlocks = slices.DeleteFunc(c.noVerdictBlocks, func(b *proxy.BlockContext) bool { return blockKey(b) == key })
+}
+
+// HasNoVerdictBlock reports whether the package is still blocked with no verdict.
+func (c *AnalysisStatsCollector) HasNoVerdictBlock(block *proxy.BlockContext) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.noVerdictSeen[blockKey(block)]
+}
+
+// GetNoVerdictBlocks returns the kept no-verdict blocks and the count of the rest.
+func (c *AnalysisStatsCollector) GetNoVerdictBlocks() ([]*proxy.BlockContext, int) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return slices.Clone(c.noVerdictBlocks), len(c.noVerdictSeen) - len(c.noVerdictBlocks)
+}
+
+func packageKey(ecosystem packagev1.Ecosystem, name, version string) string {
+	return ecosystem.String() + "|" + name + "|" + version
+}
+
+func blockKey(block *proxy.BlockContext) string {
+	return packageKey(block.Ecosystem, block.PackageName, block.PackageVersion)
+}
+
 // RecordUnanalyzed keeps each version once, because a package manager can
 // retry a download. Past the cap it keeps only the key, to count it.
 func (c *AnalysisStatsCollector) RecordUnanalyzed(pkg *packagev1.PackageVersion) {
-	key := pkg.GetPackage().GetEcosystem().String() + "|" + pkg.GetPackage().GetName() + "|" + pkg.GetVersion()
+	key := packageKey(pkg.GetPackage().GetEcosystem(), pkg.GetPackage().GetName(), pkg.GetVersion())
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
