@@ -106,7 +106,12 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("prctl PR_SET_PDEATHSIG: %w", err)
 	}
 
-	sockPair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	// ExtraFiles hands one end to the shim as fd 3. Without CLOEXEC the
+	// shim, and the target after it, would also keep both ends under their
+	// first numbers. The target could then read the seccomp listener from
+	// the helper's end before the helper does, and answer its own
+	// notifications.
+	sockPair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
 		return fmt.Errorf("socketpair: %w", err)
 	}
@@ -231,6 +236,16 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	}()
 
 	notifyFd, err := receiveNotifyFd(int(helperSockFile.Fd()))
+	if errors.Is(err, errShimClosedSocket) {
+		// The shim printed its own error and exited before it sent the
+		// descriptor. A second error about the descriptor would read as
+		// another fault, so the helper ends with the exit status of the shim.
+		var exitErr *exec.ExitError
+		if errors.As(cmd.Wait(), &exitErr) && exitErr.ExitCode() > 0 {
+			os.Exit(exitErr.ExitCode())
+		}
+		return fmt.Errorf("receive notify fd from shim: %w", err)
+	}
 	if err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
@@ -318,6 +333,10 @@ func startShimWithFallback(newCmd func(cloneflags uintptr) *exec.Cmd, cloneflags
 	return cmd, nil
 }
 
+// errShimClosedSocket means that the shim closed its end without sending
+// the seccomp listener, because it failed before the send.
+var errShimClosedSocket = errors.New("the shim closed the socket before it sent the seccomp listener")
+
 func receiveNotifyFd(sockFd int) (int, error) {
 	buf := make([]byte, 1)
 	oob := make([]byte, unix.CmsgSpace(4))
@@ -350,7 +369,7 @@ func receiveNotifyFd(sockFd int) (int, error) {
 		return -1, fmt.Errorf("parse cmsg: %w", err)
 	}
 	if len(cmsgs) == 0 {
-		return -1, fmt.Errorf("no SCM_RIGHTS cmsg received (shim likely failed before send)")
+		return -1, errShimClosedSocket
 	}
 	fds, err := unix.ParseUnixRights(&cmsgs[0])
 	if err != nil {
