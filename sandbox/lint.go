@@ -80,6 +80,7 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		{"network.allow_outbound", policy.Network.AllowOutbound, false},
 		{"network.deny_outbound", policy.Network.DenyOutbound, false},
 		{"network.allow_bind", policy.Network.AllowBind, false},
+		{"network.allow_unix_connect", policy.Network.AllowUnixConnect, false},
 		{"process.allow_exec", policy.Process.AllowExec, true},
 		{"process.deny_exec", policy.Process.DenyExec, false},
 	}
@@ -159,6 +160,43 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 			Code:    "allow-direct-dns-without-lockdown",
 			Message: "allow_direct_dns has no effect unless network_via_proxy_only is true",
 			Field:   "allow_direct_dns",
+		})
+	}
+
+	withoutKernelCheck := utils.SafelyGetValue(policy.Network.AllowUnixConnectWithoutKernelCheck)
+	if withoutKernelCheck && len(policy.Network.AllowUnixConnect) == 0 {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-unix-connect-without-kernel-check-without-list",
+			Message: "network.allow_unix_connect_without_kernel_check has no effect without network.allow_unix_connect",
+			Field:   "network.allow_unix_connect_without_kernel_check",
+		})
+	}
+
+	if withoutKernelCheck && !utils.SafelyGetValue(policy.AllowUnixSockets) && len(policy.Network.AllowUnixConnect) > 0 {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-unix-connect-without-kernel-check",
+			Message: "on Linux below Landlock ABI 9 the supervisor checks network.allow_unix_connect, and a hostile process can race the check to reach any unix socket. Bubblewrap refuses the list. An entry stays closed when a write rule of the profile, a built-in profile or a built-in preset covers its path",
+			Field:   "network.allow_unix_connect_without_kernel_check",
+		})
+	}
+
+	if !withoutKernelCheck && !utils.SafelyGetValue(policy.AllowUnixSockets) && len(policy.Network.AllowUnixConnect) > 0 {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-unix-connect-needs-landlock-abi-9",
+			Message: "on Linux, network.allow_unix_connect needs the Landlock driver with Landlock ABI 9. An entry stays closed when a write rule of the profile, a built-in profile or a built-in preset covers its path",
+			Field:   "network.allow_unix_connect",
+		})
+	}
+
+	if utils.SafelyGetValue(policy.AllowUnixSockets) && len(policy.Network.AllowUnixConnect) > 0 {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-unix-connect-with-allow-unix-sockets",
+			Message: "network.allow_unix_connect has no effect because allow_unix_sockets opens every unix socket",
+			Field:   "network.allow_unix_connect",
 		})
 	}
 

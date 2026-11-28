@@ -49,10 +49,26 @@ func RenderLandlock(policy *sandbox.SandboxPolicy) ([]byte, error) {
 	fmt.Fprintf(&sb, "# Landlock ruleset\n")
 	fmt.Fprintf(&sb, "# policy: %s\n", policy.Name)
 	fmt.Fprintf(&sb, "abi: %d (%s)\n", abi.Version, abiSource)
-	fmt.Fprintf(&sb, "features: refer=%t truncate=%t network=%t ioctl_dev=%t scoping=%t\n",
-		abi.HasRefer, abi.HasTruncate, abi.HasNetwork, abi.HasIoctlDev, abi.HasScoping)
+	fmt.Fprintf(&sb, "features: refer=%t truncate=%t network=%t ioctl_dev=%t scoping=%t resolve_unix=%t\n",
+		abi.HasRefer, abi.HasTruncate, abi.HasNetwork, abi.HasIoctlDev, abi.HasScoping, abi.HasResolveUnix)
 	fmt.Fprintf(&sb, "allow_pty: %t\n", ep.AllowPTY)
 	fmt.Fprintf(&sb, "allow_unix_sockets: %t\n", ep.AllowUnixSockets)
+	if len(ep.Network.UnixConnect) > 0 {
+		enforcer := "supervisor"
+		if ep.Network.UnixConnectByKernel {
+			enforcer = "kernel"
+		}
+		fmt.Fprintf(&sb, "allow_unix_connect (%s):\n", enforcer)
+		for _, path := range ep.Network.UnixConnect {
+			fmt.Fprintf(&sb, "  - %s\n", path)
+		}
+	}
+	if len(ep.Network.UnixConnectClosed) > 0 {
+		fmt.Fprintf(&sb, "allow_unix_connect_closed:\n")
+		for _, closed := range ep.Network.UnixConnectClosed {
+			fmt.Fprintf(&sb, "  - %s (write rule %s of %s)\n", closed.Path, closed.Rule, closed.Source)
+		}
+	}
 	fmt.Fprintf(&sb, "skip_pid_namespace: %t\n", ep.SkipPIDNamespace)
 	fmt.Fprintf(&sb, "skip_ipc_namespace: %t\n", ep.SkipIPCNamespace)
 
@@ -107,6 +123,7 @@ func landlockAccessFlagsString(access uint64) string {
 		{uint64(llsyscall.AccessFSWriteFile), "write_file"},
 		{uint64(llsyscall.AccessFSTruncate), "truncate"},
 		{uint64(llsyscall.AccessFSIoctlDev), "ioctl_dev"},
+		{uint64(llsyscall.AccessFSResolveUnix), "resolve_unix"},
 		{uint64(llsyscall.AccessFSMakeReg), "make_reg"},
 		{uint64(llsyscall.AccessFSMakeDir), "make_dir"},
 		{uint64(llsyscall.AccessFSMakeSock), "make_sock"},

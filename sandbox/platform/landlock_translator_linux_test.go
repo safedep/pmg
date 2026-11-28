@@ -893,3 +893,118 @@ func TestLandlockTranslatePolicyFailsClosedWithoutHome(t *testing.T) {
 	_, err := landlockTranslatePolicy(&sandbox.SandboxPolicy{}, newLandlockABI(3), nil)
 	assert.ErrorIs(t, err, assert.AnError)
 }
+
+func TestLandlockTranslatePolicy_UnixConnect(t *testing.T) {
+	const socket = "/run/safedep/gryph/hook.sock"
+	tests := []struct {
+		name               string
+		abi                int
+		allowUnixSockets   *bool
+		withoutKernelCheck *bool
+		wantPaths          []string
+		wantKernel         bool
+		wantErr            string
+	}{
+		{name: "refused below ABI 9", abi: 8, wantErr: "needs Landlock ABI 9 (have 8)"},
+		{name: "supervisor checks below ABI 9 when the profile accepts the race", abi: 8, withoutKernelCheck: utils.PtrTo(true), wantPaths: []string{socket}},
+		{name: "kernel checks from ABI 9", abi: 9, wantPaths: []string{socket}, wantKernel: true},
+		{name: "kernel checks from ABI 9 when the profile accepts the race", abi: 9, withoutKernelCheck: utils.PtrTo(true), wantPaths: []string{socket}, wantKernel: true},
+		{name: "allow_unix_sockets opens every socket", abi: 7, allowUnixSockets: utils.PtrTo(true)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := newTestPolicy()
+			policy.Filesystem.AllowRead = []string{"/tmp"}
+			policy.AllowUnixSockets = tc.allowUnixSockets
+			policy.Network.AllowUnixConnect = []string{socket}
+			policy.Network.AllowUnixConnectWithoutKernelCheck = tc.withoutKernelCheck
+
+			ep, err := landlockTranslatePolicy(policy, newLandlockABI(tc.abi), nil)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.wantPaths, ep.Network.UnixConnect)
+			assert.Equal(t, tc.wantKernel, ep.Network.UnixConnectByKernel)
+			rule := findRule(ep.FilesystemRules, socket)
+			if !tc.wantKernel {
+				assert.Nil(t, rule)
+				return
+			}
+			require.NotNil(t, rule)
+			assert.Equal(t, uint64(llsyscall.AccessFSResolveUnix), rule.Access)
+
+			cfg := landlockSelectConfig(ep)
+			assert.NotZero(t, uint64(cfg.HandledAccessFS)&uint64(llsyscall.AccessFSResolveUnix), "the ruleset must handle resolve-unix")
+			assert.Equal(t, uint64(landlockSelectBaseConfig(ep).HandledAccessFS)|uint64(llsyscall.AccessFSResolveUnix), uint64(cfg.HandledAccessFS),
+				"resolve-unix must not handle the rights of the ABIs between")
+		})
+	}
+}
+
+// A write rule that covers a name on the route of an entry lets a run
+// choose the socket of the next run. Landlock leaves such an entry closed.
+// The list opens sockets for connect only, so no rule grants MAKE_SOCK.
+func TestLandlockTranslatePolicy_UnixConnectUnderWriteRuleStaysClosed(t *testing.T) {
+	outside := dirOutsideBuiltinWriteRules(t)
+	writable := dirOutsideBuiltinWriteRules(t)
+	hostSocket := filepath.Join(outside, "host.sock")
+	require.NoError(t, os.WriteFile(hostSocket, nil, 0o600))
+	inWritable := filepath.Join(writable, "agent.sock")
+	require.NoError(t, os.WriteFile(inWritable, nil, 0o600))
+	// The link sits in a writable directory, so a run could repoint it.
+	viaLink := filepath.Join(writable, "link")
+	require.NoError(t, os.Symlink(outside, viaLink))
+
+	policy := newTestPolicy()
+	policy.Filesystem.AllowRead = []string{"/tmp"}
+	policy.Filesystem.AllowWrite = []string{writable + "/**"}
+	policy.Network.AllowUnixConnect = []string{hostSocket, inWritable, filepath.Join(viaLink, "host.sock")}
+
+	ep, err := landlockTranslatePolicy(policy, newLandlockABI(9), nil)
+	require.NoError(t, err)
+
+	// The supervisor deny on a route name can be raced in the supervisor
+	// mode too, so the same entries stay closed there.
+	policy.Network.AllowUnixConnectWithoutKernelCheck = utils.PtrTo(true)
+	supervised, err := landlockTranslatePolicy(policy, newLandlockABI(7), nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{hostSocket}, supervised.Network.UnixConnect)
+	assert.Len(t, supervised.Network.UnixConnectClosed, 2)
+	policy.Network.AllowUnixConnectWithoutKernelCheck = nil
+
+	assert.Equal(t, []string{hostSocket}, ep.Network.UnixConnect)
+	require.Len(t, ep.Network.UnixConnectClosed, 2)
+	assert.Equal(t, sandbox.ClosedUnixSocketRoute{Path: inWritable, Rule: writable + "/**", Source: "this profile"}, ep.Network.UnixConnectClosed[0])
+	assert.Equal(t, filepath.Join(viaLink, "host.sock"), ep.Network.UnixConnectClosed[1].Path)
+	assert.Nil(t, findRule(ep.FilesystemRules, inWritable), "a closed entry gets no resolve-unix rule")
+	require.NotNil(t, findRule(ep.FilesystemRules, hostSocket))
+	for _, r := range ep.FilesystemRules {
+		assert.Zero(t, r.Access&uint64(llsyscall.AccessFSMakeSock), "rule %s grants MAKE_SOCK", r.Path)
+	}
+
+	policy.Network.AllowUnixConnect = nil
+	ep, err = landlockTranslatePolicy(policy, newLandlockABI(9), nil)
+	require.NoError(t, err)
+	rule := findRule(ep.FilesystemRules, writable)
+	require.NotNil(t, rule)
+	assert.NotZero(t, rule.Access&uint64(llsyscall.AccessFSMakeSock), "without the list, write rules keep MAKE_SOCK")
+}
+
+// dirOutsideBuiltinWriteRules returns a directory that no built-in write
+// rule covers. t.TempDir is below /tmp or TMPDIR, which built-in profiles
+// can write.
+func dirOutsideBuiltinWriteRules(t *testing.T) string {
+	t.Helper()
+	if _, err := os.Stat("/dev/shm"); err != nil {
+		t.Skip("needs /dev/shm, a directory outside every built-in write rule")
+	}
+	dir, err := os.MkdirTemp("/dev/shm", "pmg-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+	return dir
+}

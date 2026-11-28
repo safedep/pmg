@@ -75,6 +75,17 @@ func ExpandVariables(pattern string) (string, error) {
 // The XDG variables resolve from the environment against home. The set of
 // recognised tokens is SupportedVariables.
 func ExpandVariablesWith(pattern, cwd, home, tmpDir string) (string, error) {
+	expanded, err := ExpandVariablesUncleaned(pattern, cwd, home, tmpDir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(expanded), nil
+}
+
+// ExpandVariablesUncleaned is ExpandVariablesWith without filepath.Clean. The
+// kernel applies ".." after it follows each symlink, and Clean does not, so a
+// caller that hands the path to the kernel checks the raw result.
+func ExpandVariablesUncleaned(pattern, cwd, home, tmpDir string) (string, error) {
 	if home == "" {
 		h, err := platform.UserHomeDir()
 		if err != nil {
@@ -106,7 +117,7 @@ func ExpandVariablesWith(pattern, cwd, home, tmpDir string) (string, error) {
 		}
 	}
 
-	return filepath.Clean(strings.NewReplacer(pairs...).Replace(pattern)), nil
+	return strings.NewReplacer(pairs...).Replace(pattern), nil
 }
 
 // resolveXDGDir returns the value of an XDG Base Directory variable, or

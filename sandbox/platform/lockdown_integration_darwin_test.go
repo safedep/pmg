@@ -55,6 +55,19 @@ func TestLockdownHelperProcess(t *testing.T) {
 		}
 	}
 
+	for _, check := range []struct {
+		env      string
+		wantPass bool
+	}{{"PMG_UNIX_MUST_PASS", true}, {"PMG_UNIX_MUST_FAIL", false}} {
+		if path := os.Getenv(check.env); path != "" {
+			conn, err := net.DialTimeout("unix", path, 2*time.Second)
+			report(fmt.Sprintf("unix %s (wantPass=%v)", path, check.wantPass), (err == nil) == check.wantPass, err)
+			if conn != nil {
+				_ = conn.Close()
+			}
+		}
+	}
+
 	if host := os.Getenv("PMG_RESOLVE"); host != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -186,6 +199,27 @@ func runSandboxedHelper(t *testing.T, profilePath string, env map[string]string)
 	return err
 }
 
+// mustListenUnix listens on a socket in a short directory under /tmp, a link
+// to /private/tmp, so a rule must match the resolved path. sun_path holds
+// 104 bytes on macOS, and the test temp directory is longer.
+func mustListenUnix(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := dir + "/" + name
+	ln, err := net.Listen("unix", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	return path
+}
+
 func TestLockdownEnforcementDarwin(t *testing.T) {
 	requireSandboxExec(t)
 
@@ -241,5 +275,33 @@ func TestLockdownEnforcementDarwin(t *testing.T) {
 			"PMG_SELF_DIAL":      "1",
 		})
 		assert.NoError(t, err, "loopback self-dial must pass under lockdown with allow_network_bind")
+	})
+
+	dir := dirOutsideBuiltinWriteRules(t)
+	listed := mustListenUnix(t, dir, "listed.sock")
+	other := mustListenUnix(t, dir, "other.sock")
+
+	t.Run("allow_unix_connect opens one socket under lockdown", func(t *testing.T) {
+		policy := lockdownTestPolicy(t)
+		policy.Network.AllowUnixConnect = []string{listed}
+		profile := writeTempProfile(t, policy, proxyLn.Addr().String())
+		err := runSandboxedHelper(t, profile, map[string]string{
+			"PMG_UNIX_MUST_PASS": listed,
+			"PMG_UNIX_MUST_FAIL": other,
+		})
+		assert.NoError(t, err, "the listed socket must connect and the other must not")
+	})
+
+	t.Run("allow_unix_connect opens one socket with outbound allowed", func(t *testing.T) {
+		policy := lockdownTestPolicy(t)
+		policy.NetworkViaProxyOnly = nil
+		policy.Network.AllowOutbound = []string{"*:*"}
+		policy.Network.AllowUnixConnect = []string{listed}
+		profile := writeTempProfile(t, policy, proxyLn.Addr().String())
+		err := runSandboxedHelper(t, profile, map[string]string{
+			"PMG_UNIX_MUST_PASS": listed,
+			"PMG_UNIX_MUST_FAIL": other,
+		})
+		assert.NoError(t, err, "the listed socket must connect and the other must not")
 	})
 }

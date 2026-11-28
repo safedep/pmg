@@ -687,8 +687,7 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 		// self-resolving clients need direct port 53.
 		if utils.SafelyGetValue(policy.AllowDirectDNS) {
 			sb.WriteString("(allow mach-lookup (global-name \"com.apple.dnssd.service\"))\n")
-			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/var/run/mDNSResponder\")))\n")
-			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n")
+			writeUnixSocketAllow(sb, mDNSResponderSocket)
 			sb.WriteString("(allow network-outbound (remote ip \"*:53\"))\n")
 		}
 
@@ -729,8 +728,26 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 		sb.WriteString("\n")
 	}
 
+	// The unix socket allows come after every deny above, so they win.
 	if utils.SafelyGetValue(policy.AllowUnixSockets) {
 		sb.WriteString("(allow network-outbound (remote unix-socket))\n\n")
+	}
+	// Seatbelt matches the resolved path. Docker Desktop, for one, links
+	// /var/run/docker.sock into the home directory. The write denies on a
+	// route bind only this run, so an entry that another sandboxed run
+	// could change stays closed.
+	routes, _, err := policy.UnixSocketRoutesByWriters()
+	if err != nil {
+		return err
+	}
+	for _, route := range routes {
+		writeUnixSocketAllow(sb, route.Path)
+		if route.Socket != "" && route.Socket != route.Path {
+			writeUnixSocketAllow(sb, route.Socket)
+		}
+	}
+	if len(routes) > 0 {
+		sb.WriteString("\n")
 	}
 
 	// Network bind rules for local listening
@@ -781,8 +798,20 @@ func (t *seatbeltPolicyTranslator) writeUnixSocketDeny(sb *strings.Builder) {
 	sb.WriteString("(deny network-outbound (remote unix-socket) (with message \"")
 	sb.WriteString(seatbeltLogMessage(t.logTag, seatbeltKindNetworkOutbound, seatbeltTargetUnixSocket))
 	sb.WriteString("\"))\n")
-	sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/var/run/mDNSResponder\")))\n")
-	sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n")
+	writeUnixSocketAllow(sb, mDNSResponderSocket)
+}
+
+// mDNSResponderSocket is the socket that legacy getaddrinfo clients use.
+const mDNSResponderSocket = "/var/run/mDNSResponder"
+
+// writeUnixSocketAllow allows connect to one unix socket path, in both its
+// /var and /private/var forms, because Seatbelt matches resolved paths.
+func writeUnixSocketAllow(sb *strings.Builder, path string) {
+	for _, alias := range util.DarwinPathAliases(path) {
+		sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"")
+		sb.WriteString(alias)
+		sb.WriteString("\")))\n")
+	}
 }
 
 // translateProcess translates process execution rules.

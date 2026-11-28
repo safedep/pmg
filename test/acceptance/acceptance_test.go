@@ -140,6 +140,8 @@ func TestAcceptance(t *testing.T) {
 						return trustStoreEnabled(), nil
 					case "root":
 						return os.Geteuid() == 0, nil
+					case "landlock-unix-connect":
+						return landlockChecksUnixConnect(pmgBin), nil
 					default:
 						return false, fmt.Errorf("unknown testscript condition %q", cond)
 					}
@@ -437,6 +439,16 @@ func defaultSandboxDriver() (sandbox.DriverName, error) {
 		return "", nil
 	}
 	return sb.Name(), sb.Close()
+}
+
+// landlockChecksUnixConnect reports whether the Landlock driver of pmgBin
+// can check a unix socket connect, which needs Landlock ABI 9.
+func landlockChecksUnixConnect(pmgBin string) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	out, err := exec.Command(pmgBin, "sandbox", "profile", "show", "exec", "--driver", "landlock").Output()
+	return err == nil && strings.Contains(string(out), "resolve_unix=true")
 }
 
 func hostCanEnforce() bool {

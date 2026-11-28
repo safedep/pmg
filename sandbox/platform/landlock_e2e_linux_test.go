@@ -193,6 +193,28 @@ func TestLandlockHelper_EchoRuns(t *testing.T) {
 	assert.Contains(t, stdout, "sandbox-ok")
 }
 
+// The helper and the shim share a socket pair, and the helper reads the
+// seccomp listener from its end. A target that kept that end could read the
+// listener first and answer its own notifications.
+func TestLandlockHelper_TargetInheritsNoHelperSocket(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+
+	policy := &landlockExecPolicy{
+		FilesystemRules: baseRules(),
+		Command:         "/bin/ls",
+		Args:            []string{"-l", "/proc/self/fd/"},
+	}
+	stdout, stderr, exit := runHelper(t, writePolicyFile(t, policy))
+	require.Equal(t, 0, exit, "stderr=%s", stderr)
+	assert.Contains(t, stdout, "/proc/")
+	assert.NotContains(t, stdout, "socket:")
+}
+
 // The target must run as the caller with no capabilities in the namespace.
 func TestLandlockHelper_TargetKeepsCallerIdentity(t *testing.T) {
 	if !landlockE2EEnabled() {

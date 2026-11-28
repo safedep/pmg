@@ -10,7 +10,9 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/util"
 
@@ -34,16 +36,30 @@ type landlockExecPolicy struct {
 	Env              []string              `json:"env,omitempty"`
 }
 
-// landlockNetworkPolicy carries network_via_proxy_only confinement to the
-// seccomp supervisor. The zero value disables network enforcement entirely —
-// no syscall interception, no behavior change. ProxyPort is 0 when the
-// policy is rendered without a runtime proxy (profile show); the shim then
-// denies every non-loopback destination, which is the fail-closed render.
+// landlockNetworkPolicy carries network_via_proxy_only confinement and the
+// unix socket allow list to the shim and the seccomp supervisor. The zero
+// value intercepts no network syscall. ProxyPort is 0 when the policy is
+// rendered without a runtime proxy (profile show); the shim then denies
+// every non-loopback destination, which is the fail-closed render.
 type landlockNetworkPolicy struct {
 	Lockdown       bool   `json:"lockdown"`
 	ProxyPort      uint16 `json:"proxy_port,omitempty"`
 	AllowBind      bool   `json:"allow_bind,omitempty"`
 	AllowDirectDNS bool   `json:"allow_direct_dns,omitempty"`
+
+	// UnixConnect lists the unix sockets that a process may connect to.
+	// UnixConnectByKernel is true when Landlock checks each connect. The
+	// supervisor checks it otherwise. UnixConnectClosed lists the entries
+	// that stay closed.
+	UnixConnect         []string                        `json:"unix_connect,omitempty"`
+	UnixConnectByKernel bool                            `json:"unix_connect_by_kernel,omitempty"`
+	UnixConnectClosed   []sandbox.ClosedUnixSocketRoute `json:"unix_connect_closed,omitempty"`
+}
+
+// supervisesUnixConnect reports whether the supervisor must check each
+// unix socket connect against UnixConnect.
+func (n landlockNetworkPolicy) supervisesUnixConnect() bool {
+	return len(n.UnixConnect) > 0 && !n.UnixConnectByKernel
 }
 
 // landlockPathRule represents a single Landlock filesystem rule mapping a path
@@ -85,15 +101,17 @@ var (
 	landlockExecuteAccess = uint64(llsyscall.AccessFSExecute | llsyscall.AccessFSReadFile)
 )
 
-// landlockFileAccess is the set of Landlock access flags valid for regular files.
-// Matches the go-landlock library's accessFile constant. All other access flags
-// are directory-only and must be stripped when the rule targets a non-directory.
+// landlockFileAccess is the set of Landlock access flags valid for a
+// non-directory, such as a regular file or a socket. All other access flags
+// are directory-only and must be stripped when the rule targets a
+// non-directory.
 var landlockFileAccess = uint64(
 	llsyscall.AccessFSReadFile |
 		llsyscall.AccessFSWriteFile |
 		llsyscall.AccessFSExecute |
 		llsyscall.AccessFSTruncate |
-		llsyscall.AccessFSIoctlDev)
+		llsyscall.AccessFSIoctlDev |
+		llsyscall.AccessFSResolveUnix)
 
 // landlockAdjustAccessForPath stats the given path and strips directory-only
 // access flags when the path refers to a regular file. If the path does not
@@ -473,7 +491,90 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 	// rules above cannot reintroduce a denied path.
 	ep.FilesystemRules = landlockMaskDeniedRules(ep.FilesystemRules, ep.DenyPaths)
 
+	if err := landlockTranslateUnixConnect(policy, abi, ep); err != nil {
+		return nil, err
+	}
+
 	return ep, nil
+}
+
+// landlockNameChangeAccess is the access that creates, removes or moves a
+// name in a directory.
+const landlockNameChangeAccess = uint64(llsyscall.AccessFSRemoveDir | llsyscall.AccessFSRemoveFile |
+	llsyscall.AccessFSMakeChar | llsyscall.AccessFSMakeDir | llsyscall.AccessFSMakeReg |
+	llsyscall.AccessFSMakeSock | llsyscall.AccessFSMakeFifo | llsyscall.AccessFSMakeBlock |
+	llsyscall.AccessFSMakeSym | llsyscall.AccessFSRefer)
+
+// landlockTranslateUnixConnect opens network.allow_unix_connect with
+// Landlock rules, or for the supervisor when the profile asks for it below
+// ABI 9. It runs after every other rule, because the write rules decide
+// which entries stay closed.
+func landlockTranslateUnixConnect(policy *sandbox.SandboxPolicy, abi *landlockABI, ep *landlockExecPolicy) error {
+	routes, closed, err := policy.UnixSocketRoutesByWriters()
+	if err != nil || len(routes)+len(closed) == 0 {
+		return err
+	}
+	if !abi.HasResolveUnix && !utils.SafelyGetValue(policy.Network.AllowUnixConnectWithoutKernelCheck) {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.UnsupportedPlatform).
+			WithHumanError(fmt.Sprintf("network.allow_unix_connect needs Landlock ABI 9, and this kernel has ABI %d", abi.Version)).
+			WithHelp("Run on Linux with Landlock ABI 9 or later, set allow_unix_sockets: true to open every unix socket, or remove network.allow_unix_connect from this profile. To accept a check that a hostile process can race, set network.allow_unix_connect_without_kernel_check: true. See docs/sandbox.md.").
+			Wrap(fmt.Errorf("network.allow_unix_connect needs Landlock ABI 9 (have %d)", abi.Version))
+	}
+	ep.Network.UnixConnectByKernel = abi.HasResolveUnix
+
+	// The list opens unix stream sockets for connect only. Without
+	// MAKE_SOCK the kernel refuses a bind to a path, so a process cannot
+	// put its own listener where a host client looks for one.
+	for i := range ep.FilesystemRules {
+		ep.FilesystemRules[i].Access &^= uint64(llsyscall.AccessFSMakeSock)
+	}
+
+	ep.Network.UnixConnectClosed = closed
+	for _, route := range routes {
+		// A run that can change a name on the route chooses the socket of
+		// the next run. The supervisor deny on that name can be raced, so
+		// only the kernel write rules decide. A rule path that is a link
+		// binds the inode of its target, which the profile rules do not show.
+		if rule, covered := landlockRouteWriteRule(route, ep.FilesystemRules); covered {
+			ep.Network.UnixConnectClosed = append(ep.Network.UnixConnectClosed, sandbox.ClosedUnixSocketRoute{Path: route.Path, Rule: rule, Source: "this profile"})
+			continue
+		}
+		ep.Network.UnixConnect = append(ep.Network.UnixConnect, route.Path)
+		if !ep.Network.UnixConnectByKernel {
+			continue
+		}
+		// The rule binds the socket inode that exists when the shim starts.
+		// A socket that is missing then, or made again later, stays closed.
+		ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
+			Path:   route.Path,
+			Access: uint64(llsyscall.AccessFSResolveUnix),
+		})
+	}
+	return nil
+}
+
+// landlockRouteWriteRule returns the path of a rule that can change a name
+// on route. Landlock binds a rule to the inode of its path, so the resolved
+// rule path counts too.
+func landlockRouteWriteRule(route sandbox.UnixSocketRoute, rules []landlockPathRule) (string, bool) {
+	for _, rule := range rules {
+		if rule.Access&landlockNameChangeAccess == 0 {
+			continue
+		}
+		bases := []string{rule.Path}
+		if resolved, err := filepath.EvalSymlinks(rule.Path); err == nil && resolved != rule.Path {
+			bases = append(bases, resolved)
+		}
+		for _, name := range route.Names {
+			for _, base := range bases {
+				if name == base || strings.HasPrefix(name, strings.TrimSuffix(base, "/")+"/") {
+					return rule.Path, true
+				}
+			}
+		}
+	}
+	return "", false
 }
 
 // landlockTranslateNetwork derives the supervisor-side network confinement

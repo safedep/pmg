@@ -53,6 +53,17 @@ func mandatoryDenies(policy *sandbox.SandboxPolicy) (mandatoryDenySet, error) {
 		return mandatoryDenySet{}, fmt.Errorf("failed to compute mandatory denies: %w", err)
 	}
 
+	// A run that could create, remove or replace a name on the way to a
+	// listed socket would choose the socket that the next run binds. The
+	// denies cannot be suppressed.
+	routes, err := policy.UnixSocketRoutes()
+	if err != nil {
+		return mandatoryDenySet{}, err
+	}
+	for _, route := range routes {
+		result.DenyWrite = append(result.DenyWrite, route.Names...)
+	}
+
 	for _, p := range result.SuppressedRead {
 		log.Warnf("sandbox: mandatory deny %q suppressed for read by explicit allow rule in policy %q", p, policy.Name)
 	}

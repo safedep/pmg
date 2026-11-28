@@ -1,10 +1,17 @@
 package sandbox
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/sandbox/util"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnionStringSlices(t *testing.T) {
@@ -88,8 +95,11 @@ func TestMergeWithParent(t *testing.T) {
 					DenyWrite:  []string{"/etc/**"},
 				},
 				Network: NetworkPolicy{
-					AllowOutbound: []string{"registry.npmjs.org:443"},
-					DenyOutbound:  []string{"*:*"},
+					AllowOutbound:    []string{"registry.npmjs.org:443"},
+					DenyOutbound:     []string{"*:*"},
+					AllowUnixConnect: []string{"/run/a.sock"},
+
+					AllowUnixConnectWithoutKernelCheck: utils.PtrTo(true),
 				},
 				Process: ProcessPolicy{
 					AllowExec: []string{"/usr/bin/node"},
@@ -109,8 +119,9 @@ func TestMergeWithParent(t *testing.T) {
 					DenyWrite:  []string{"/usr/**"},
 				},
 				Network: NetworkPolicy{
-					AllowOutbound: []string{"github.com:443"},
-					DenyOutbound:  []string{},
+					AllowOutbound:    []string{"github.com:443"},
+					DenyOutbound:     []string{},
+					AllowUnixConnect: []string{"/run/b.sock", "/run/a.sock"},
 				},
 				Process: ProcessPolicy{
 					AllowExec: []string{"/usr/bin/git"},
@@ -138,10 +149,27 @@ func TestMergeWithParent(t *testing.T) {
 				// Test network lists are unioned
 				assert.ElementsMatch(t, []string{"registry.npmjs.org:443", "github.com:443"}, child.Network.AllowOutbound)
 				assert.ElementsMatch(t, []string{"*:*"}, child.Network.DenyOutbound)
+				assert.Equal(t, []string{"/run/a.sock", "/run/b.sock"}, child.Network.AllowUnixConnect)
+				assert.True(t, utils.SafelyGetValue(child.Network.AllowUnixConnectWithoutKernelCheck), "a child that does not set the key inherits it")
 
 				// Test process lists are unioned
 				assert.ElementsMatch(t, []string{"/usr/bin/node", "/usr/bin/git"}, child.Process.AllowExec)
 				assert.ElementsMatch(t, []string{"/usr/bin/curl"}, child.Process.DenyExec)
+			},
+		},
+		{
+			name: "child that turns off the unix connect kernel check key wins",
+			parent: &SandboxPolicy{
+				Name:    "parent",
+				Network: NetworkPolicy{AllowUnixConnectWithoutKernelCheck: utils.PtrTo(true)},
+			},
+			child: &SandboxPolicy{
+				Name:    "child",
+				Network: NetworkPolicy{AllowUnixConnectWithoutKernelCheck: utils.PtrTo(false)},
+			},
+			assert: func(t *testing.T, parent, child *SandboxPolicy) {
+				require.NotNil(t, child.Network.AllowUnixConnectWithoutKernelCheck)
+				assert.False(t, *child.Network.AllowUnixConnectWithoutKernelCheck)
 			},
 		},
 		{
@@ -209,6 +237,44 @@ func TestValidate(t *testing.T) {
 				Name:    "test",
 				Network: NetworkPolicy{AllowBind: []string{"192.168.1.5:3000"}},
 			},
+			expectErr: true,
+		},
+		{
+			name: "absolute and variable unix socket paths are valid",
+			policy: &SandboxPolicy{
+				Name:    "test",
+				Network: NetworkPolicy{AllowUnixConnect: []string{"/run/safedep/gryph/hook.sock", "${HOME}/.agent.sock"}},
+			},
+			expectErr: false,
+		},
+		{
+			name:      "a relative unix socket path is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{"run/a.sock"}}},
+			expectErr: true,
+		},
+		{
+			name:      "an abstract unix socket name is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{"@dbus"}}},
+			expectErr: true,
+		},
+		{
+			name:      "a unix socket glob is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{"/run/*.sock"}}},
+			expectErr: true,
+		},
+		{
+			name:      "a tab in a unix socket path is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{"/run/a\t.sock"}}},
+			expectErr: true,
+		},
+		{
+			name:      "a dot component in a unix socket path is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{"/run/alias/../a.sock"}}},
+			expectErr: true,
+		},
+		{
+			name:      "a quote in a unix socket path is refused",
+			policy:    &SandboxPolicy{Name: "test", Network: NetworkPolicy{AllowUnixConnect: []string{`/run/a")) (allow default`}}},
 			expectErr: true,
 		},
 		{
@@ -436,6 +502,220 @@ func TestMergeWithParentDenyIPLiterals(t *testing.T) {
 
 			assert.NotNil(t, child.Network.DenyIPLiterals)
 			assert.Equal(t, tt.expected, *child.Network.DenyIPLiterals)
+		})
+	}
+}
+
+func TestUnixSocketRoutes(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	in := func(names ...string) string { return filepath.Join(append([]string{dir}, names...)...) }
+
+	socket := in("real.sock")
+	require.NoError(t, os.WriteFile(socket, nil, 0o600))
+	require.NoError(t, os.Symlink("real.sock", in("middle.sock")))
+	require.NoError(t, os.Symlink(in("middle.sock"), in("link.sock")))
+	require.NoError(t, os.Symlink(in("loop.sock"), in("loop.sock")))
+	require.NoError(t, os.Symlink(in(`x"y.sock`), in("unsafe.sock")))
+	require.NoError(t, os.Symlink(in("host[1].sock"), in("glob.sock")))
+	require.NoError(t, os.Symlink(in("${HOME}", "agent.sock"), in("variable.sock")))
+
+	// alias/hook.sock -> ../other.sock names real/other.sock, because ".."
+	// leaves the directory that alias names, not alias itself.
+	require.NoError(t, os.MkdirAll(in("real", "sub"), 0o700))
+	require.NoError(t, os.Symlink(in("real", "sub"), in("alias")))
+	require.NoError(t, os.Symlink("../other.sock", in("real", "sub", "hook.sock")))
+	require.NoError(t, os.WriteFile(in("real", "other.sock"), nil, 0o600))
+	require.NoError(t, os.WriteFile(in("other.sock"), nil, 0o600))
+
+	// a -> b -> real2 links directories. A run that replaced b would move
+	// the socket that a/host.sock names.
+	require.NoError(t, os.MkdirAll(in("real2"), 0o700))
+	require.NoError(t, os.WriteFile(in("real2", "host.sock"), nil, 0o600))
+	require.NoError(t, os.Symlink("real2", in("b")))
+	require.NoError(t, os.Symlink("b", in("a")))
+	require.NoError(t, os.Symlink("a/../real2/host.sock", in("dotdot.sock")))
+	require.NoError(t, os.WriteFile(in("plain"), nil, 0o600))
+	require.NoError(t, os.Symlink("plain/../other.sock", in("through-file.sock")))
+
+	// macOS refuses a lookup past 32 links and Linux past 40. A chain of 33
+	// reaches the socket on Linux only.
+	require.NoError(t, os.Symlink("real.sock", in("hop0.sock")))
+	for i := 1; i < 33; i++ {
+		require.NoError(t, os.Symlink(fmt.Sprintf("hop%d.sock", i-1), in(fmt.Sprintf("hop%d.sock", i))))
+	}
+	longChain := in("hop32.sock")
+	var longChainNames []string
+	for i := 32; i >= 0; i-- {
+		longChainNames = append(longChainNames, in(fmt.Sprintf("hop%d.sock", i)))
+	}
+	longChainNames = append(longChainNames, socket)
+	longChainErr := ""
+	if runtime.GOOS == "darwin" {
+		longChainErr = "more than 32"
+	}
+
+	tests := []struct {
+		name       string
+		entry      string
+		wantNames  []string
+		wantSocket string
+		wantErr    string
+	}{
+		{name: "a socket is its own route", entry: socket, wantNames: []string{socket}, wantSocket: socket},
+		{name: "each link in the chain is a name", entry: in("link.sock"), wantNames: []string{in("link.sock"), in("middle.sock"), socket}, wantSocket: socket},
+		{name: "a missing socket is a name", entry: in("none.sock"), wantNames: []string{in("none.sock")}},
+		{name: "the first missing directory is a name", entry: in("none", "x.sock"), wantNames: []string{in("none", "x.sock"), in("none")}},
+		{name: "a relative link below a linked directory resolves from the real directory", entry: in("alias", "hook.sock"), wantNames: []string{in("alias", "hook.sock"), in("real", "sub", "hook.sock"), in("real", "other.sock")}, wantSocket: in("real", "other.sock")},
+		{name: "each linked directory is an ancestor of a name", entry: in("a", "host.sock"), wantNames: []string{in("a", "host.sock"), in("b", "host.sock"), in("real2", "host.sock")}, wantSocket: in("real2", "host.sock")},
+		{name: "a file on the way ends the route without a socket", entry: in("through-file.sock"), wantNames: []string{in("through-file.sock"), in("plain")}},
+		{name: "a link loop fails", entry: in("loop.sock"), wantErr: "more than"},
+		{name: "a chain of 33 links fails only on macOS", entry: longChain, wantErr: longChainErr, wantNames: longChainNames, wantSocket: socket},
+		{name: "a link to an invalid path fails", entry: in("unsafe.sock"), wantErr: "links to an invalid path"},
+		{name: "a link to a path with a glob character fails", entry: in("glob.sock"), wantErr: "not a glob"},
+		{name: "a link to a path with a variable fails", entry: in("variable.sock"), wantErr: "unexpanded variable"},
+		{name: "a linked directory followed by .. fails", entry: in("dotdot.sock"), wantErr: "followed by"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := &SandboxPolicy{Network: NetworkPolicy{AllowUnixConnect: []string{tt.entry}}}
+			routes, err := policy.UnixSocketRoutes()
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, routes, 1)
+			assert.Equal(t, tt.entry, routes[0].Path)
+			assert.Equal(t, tt.wantNames, routes[0].Names)
+			assert.Equal(t, tt.wantSocket, routes[0].Socket)
+		})
+	}
+}
+
+// The write denies on a route bind only a run with the same list. A run
+// under a built-in profile can replace a name below its write rules and
+// choose the socket of the next run, so such an entry stays closed for every
+// profile.
+func TestUnixSocketRoutesByWriters(t *testing.T) {
+	underBuiltinRule := filepath.Join(t.TempDir(), "agent.sock")
+	ownDir := dirOutsideBuiltinWriteRules(t)
+	underOwnRule := filepath.Join(ownDir, "own.sock")
+	outside := filepath.Join(dirOutsideBuiltinWriteRules(t), "host.sock")
+
+	policy := &SandboxPolicy{
+		Filesystem: FilesystemPolicy{AllowWrite: []string{ownDir + "/**"}},
+		Network:    NetworkPolicy{AllowUnixConnect: []string{outside, underOwnRule, underBuiltinRule}},
+	}
+	open, closed, err := policy.UnixSocketRoutesByWriters()
+	require.NoError(t, err)
+
+	require.Len(t, open, 1)
+	assert.Equal(t, outside, open[0].Path)
+	require.Len(t, closed, 2)
+	assert.Equal(t, ClosedUnixSocketRoute{Path: underOwnRule, Rule: ownDir + "/**", Source: "this profile"}, closed[0])
+	assert.Equal(t, underBuiltinRule, closed[1].Path)
+	assert.True(t, strings.HasPrefix(closed[1].Source, "profile "), "closed by %s", closed[1].Source)
+
+	// Landlock and Seatbelt apply a rule on a link to its target, so a
+	// socket below the target stays closed too.
+	target := dirOutsideBuiltinWriteRules(t)
+	link := filepath.Join(dirOutsideBuiltinWriteRules(t), "cache")
+	require.NoError(t, os.Symlink(target, link))
+	underLinkedRule := filepath.Join(target, "agent.sock")
+	policy = &SandboxPolicy{
+		Filesystem: FilesystemPolicy{AllowWrite: []string{link + "/**"}},
+		Network:    NetworkPolicy{AllowUnixConnect: []string{underLinkedRule}},
+	}
+	open, closed, err = policy.UnixSocketRoutesByWriters()
+	require.NoError(t, err)
+	assert.Empty(t, open)
+	require.Len(t, closed, 1)
+	assert.Equal(t, ClosedUnixSocketRoute{Path: underLinkedRule, Rule: link + "/**", Source: "this profile"}, closed[0])
+}
+
+// Seatbelt lets a profile with write rules write the parent of a macOS
+// TMPDIR, outside every write rule, so an entry there stays closed.
+func TestUnixSocketRoutesByWritersCountsTheMacOSTmpdirGrant(t *testing.T) {
+	parents := util.GetTmpdirParent()
+	if len(parents) == 0 {
+		t.Skip("TMPDIR is not a macOS temporary directory")
+	}
+	cache := filepath.Join(parents[0], "C")
+	if _, err := os.Stat(cache); err != nil {
+		t.Skipf("no %s", cache)
+	}
+	entry := filepath.Join(cache, "pmg-test.sock")
+	policy := &SandboxPolicy{Network: NetworkPolicy{AllowUnixConnect: []string{entry}}}
+	open, closed, err := policy.UnixSocketRoutesByWriters()
+	require.NoError(t, err)
+	assert.Empty(t, open)
+	require.Len(t, closed, 1)
+	assert.Equal(t, "the macOS temporary directory grant", closed[0].Source)
+}
+
+// A rule counts for every name below the part before its first glob
+// character, so a glob inside a name cannot hide a directory from the check.
+func TestWriteRuleRoot(t *testing.T) {
+	tests := map[string]string{
+		"/tmp/**":                   "/tmp",
+		"/p/**/node_modules":        "/p",
+		"/h/Library/pnpm/_tmp_*/**": "/h/Library/pnpm",
+		"/p/package.json.*":         "/p",
+		"/p/.git":                   "/p/.git",
+		"**/x":                      "/",
+	}
+	for pattern, want := range tests {
+		assert.Equal(t, want, writeRuleRoot(pattern), pattern)
+	}
+}
+
+// dirOutsideBuiltinWriteRules returns a directory that no built-in write
+// rule covers. t.TempDir is below /tmp or TMPDIR, which built-in profiles
+// can write.
+func dirOutsideBuiltinWriteRules(t *testing.T) string {
+	t.Helper()
+	if _, err := os.Stat("/dev/shm"); err != nil {
+		t.Skip("needs /dev/shm, a directory outside every built-in write rule")
+	}
+	dir, err := os.MkdirTemp("/dev/shm", "pmg-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+	return dir
+}
+
+func TestUnixConnectPaths(t *testing.T) {
+	tests := []struct {
+		name             string
+		home             string
+		allowUnixSockets *bool
+		entries          []string
+		want             []string
+		wantErr          bool
+	}{
+		{name: "no entries", home: "/home/dev", want: nil},
+		{name: "expands variables", home: "/home/dev", entries: []string{"/run/a.sock", "${HOME}/.b.sock"}, want: []string{"/run/a.sock", "/home/dev/.b.sock"}},
+		{name: "allow_unix_sockets opens every socket", home: "/home/dev", allowUnixSockets: utils.PtrTo(true), entries: []string{"/run/a.sock"}, want: nil},
+		{name: "a variable that expands to a relative path fails", home: "relative", entries: []string{"${HOME}/a.sock"}, wantErr: true},
+		{name: "a glob character from a variable fails", home: "/home/[dev]", entries: []string{"${HOME}/a.sock"}, wantErr: true},
+		{name: "a quote from a variable fails", home: `/home/a")`, entries: []string{"${HOME}/a.sock"}, wantErr: true},
+		{name: "a dot component from a variable fails", home: "/home/alias/..", entries: []string{"${HOME}/a.sock"}, wantErr: true},
+		{name: "an unknown variable fails", home: "/home/dev", entries: []string{"${NOT_A_PMG_VAR}/a.sock"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", tt.home)
+			policy := &SandboxPolicy{AllowUnixSockets: tt.allowUnixSockets, Network: NetworkPolicy{AllowUnixConnect: tt.entries}}
+			got, err := policy.UnixConnectPaths()
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

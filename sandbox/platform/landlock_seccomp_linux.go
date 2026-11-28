@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,8 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -129,15 +132,27 @@ func landlockWriteAuditEvent(w io.Writer, evt auditEvent) error {
 // landlockNotifySyscalls returns the syscalls that go to the supervisor.
 // execve and execveat always go, for deny_exec. The path syscalls go when
 // deny rules exist. connect, sendto and sendmsg go under network lockdown.
-// sendmmsg does not go. See docs/sandbox-landlock.md.
+// connect alone goes when the supervisor checks the unix socket allow list,
+// because a stream socket sends nothing to a path without connect. sendmmsg
+// does not go. bind and listen go under the unix socket allow list. See
+// docs/sandbox-landlock.md.
 func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) []uint32 {
 	syscalls := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
 	if interceptPaths {
 		syscalls = append(syscalls, pathSyscallNumbers()...)
 	}
-	if network.Lockdown {
+	switch {
+	case network.Lockdown:
 		syscalls = append(syscalls,
 			uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG))
+	case network.supervisesUnixConnect():
+		syscalls = append(syscalls, uint32(unix.SYS_CONNECT))
+	}
+	// Landlock refuses a bind to a path in list mode, but nothing in the
+	// kernel refuses an abstract name, so the supervisor checks each bind
+	// and each listen.
+	if len(network.UnixConnect) > 0 {
+		syscalls = append(syscalls, uint32(unix.SYS_BIND), uint32(unix.SYS_LISTEN))
 	}
 	return syscalls
 }
@@ -247,6 +262,7 @@ type seccompPhase struct {
 	denyPaths   []denyPathEntry
 	denyExec    []string
 	network     landlockNetworkPolicy
+	unixConnect pinnedSockets
 	auditWriter io.Writer
 }
 
@@ -301,11 +317,98 @@ func (s *seccompSupervisor) Enforce(childPID int, denyPaths []denyPathEntry, den
 		denyPaths:   resolveDenyEntries(uint32(childPID), denyPaths),
 		denyExec:    resolveDenyExec(uint32(childPID), denyExec),
 		network:     network,
+		unixConnect: resolveUnixConnect(uint32(childPID), network),
 		auditWriter: auditWriter,
 	}
 	s.phase.Store(p)
 	close(s.enforceReady)
 	return nil
+}
+
+// socketInode names one socket. A path can name another socket later, by a
+// rename or a hard link in a directory that the child can write.
+type socketInode struct {
+	dev, ino uint64
+}
+
+func socketInodeOf(st *unix.Stat_t, path string) (socketInode, error) {
+	if st.Mode&unix.S_IFMT != unix.S_IFSOCK {
+		return socketInode{}, fmt.Errorf("%s is not a socket", path)
+	}
+	return socketInode{dev: st.Dev, ino: st.Ino}, nil
+}
+
+// statSocket returns the inode of the socket at path. It fails when path
+// does not name a socket.
+func statSocket(path string) (socketInode, error) {
+	var st unix.Stat_t
+	if err := unix.Stat(path, &st); err != nil {
+		return socketInode{}, err
+	}
+	return socketInodeOf(&st, path)
+}
+
+// pinnedSockets holds an O_PATH descriptor for each listed socket. An open
+// descriptor keeps the inode in use, so the file system cannot give its
+// number to a new socket after the server removes the listed one.
+type pinnedSockets struct {
+	inodes []socketInode
+	fds    []int
+}
+
+func (p pinnedSockets) contains(socket socketInode) bool {
+	return slices.Contains(p.inodes, socket)
+}
+
+func (p pinnedSockets) close() {
+	for _, fd := range p.fds {
+		closePinnedFd(fd)
+	}
+}
+
+func closePinnedFd(fd int) {
+	if err := unix.Close(fd); err != nil {
+		log.Warnf("close pinned socket: %v", err)
+	}
+}
+
+// pinSocket opens the socket at path and returns its inode.
+func pinSocket(path string) (socketInode, int, error) {
+	fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return socketInode{}, -1, err
+	}
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		closePinnedFd(fd)
+		return socketInode{}, -1, err
+	}
+	socket, err := socketInodeOf(&st, path)
+	if err != nil {
+		closePinnedFd(fd)
+		return socketInode{}, -1, err
+	}
+	return socket, fd, nil
+}
+
+// resolveUnixConnect binds the allow list to the sockets that exist when
+// the child starts, the same way the Landlock rules bind inodes. A socket
+// that is missing then, or that its server makes again later, stays closed.
+func resolveUnixConnect(pid uint32, network landlockNetworkPolicy) pinnedSockets {
+	var pinned pinnedSockets
+	if !network.supervisesUnixConnect() {
+		return pinned
+	}
+	for _, path := range network.UnixConnect {
+		socket, fd, err := pinSocket(canonicalPath(pid, "/", path, true))
+		if err != nil {
+			log.Warnf("sandbox: network.allow_unix_connect %s stays closed: %v", path, err)
+			continue
+		}
+		pinned.inodes = append(pinned.inodes, socket)
+		pinned.fds = append(pinned.fds, fd)
+	}
+	return pinned
 }
 
 // memFdFor opens a fresh /proc/<pid>/mem fd for the given PID. The caller
@@ -343,6 +446,9 @@ func (s *seccompSupervisor) Stop() error {
 	}
 	if err := unix.Close(s.stopFd); err != nil {
 		log.Warnf("close seccomp stop fd: %v", err)
+	}
+	if phase := s.phase.Load(); phase != nil {
+		phase.unixConnect.close()
 	}
 	return nil
 }
@@ -397,6 +503,10 @@ func (s *seccompSupervisor) loop() {
 			s.handleExec(notif, phase)
 		case int32(unix.SYS_CONNECT), int32(unix.SYS_SENDTO), int32(unix.SYS_SENDMSG):
 			s.handleConnect(notif, phase)
+		case int32(unix.SYS_BIND):
+			s.handleBind(notif, phase)
+		case int32(unix.SYS_LISTEN):
+			s.handleListen(notif, phase)
 		default:
 			if op, ok := seccompPathSyscalls[uint32(notif.Data.Nr)]; ok {
 				s.handlePathOp(notif, phase, op)
@@ -510,9 +620,12 @@ const dnsPort = 53
 // when the profile allows network bind. Port 53 is open only with
 // allow_direct_dns. All other destinations are denied.
 //
-// getaddrinfo needs AF_NETLINK. AF_UNIX gets here only with
-// allow_unix_sockets, because the kernel filter refuses socket(AF_UNIX)
-// otherwise. All other families are denied. AF_VSOCK, for example, reaches
+// getaddrinfo needs AF_NETLINK. AF_UNIX gets here only when the kernel
+// decides. That is when allow_unix_sockets opens every unix socket, or when
+// Landlock checks the allow list. The supervisor checks the allow list
+// before this otherwise, and the kernel filter refuses socket(AF_UNIX)
+// without either.
+// All other families are denied. AF_VSOCK, for example, reaches
 // host services from a VM.
 func (n landlockNetworkPolicy) allowOutbound(family uint16, addr netip.Addr, port uint16) bool {
 	if !n.Lockdown {
@@ -532,14 +645,20 @@ func (n landlockNetworkPolicy) allowOutbound(family uint16, addr netip.Addr, por
 	}
 }
 
-// netPeer is a parsed outbound destination from a sockaddr.
+// netPeer is a parsed outbound destination from a sockaddr. path is the
+// pathname of an AF_UNIX destination, and abstract marks an abstract one.
 type netPeer struct {
-	family uint16
-	addr   netip.Addr
-	port   uint16
+	family   uint16
+	addr     netip.Addr
+	port     uint16
+	path     string
+	abstract bool
 }
 
 func (p netPeer) String() string {
+	if p.family == unix.AF_UNIX && p.path != "" {
+		return p.path
+	}
 	if !p.addr.IsValid() {
 		return fmt.Sprintf("family:%d", p.family)
 	}
@@ -550,8 +669,8 @@ var errShortSockaddr = errors.New("sockaddr too short for family")
 
 // readNetPeer reads and parses a sockaddr from the trapping process's memory
 // via /proc/<pid>/mem. addrPtr/addrLen are the userspace pointer and length
-// syscall arguments. Only the family is parsed for non-INET sockets; callers
-// decide on family alone for those.
+// syscall arguments. Only the family is parsed for sockets that are not
+// INET or UNIX; callers decide on family alone for those.
 func readNetPeer(memFd *os.File, addrPtr, addrLen uint64) (netPeer, error) {
 	var famBuf [2]byte
 	if _, err := memFd.ReadAt(famBuf[:], int64(addrPtr)); err != nil {
@@ -585,8 +704,29 @@ func readNetPeer(memFd *os.File, addrPtr, addrLen uint64) (netPeer, error) {
 		// Unmap normalizes v4-mapped v6 (::ffff:127.0.0.1) so the loopback
 		// check below treats dual-stack clients like plain IPv4.
 		peer.addr = netip.AddrFrom16(addr).Unmap()
+	case unix.AF_UNIX:
+		// The kernel reads sun_path up to addrLen, and a NUL ends the name.
+		// A first byte of NUL names an abstract socket. An address without a
+		// name has no path, so the supervisor refuses it and the kernel
+		// gives EINVAL when the supervisor does not check the list.
+		if addrLen <= 2 {
+			return peer, nil
+		}
+		buf := make([]byte, min(addrLen, uint64(unix.SizeofSockaddrUnix)))
+		if _, err := memFd.ReadAt(buf, int64(addrPtr)); err != nil {
+			return peer, fmt.Errorf("read sockaddr_un: %w", err)
+		}
+		name := buf[2:]
+		if name[0] == 0 {
+			peer.abstract = true
+			return peer, nil
+		}
+		if end := bytes.IndexByte(name, 0); end >= 0 {
+			name = name[:end]
+		}
+		peer.path = string(name)
 	default:
-		// Non-INET family: family-only decision in allowOutbound.
+		// Other families: family-only decision in allowOutbound.
 	}
 
 	return peer, nil
@@ -621,7 +761,7 @@ func traceSeccompDecision(format string, args ...any) {
 // an unverifiable destination is indistinguishable from a hostile one (e.g.
 // dumpable=0 after a hostile execve), so we deny and audit instead.
 func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *seccompPhase) {
-	if !phase.network.Lockdown {
+	if !phase.network.Lockdown && !phase.network.supervisesUnixConnect() {
 		s.continueSyscall(notif.ID)
 		return
 	}
@@ -665,6 +805,11 @@ func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *sec
 		return
 	}
 
+	if peer.family == unix.AF_UNIX && phase.network.supervisesUnixConnect() {
+		s.handleUnixConnect(notif, phase, peer)
+		return
+	}
+
 	if !s.notifValid(notif.ID) {
 		s.deny(notif.ID)
 		return
@@ -678,6 +823,211 @@ func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *sec
 
 	traceSeccompDecision("deny %s pid=%d peer=%s reason=network_via_proxy_only", syscallName(notif.Data.Nr), notif.PID, peer)
 	s.denyNetworkConnect(notif, phase, peer.String(), "network_via_proxy_only")
+}
+
+// handleUnixConnect checks a unix socket address against the allow list.
+// The kernel follows symlinks on connect, so the path resolves in the
+// child's view before the match, and the match compares inodes. The kernel
+// looks the address up again after the supervisor answers. A thread that
+// changes the address or a symlink in between defeats this check. Landlock
+// ABI 9 closes that gap. See docs/sandbox-landlock.md.
+func (s *seccompSupervisor) handleUnixConnect(notif *seccompNotification, phase *seccompPhase, peer netPeer) {
+	syscall := syscallName(notif.Data.Nr)
+	if peer.abstract {
+		traceSeccompDecision("deny %s pid=%d: abstract unix socket", syscall, notif.PID)
+		s.denyUnixSocket(notif, phase, "", "abstract unix socket")
+		return
+	}
+
+	resolved, err := resolveNotifPath(notif.PID, unix.AT_FDCWD, peer.path, true)
+	if err != nil {
+		traceSeccompDecision("deny %s pid=%d path=%s: %v", syscall, notif.PID, peer.path, err)
+		s.denyUnixSocket(notif, phase, peer.path, "could not resolve unix socket path")
+		return
+	}
+
+	socket, err := statSocket(resolved)
+	if err != nil {
+		traceSeccompDecision("deny %s pid=%d path=%s: %v", syscall, notif.PID, resolved, err)
+		s.denyUnixSocket(notif, phase, resolved, "not a socket")
+		return
+	}
+
+	if !s.notifValid(notif.ID) {
+		s.deny(notif.ID)
+		return
+	}
+
+	if phase.unixConnect.contains(socket) {
+		traceSeccompDecision("allow %s pid=%d path=%s", syscall, notif.PID, resolved)
+		s.continueSyscall(notif.ID)
+		return
+	}
+
+	traceSeccompDecision("deny %s pid=%d path=%s reason=allow_unix_connect", syscall, notif.PID, resolved)
+	s.denyUnixSocket(notif, phase, resolved, "not in network.allow_unix_connect")
+}
+
+// handleBind refuses a bind on a unix socket under the unix socket allow
+// list, so a process cannot reserve an abstract name that a host service
+// needs. It copies the address from the process once and binds the
+// supervisor's copy of the socket with it, so a thread that rewrites the
+// address cannot change what the kernel binds.
+func (s *seccompSupervisor) handleBind(notif *seccompNotification, phase *seccompPhase) {
+	addr, errno := readBindAddress(phase, notif)
+	if errno != 0 {
+		s.respondErrno(notif.ID, errno)
+		return
+	}
+	s.brokerSocketCall(notif, phase, "bind", func(sock int) error {
+		var ptr unsafe.Pointer
+		if len(addr) > 0 {
+			ptr = unsafe.Pointer(&addr[0])
+		}
+		if _, _, errno := unix.Syscall(unix.SYS_BIND, uintptr(sock), uintptr(ptr), uintptr(len(addr))); errno != 0 {
+			return errno
+		}
+		return nil
+	})
+}
+
+// readBindAddress copies the sockaddr of a bind. The errors are the ones the
+// kernel gives for the same address.
+func readBindAddress(phase *seccompPhase, notif *seccompNotification) ([]byte, unix.Errno) {
+	addrPtr, addrLen := notif.Data.Args[1], notif.Data.Args[2]
+	if addrLen > uint64(unsafe.Sizeof(unix.RawSockaddrAny{})) {
+		return nil, unix.EINVAL
+	}
+	if addrLen == 0 {
+		return nil, 0
+	}
+	memFd := phase.memFdFor(notif.PID)
+	if memFd == nil {
+		return nil, unix.EACCES
+	}
+	defer closeMemFd(memFd)
+	addr := make([]byte, addrLen)
+	if _, err := memFd.ReadAt(addr, int64(addrPtr)); err != nil {
+		return nil, unix.EFAULT
+	}
+	return addr, 0
+}
+
+// handleListen refuses a listen on a unix socket under the unix socket allow
+// list, so no host client can connect to a socket of the sandbox.
+func (s *seccompSupervisor) handleListen(notif *seccompNotification, phase *seccompPhase) {
+	backlog := int(int32(notif.Data.Args[1]))
+	s.brokerSocketCall(notif, phase, "listen", func(sock int) error {
+		return unix.Listen(sock, backlog)
+	})
+}
+
+// brokerSocketCall runs call on the supervisor's own copy of the socket that
+// the child names, refuses a unix socket, and answers with the result. The
+// child's syscall never runs, so a thread that puts another socket at the
+// same descriptor number cannot change which socket the call acts on.
+// Landlock adds no network rule in this driver, so the copy loses no kernel
+// check.
+func (s *seccompSupervisor) brokerSocketCall(notif *seccompNotification, phase *seccompPhase, name string, call func(sock int) error) {
+	sock, err := duplicateChildFd(notif.PID, int(int32(notif.Data.Args[0])))
+	if err != nil {
+		s.denyUnixSocket(notif, phase, "", fmt.Sprintf("cannot inspect the socket: %v", err))
+		return
+	}
+	defer closeDuplicateFd(sock)
+
+	if !s.notifValid(notif.ID) {
+		s.deny(notif.ID)
+		return
+	}
+	domain, err := unix.GetsockoptInt(sock, unix.SOL_SOCKET, unix.SO_DOMAIN)
+	if err != nil {
+		s.respondErrno(notif.ID, errnoOf(err))
+		return
+	}
+	if domain == unix.AF_UNIX {
+		traceSeccompDecision("deny %s pid=%d: unix socket", name, notif.PID)
+		s.denyUnixSocket(notif, phase, "", name+" on a unix socket")
+		return
+	}
+	s.respondErrno(notif.ID, errnoOf(withoutCapabilities(func() error { return call(sock) })))
+}
+
+// withoutCapabilities runs call on a thread with no effective capability.
+// The child runs in its own user namespace, so it holds no capability in the
+// network namespace that it shares with the supervisor. A call that the
+// child could not make, such as a bind below port 1024 under a root pmg,
+// then fails the same way for the supervisor. The goroutine never unlocks
+// its thread, so the thread exits with it and no other goroutine runs
+// without the capabilities.
+func withoutCapabilities(call func() error) error {
+	result := make(chan error, 1)
+	go func() {
+		runtime.LockOSThread()
+		header := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+		var data [2]unix.CapUserData
+		if err := unix.Capget(&header, &data[0]); err != nil {
+			result <- fmt.Errorf("capget: %w", err)
+			return
+		}
+		data[0].Effective, data[1].Effective = 0, 0
+		if err := unix.Capset(&header, &data[0]); err != nil {
+			result <- fmt.Errorf("capset: %w", err)
+			return
+		}
+		result <- call()
+	}()
+	return <-result
+}
+
+// duplicateChildFd returns a copy of descriptor fd of the process that holds
+// thread tid. Before Linux 6.9 pidfd_open takes only a thread group leader.
+func duplicateChildFd(tid uint32, fd int) (int, error) {
+	tgid, err := threadGroupOf(tid)
+	if err != nil {
+		return -1, err
+	}
+	pidfd, err := unix.PidfdOpen(tgid, 0)
+	if err != nil {
+		return -1, fmt.Errorf("pidfd_open: %w", err)
+	}
+	defer closeDuplicateFd(pidfd)
+	dup, err := unix.PidfdGetfd(pidfd, fd, 0)
+	if err != nil {
+		return -1, fmt.Errorf("pidfd_getfd: %w", err)
+	}
+	return dup, nil
+}
+
+func threadGroupOf(tid uint32) (int, error) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", tid))
+	if err != nil {
+		return 0, err
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if value, ok := strings.CutPrefix(line, "Tgid:"); ok {
+			return strconv.Atoi(strings.TrimSpace(value))
+		}
+	}
+	return 0, fmt.Errorf("no Tgid in /proc/%d/status", tid)
+}
+
+func closeDuplicateFd(fd int) {
+	if err := unix.Close(fd); err != nil {
+		log.Warnf("sandbox: failed to close a socket copy: %v", err)
+	}
+}
+
+// errnoOf returns the errno of err, or 0 when err is nil.
+func errnoOf(err error) unix.Errno {
+	if err == nil {
+		return 0
+	}
+	var errno unix.Errno
+	if errors.As(err, &errno) {
+		return errno
+	}
+	return unix.EIO
 }
 
 // netSockaddrAddr extracts the destination sockaddr pointer and length from
@@ -725,6 +1075,18 @@ func netSockaddrAddr(notif *seccompNotification, openMem func() *os.File) (addrP
 // audit event. Errors are surfaced as ECONNREFUSED so tools report the
 // familiar "connection refused" rather than a filesystem-flavored EACCES.
 func (s *seccompSupervisor) denyNetworkConnect(notif *seccompNotification, phase *seccompPhase, target, message string) {
+	s.auditNetworkDeny(notif, phase, target, message)
+	s.denyConnRefused(notif.ID)
+}
+
+// denyUnixSocket fails a connect, a bind or a listen on a unix socket with
+// EACCES, the error that the kernel filter gives for a closed unix socket.
+func (s *seccompSupervisor) denyUnixSocket(notif *seccompNotification, phase *seccompPhase, target, message string) {
+	s.auditNetworkDeny(notif, phase, target, message)
+	s.deny(notif.ID)
+}
+
+func (s *seccompSupervisor) auditNetworkDeny(notif *seccompNotification, phase *seccompPhase, target, message string) {
 	if phase.auditWriter != nil {
 		if err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
 			Type:    auditNetworkDeny,
@@ -738,7 +1100,6 @@ func (s *seccompSupervisor) denyNetworkConnect(notif *seccompNotification, phase
 			log.Warnf("sandbox: failed to record a denial: %v", err)
 		}
 	}
-	s.denyConnRefused(notif.ID)
 }
 
 // syscallName returns a human-readable name for known intercepted syscalls.
@@ -757,6 +1118,10 @@ func syscallName(nr int32) string {
 		return "sendto"
 	case int32(unix.SYS_SENDMSG):
 		return "sendmsg"
+	case int32(unix.SYS_BIND):
+		return "bind"
+	case int32(unix.SYS_LISTEN):
+		return "listen"
 	default:
 		return fmt.Sprintf("syscall_%d", nr)
 	}
@@ -878,6 +1243,12 @@ func (s *seccompSupervisor) continueSyscall(id uint64) {
 
 func (s *seccompSupervisor) deny(id uint64) {
 	warnRespond("deny", id, respondDeny(s.notifyFd, id))
+}
+
+// respondErrno answers with the result of a syscall that the supervisor ran
+// for the child. An errno of 0 is success.
+func (s *seccompSupervisor) respondErrno(id uint64, errno unix.Errno) {
+	warnRespond("result", id, respondErrno(s.notifyFd, id, errno))
 }
 
 func (s *seccompSupervisor) denyConnRefused(id uint64) {

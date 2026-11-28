@@ -80,6 +80,7 @@ func TestBuildSeccompFilter(t *testing.T) {
 	notify := []uint32{unix.SYS_EXECVE, unix.SYS_OPENAT, unix.SYS_CONNECT}
 	blocked := buildSeccompFilter(seccompFilterSpec{Notify: notify})
 	allowed := buildSeccompFilter(seccompFilterSpec{Notify: notify, AllowUnixSockets: true})
+	listed := buildSeccompFilter(seccompFilterSpec{Notify: notify, UnixStreamSockets: true})
 	require.Less(t, len(blocked), 4096)
 
 	arch := uint32(seccompNativeArch)
@@ -110,6 +111,14 @@ func TestBuildSeccompFilter(t *testing.T) {
 		{"socket unix denied", blocked, unix.SYS_SOCKET, a(unix.AF_UNIX, unix.SOCK_STREAM), seccompErrno(unix.EACCES)},
 		{"socket unix allowed by profile", allowed, unix.SYS_SOCKET, a(unix.AF_UNIX, unix.SOCK_STREAM), unix.SECCOMP_RET_ALLOW},
 		{"socket inet allowed", blocked, unix.SYS_SOCKET, a(unix.AF_INET, unix.SOCK_STREAM), unix.SECCOMP_RET_ALLOW},
+		{"socket unix stream allowed by allow list", listed, unix.SYS_SOCKET, a(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC), unix.SECCOMP_RET_ALLOW},
+		{"socket unix datagram denied by allow list", listed, unix.SYS_SOCKET, a(unix.AF_UNIX, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC), seccompErrno(unix.EACCES)},
+		{"socket unix seqpacket denied by allow list", listed, unix.SYS_SOCKET, a(unix.AF_UNIX, unix.SOCK_SEQPACKET), seccompErrno(unix.EACCES)},
+		{"socket unix raw denied by allow list", listed, unix.SYS_SOCKET, a(unix.AF_UNIX, unix.SOCK_RAW), seccompErrno(unix.EACCES)},
+		{"socket inet datagram allowed with allow list", listed, unix.SYS_SOCKET, a(unix.AF_INET, unix.SOCK_DGRAM), unix.SECCOMP_RET_ALLOW},
+		{"datagram socketpair denied with allow list", listed, unix.SYS_SOCKETPAIR, a(unix.AF_UNIX, unix.SOCK_DGRAM), seccompErrno(unix.EACCES)},
+		{"stream socketpair allowed with allow list", listed, unix.SYS_SOCKETPAIR, a(unix.AF_UNIX, unix.SOCK_STREAM), unix.SECCOMP_RET_ALLOW},
+		{"connect notifies with allow list", listed, unix.SYS_CONNECT, a(), unix.SECCOMP_RET_USER_NOTIF},
 		{"socket netlink allowed", blocked, unix.SYS_SOCKET, a(unix.AF_NETLINK, unix.SOCK_RAW), unix.SECCOMP_RET_ALLOW},
 		{"stream socketpair allowed", blocked, unix.SYS_SOCKETPAIR, a(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC), unix.SECCOMP_RET_ALLOW},
 		{"datagram socketpair denied", blocked, unix.SYS_SOCKETPAIR, a(unix.AF_UNIX, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC), seccompErrno(unix.EACCES)},

@@ -17,6 +17,11 @@ type seccompFilterSpec struct {
 	Notify []uint32
 
 	AllowUnixSockets bool
+
+	// UnixStreamSockets allows socket(AF_UNIX, SOCK_STREAM) under the unix
+	// socket allow list, which checks each connect. Other unix socket types
+	// stay closed, because a datagram socket sends to a path with no connect.
+	UnixStreamSockets bool
 }
 
 // Offsets into struct seccomp_data. The low word of an argument comes first,
@@ -60,9 +65,9 @@ func seccompDeniedSyscalls() []uint32 {
 //
 // A foreign or x32 ABI kills the process. clone3 returns ENOSYS, because BPF
 // cannot read its flags, and glibc then uses clone. A clone or unshare that
-// makes a namespace returns EPERM. Without allow_unix_sockets, socket(AF_UNIX)
-// returns EACCES, and so does a socketpair that is not a stream or seqpacket
-// pair. The kernel makes SOCK_RAW a datagram pair, and a datagram pair can
+// makes a namespace returns EPERM. Without allow_unix_sockets,
+// socket(AF_UNIX) returns EACCES, except a stream socket under the allow
+// list. So does a socketpair that is not a stream or seqpacket pair. The kernel makes SOCK_RAW a datagram pair, and a datagram pair can
 // send to any socket path. The denied group returns EPERM. The notify group
 // goes to the supervisor. All other syscalls are allowed.
 func buildSeccompFilter(spec seccompFilterSpec) []unix.SockFilter {
@@ -112,22 +117,43 @@ func buildSeccompFilter(spec seccompFilterSpec) []unix.SockFilter {
 		argCheck(unix.SYS_CLONE, seccompDataArg0Low, seccompNewNamespaceFlags, 0, errno(unix.EPERM))
 		argCheck(unix.SYS_UNSHARE, seccompDataArg0Low, seccompNewNamespaceFlags|unix.CLONE_NEWTIME, 0, errno(unix.EPERM))
 		if !spec.AllowUnixSockets {
-			argCheck(unix.SYS_SOCKET, seccompDataArg0Low, 0xffffffff, unix.AF_UNIX, errno(unix.EACCES))
-			f = append(f,
-				unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jf: 6, K: unix.SYS_SOCKETPAIR},
-				ld(seccompDataArg1Low),
-				unix.SockFilter{Code: unix.BPF_ALU | unix.BPF_AND | unix.BPF_K, K: 0xf},
-				unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, K: unix.SOCK_STREAM},
-				unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, K: unix.SOCK_SEQPACKET},
-				ret(errno(unix.EACCES)),
-				ld(seccompDataNrOffset),
-			)
+			if spec.UnixStreamSockets {
+				typeCheck := socketTypeCheck(errno(unix.EACCES), unix.SOCK_STREAM)
+				f = append(f,
+					unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jf: uint8(2 + len(typeCheck)), K: unix.SYS_SOCKET},
+					ld(seccompDataArg0Low),
+					unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jf: uint8(len(typeCheck) - 1), K: unix.AF_UNIX},
+				)
+				f = append(f, typeCheck...)
+			} else {
+				argCheck(unix.SYS_SOCKET, seccompDataArg0Low, 0xffffffff, unix.AF_UNIX, errno(unix.EACCES))
+			}
+			typeCheck := socketTypeCheck(errno(unix.EACCES), unix.SOCK_STREAM, unix.SOCK_SEQPACKET)
+			f = append(f, unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jf: uint8(len(typeCheck)), K: unix.SYS_SOCKETPAIR})
+			f = append(f, typeCheck...)
 		}
 	}
 
 	f = appendSyscallGroup(f, seccompDeniedSyscalls(), errno(unix.EPERM))
 	f = appendSyscallGroup(f, spec.Notify, unix.SECCOMP_RET_USER_NOTIF)
 	return append(f, ret(unix.SECCOMP_RET_ALLOW))
+}
+
+// socketTypeCheck returns action unless the socket type in arg1, without
+// SOCK_NONBLOCK and SOCK_CLOEXEC, is one of types. It ends by loading the
+// syscall number again for the next checks.
+func socketTypeCheck(action uint32, types ...uint32) []unix.SockFilter {
+	f := []unix.SockFilter{
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: seccompDataArg1Low},
+		{Code: unix.BPF_ALU | unix.BPF_AND | unix.BPF_K, K: 0xf},
+	}
+	for i, t := range types {
+		f = append(f, unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: uint8(len(types) - i), K: t})
+	}
+	return append(f,
+		unix.SockFilter{Code: unix.BPF_RET | unix.BPF_K, K: action},
+		unix.SockFilter{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: seccompDataNrOffset},
+	)
 }
 
 // appendSyscallGroup adds one JEQ for each syscall to a shared RET, and a JA

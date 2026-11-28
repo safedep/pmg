@@ -99,6 +99,18 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate policy: %w", err)
 	}
+	if execPolicy.Network.supervisesUnixConnect() {
+		if _, err := fmt.Fprintf(os.Stderr, "pmg: warning: Landlock ABI %d cannot check network.allow_unix_connect. "+
+			"The supervisor checks it, and a hostile process can race the check to reach any unix socket. "+
+			"Linux with Landlock ABI 9 closes this gap\n", s.abi.Version); err != nil {
+			return nil, err
+		}
+	}
+	for _, closed := range execPolicy.Network.UnixConnectClosed {
+		if _, err := fmt.Fprintf(os.Stderr, "pmg: warning: %s\n", closed.Warning()); err != nil {
+			return nil, err
+		}
+	}
 
 	execPolicy.Command = cmd.Path
 	if len(cmd.Args) > 1 {
