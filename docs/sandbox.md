@@ -191,7 +191,8 @@ network:
   So PMG leaves an entry closed, and prints a warning, when a write rule of the profile, of a
   built-in profile or of a built-in preset covers a name on the way to the socket. Built-in
   profiles can write the project directory, `/tmp`, `/var/tmp`, `${TMPDIR}` and some caches
-  below the home directory. Put a listed socket outside these directories. PMG cannot know a
+  below the home directory. On macOS a profile with write rules can also write the parent of
+  `${TMPDIR}`, such as `/var/folders/xx/yyy`. Put a listed socket outside these directories. PMG cannot know a
   user profile, a user preset or a `--sandbox-allow write=` value of another run, so keep a
   listed socket outside the directories that those can write too.
 - macOS: Seatbelt allows each path. It also allows the `/private` form of a path under `/var`,

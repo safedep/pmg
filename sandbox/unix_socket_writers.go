@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/safedep/pmg/sandbox/util"
 )
 
 // ClosedUnixSocketRoute is an entry of network.allow_unix_connect that stays
@@ -113,6 +115,13 @@ func (p *SandboxPolicy) unixSocketWriteRules() ([]unixSocketWriteRule, error) {
 		}
 		rules = append(rules, presetRules...)
 	}
+
+	// Seatbelt lets every profile with write rules write the parent of a
+	// macOS TMPDIR, such as /var/folders/xx/yyy, and so its C directory
+	// too. No write rule names that grant.
+	for _, parent := range util.GetTmpdirParent() {
+		rules = append(rules, newWriteRule(parent, parent, "the macOS temporary directory grant"))
+	}
 	return rules, nil
 }
 
@@ -123,14 +132,17 @@ func writeRulesOf(patterns []string, source string) ([]unixSocketWriteRule, erro
 	}
 	rules := make([]unixSocketWriteRule, 0, len(expanded))
 	for _, pattern := range expanded {
-		root := writeRuleRoot(pattern)
-		roots := []string{root}
-		if resolved := resolveExistingPrefix(root); resolved != root {
-			roots = append(roots, resolved)
-		}
-		rules = append(rules, unixSocketWriteRule{roots: roots, rule: pattern, source: source})
+		rules = append(rules, newWriteRule(writeRuleRoot(pattern), pattern, source))
 	}
 	return rules, nil
+}
+
+func newWriteRule(root, rule, source string) unixSocketWriteRule {
+	roots := []string{root}
+	if resolved := resolveExistingPrefix(root); resolved != root {
+		roots = append(roots, resolved)
+	}
+	return unixSocketWriteRule{roots: roots, rule: rule, source: source}
 }
 
 // resolveExistingPrefix resolves the links in the longest part of path that

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/sandbox/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -633,6 +634,26 @@ func TestUnixSocketRoutesByWriters(t *testing.T) {
 	assert.Empty(t, open)
 	require.Len(t, closed, 1)
 	assert.Equal(t, ClosedUnixSocketRoute{Path: underLinkedRule, Rule: link + "/**", Source: "this profile"}, closed[0])
+}
+
+// Seatbelt lets a profile with write rules write the parent of a macOS
+// TMPDIR, outside every write rule, so an entry there stays closed.
+func TestUnixSocketRoutesByWritersCountsTheMacOSTmpdirGrant(t *testing.T) {
+	parents := util.GetTmpdirParent()
+	if len(parents) == 0 {
+		t.Skip("TMPDIR is not a macOS temporary directory")
+	}
+	cache := filepath.Join(parents[0], "C")
+	if _, err := os.Stat(cache); err != nil {
+		t.Skipf("no %s", cache)
+	}
+	entry := filepath.Join(cache, "pmg-test.sock")
+	policy := &SandboxPolicy{Network: NetworkPolicy{AllowUnixConnect: []string{entry}}}
+	open, closed, err := policy.UnixSocketRoutesByWriters()
+	require.NoError(t, err)
+	assert.Empty(t, open)
+	require.Len(t, closed, 1)
+	assert.Equal(t, "the macOS temporary directory grant", closed[0].Source)
 }
 
 // A rule counts for every name below the part before its first glob
