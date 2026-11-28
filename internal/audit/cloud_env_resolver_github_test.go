@@ -47,6 +47,9 @@ func TestGithubActionsResolverMetadata(t *testing.T) {
 	t.Setenv("GITHUB_WORKFLOW", "CI")
 	t.Setenv("GITHUB_JOB", "build")
 	t.Setenv("GITHUB_RUN_ATTEMPT", "1")
+	t.Setenv("GITHUB_RUN_NUMBER", "42")
+	t.Setenv("GITHUB_EVENT_NAME", "pull_request")
+	t.Setenv("RUNNER_ENVIRONMENT", "self-hosted")
 	t.Setenv("GITHUB_SERVER_URL", "https://github.com")
 
 	resolver := newGithubActionsCIResolver()
@@ -55,6 +58,9 @@ func TestGithubActionsResolverMetadata(t *testing.T) {
 	assert.Equal(t, "CI", metadata["workflow"])
 	assert.Equal(t, "build", metadata["job"])
 	assert.Equal(t, "1", metadata["run_attempt"])
+	assert.Equal(t, "42", metadata["run_number"])
+	assert.Equal(t, "pull_request", metadata["event_name"])
+	assert.Equal(t, "self-hosted", metadata["runner_environment"])
 	assert.Equal(t, "https://github.com", metadata["server_url"])
 
 	hostname, err := os.Hostname()
@@ -67,6 +73,9 @@ func TestGithubActionsResolverMetadataEmpty(t *testing.T) {
 	t.Setenv("GITHUB_WORKFLOW", "")
 	t.Setenv("GITHUB_JOB", "")
 	t.Setenv("GITHUB_RUN_ATTEMPT", "")
+	t.Setenv("GITHUB_RUN_NUMBER", "")
+	t.Setenv("GITHUB_EVENT_NAME", "")
+	t.Setenv("RUNNER_ENVIRONMENT", "")
 	t.Setenv("GITHUB_SERVER_URL", "")
 
 	resolver := newGithubActionsCIResolver()

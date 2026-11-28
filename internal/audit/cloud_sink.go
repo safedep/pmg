@@ -72,6 +72,10 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 		return nil
 	}
 
+	// Every event carries the invocation context. A run that is killed before
+	// its session summary, and a daemon that sends its summary only when it
+	// stops, still name their CI run, workload and user.
+	invocationContext := s.buildInvocationContext()
 	for _, pmgEvent := range pmgEvents {
 		toolEvent, err := s.emitter.NewEvent()
 		if err != nil {
@@ -80,13 +84,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 
 		toolEvent.SetPmgEvent(pmgEvent)
 		toolEvent.SetInvocationId(s.invocationID)
-		// Invocation context (CI, command, working dir, Kubernetes) is set once
-		// per execution on the session summary event. Every event shares the
-		// invocation ID, so the backend joins the context without storing it on
-		// each event.
-		if event.Type == EventTypeSessionComplete {
-			toolEvent.SetInvocationContext(s.buildInvocationContext())
-		}
+		toolEvent.SetInvocationContext(invocationContext)
 
 		if err := s.emitter.Emit(ctx, toolEvent); err != nil {
 			if errors.Is(err, endpointsync.ErrWALFull) {
