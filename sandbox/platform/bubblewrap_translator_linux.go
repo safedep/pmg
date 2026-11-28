@@ -79,6 +79,8 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 		args = append(args, ptyArgs...)
 	}
 
+	args = resolveSymlinkMounts(args)
+
 	// 5. Check total argument limit and log warning if exceeded
 	// Do not fail, let bwrap fail naturally if it does.
 	if len(args) > t.config.totalArgsLimit {
@@ -89,6 +91,72 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 	log.Debugf("Translated policy '%s' to %d bwrap arguments (limit: %d)", policy.Name, len(args), t.config.totalArgsLimit)
 
 	return args, nil
+}
+
+// resolveSymlinkMounts moves each mount whose destination is a symlink inside
+// the sandbox to the symlink target. bwrap cannot create a mount point on an
+// absolute symlink, and bwrap 0.12 refuses to mount on any symlink.
+//
+// A symlink is inside the sandbox only when an earlier bind of a parent
+// directory exposes it. Otherwise bwrap creates the destination itself, as
+// for the essential system paths, and the path stays as it is.
+func resolveSymlinkMounts(args []string) []string {
+	out := append([]string{}, args...)
+	// The mounts so far, in order. hostBinds[i] is true when mount i binds a
+	// host path onto the same path.
+	var dests []string
+	var hostBinds []bool
+	resolved := make(map[string]string)
+
+	exposed := func(path string) bool {
+		for i := len(dests) - 1; i >= 0; i-- {
+			if dests[i] == path {
+				return false
+			}
+			if strings.HasPrefix(path, strings.TrimSuffix(dests[i], "/")+"/") {
+				return hostBinds[i]
+			}
+		}
+		return false
+	}
+
+	for i := 0; i < len(out); i++ {
+		var src, dst int
+		switch out[i] {
+		case "--bind", "--bind-try", "--ro-bind", "--ro-bind-try", "--dev-bind-try":
+			src, dst = i+1, i+2
+		case "--tmpfs", "--proc":
+			src, dst = -1, i+1
+		case "--remount-ro":
+			// Follows the --tmpfs it remounts.
+			if target, ok := resolved[out[i+1]]; ok {
+				out[i+1] = target
+			}
+			i++
+			continue
+		default:
+			continue
+		}
+
+		path := out[dst]
+		hostBind := src >= 0 && out[src] == path
+		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 && exposed(path) {
+			if target, err := filepath.EvalSymlinks(path); err == nil {
+				if hostBind {
+					out[src] = target
+				}
+				out[dst] = target
+				resolved[path] = target
+				log.Debugf("Mounting on '%s', the target of symlink '%s'", target, path)
+			}
+		}
+
+		dests = append(dests, out[dst])
+		hostBinds = append(hostBinds, hostBind)
+		i = dst
+	}
+
+	return out
 }
 
 // addEssentialSystemPermissions adds bind mounts for essential system paths
