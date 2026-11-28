@@ -24,7 +24,7 @@ Style, names, comments and refactors are Nit at most. Report at most five Nits i
    package install when PMG cannot get a verdict. Examples are a timeout, an analyzer error, a
    cache miss, a parse error or an unknown ecosystem. In paranoid mode PMG must block in that
    case. A path that allows the install in paranoid mode is Important. In default mode PMG allows
-   the install and must report the package. A path that allows it without a report is Important.
+   the install and shows no report. `pmg --debug` logs the error.
    `NotFound` is a verdict and is not Important in either mode. It means the service has not
    analyzed the version, and a block would stop each new release.
    A change that lets an environment variable or a user config override a managed config in

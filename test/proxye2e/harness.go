@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -69,6 +70,7 @@ type options struct {
 	policy         cloudpolicy.Source
 	breakerOpen    time.Duration
 	upstreamConn   func(net.Conn) net.Conn
+	interceptors   []proxy.Interceptor
 }
 
 // WithUpstreamConn wraps every upstream connection, to model a network path.
@@ -116,6 +118,12 @@ func WithPolicy(src cloudpolicy.Source) Option {
 // breaker, so a case can reach the half-open state fast.
 func WithBreakerOpenPeriod(d time.Duration) Option {
 	return func(o *options) { o.breakerOpen = d }
+}
+
+// WithInterceptor adds i to the registry interceptors, so a case can model an
+// interceptor that fails. The proxy does not keep an order of interceptors.
+func WithInterceptor(i proxy.Interceptor) Option {
+	return func(o *options) { o.interceptors = append(o.interceptors, i) }
 }
 
 // WithoutInterceptors builds the exec proxy. See flows.NetworkProxy.
@@ -248,7 +256,7 @@ func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *
 
 	cfg := proxy.DefaultProxyConfig()
 	cfg.CertManager = certMgr
-	cfg.Interceptors = interceptorList
+	cfg.Interceptors = slices.Concat(o.interceptors, interceptorList)
 	if o.noInterceptors {
 		cfg.CertManager = nil
 		cfg.Interceptors = nil
