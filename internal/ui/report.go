@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
@@ -99,10 +98,6 @@ type ReportData struct {
 	// Packages that paranoid mode blocked with no malware verdict (proxy mode only)
 	NoVerdictBlockedPackages []*proxy.BlockContext
 	NoVerdictMore            int
-
-	// UnanalyzedPackages is set in proxy mode only.
-	UnanalyzedPackages []*packagev1.PackageVersion
-	UnanalyzedMore     int
 
 	// NetworkPolicy holds the connections a deny rule matched. nil when no
 	// policy ran.
@@ -250,7 +245,6 @@ func reportNormal(data *ReportData) {
 
 	printNetworkPolicy(data.NetworkPolicy)
 	printNetworkObservation(data)
-	printUnanalyzedWarning(data.UnanalyzedPackages, data.UnanalyzedMore)
 
 	if data.Outcome == OutcomeError {
 		// The child's own error output and PMG's exit line render elsewhere.
@@ -332,22 +326,6 @@ func reportNormal(data *ReportData) {
 	fmt.Printf("%s %s\n", icon, Colors.Dim(message))
 }
 
-const UnanalyzedHeadline = "Malware analysis failed. PMG allowed these packages without analysis"
-
-func printUnanalyzedWarning(packages []*packagev1.PackageVersion, more int) {
-	if len(packages) == 0 {
-		return
-	}
-
-	fmt.Printf("%s %s\n", Colors.Yellow("⚠"), Colors.Yellow(UnanalyzedHeadline))
-	for _, pkg := range packages {
-		fmt.Printf("    %s\n", PackageVersionPurl(pkg))
-	}
-	if more > 0 {
-		fmt.Printf("    and %d more\n", more)
-	}
-}
-
 const insecureModeMessage = "INSECURE MODE - Malware protection bypassed"
 
 func printInsecureWarning(installed int) {
@@ -410,11 +388,6 @@ func reportVerbose(data *ReportData) {
 		fmt.Printf("  %s enabled (%s)\n",
 			Colors.Bold("Sandbox:"),
 			profile)
-	}
-
-	if len(data.UnanalyzedPackages) > 0 {
-		fmt.Println()
-		printUnanalyzedWarning(data.UnanalyzedPackages, data.UnanalyzedMore)
 	}
 
 	// Show blocked/confirmed package details in verbose mode

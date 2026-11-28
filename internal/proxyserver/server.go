@@ -447,14 +447,14 @@ func buildInterceptors(
 	confirmationChan chan *interceptors.ConfirmationRequest,
 	registries []config.ProxyRegistryConfig,
 	ecosystems []packagev1.Ecosystem,
-	onAnalysisFailure func(*packagev1.PackageVersion, error, bool),
+	onNoVerdictBlocked func(*packagev1.PackageVersion, error),
 ) ([]pmgproxy.Interceptor, error) {
 	factory, err := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,
 		cache,
 		statsCollector,
 		confirmationChan,
-		interceptors.InterceptorContext{Policy: cloudpolicy.Global(), OnAnalysisFailure: onAnalysisFailure},
+		interceptors.InterceptorContext{Policy: cloudpolicy.Global(), OnNoVerdictBlocked: onNoVerdictBlocked},
 		registries,
 	)
 	if err != nil {

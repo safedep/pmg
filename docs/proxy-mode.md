@@ -196,16 +196,16 @@ The community service answers `NotFound` for a version that it has not analyzed 
 
 When PMG has no verdict, the result depends on the mode.
 
-- Default mode allows the download and lists the package in the install report.
+- Default mode allows the download.
 - Paranoid mode blocks the download with HTTP 503, unless insecure installation is on.
   It also blocks when an interceptor fails.
   The reports and the job summary show the reason `no malware verdict`, and `--fail-on-violation` counts the package.
   A later download of the same version that gets a verdict removes the block.
   PMG writes each block to the local event log as `no_verdict_blocked`.
+  The proxy daemon also writes each block to `proxy.log`, at most 20 lines each minute.
 
 npm and pip retry a 503, so a short outage slows an install before it fails.
 
-The proxy daemon writes a line to `proxy.log` for each package without a verdict, at most 20 each minute.
 Use `pmg --debug npm install` to inspect the errors.
 
 After 3 failed analyses in a row, a circuit breaker stops the queries for 30 seconds, or 10 seconds in paranoid mode.

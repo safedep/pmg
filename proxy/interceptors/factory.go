@@ -42,8 +42,9 @@ type InterceptorContext struct {
 	// keeps the default of the mode.
 	BreakerOpenPeriod time.Duration
 
-	// OnAnalysisFailure is called for each package that PMG could not analyze.
-	OnAnalysisFailure func(pkg *packagev1.PackageVersion, err error, blocked bool)
+	// OnNoVerdictBlocked is called for each package that paranoid mode blocks
+	// without a malware verdict.
+	OnNoVerdictBlocked func(pkg *packagev1.PackageVersion, err error)
 }
 
 // currentPolicy returns the policy of src, or the policy of the process when

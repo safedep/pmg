@@ -288,7 +288,7 @@ func TestHandleUnanalyzed(t *testing.T) {
 		insecure bool
 		blocked  bool
 	}{
-		{name: "default mode allows and reports"},
+		{name: "default mode allows"},
 		{name: "paranoid mode blocks with no verdict", paranoid: true, blocked: true},
 		{name: "insecure installation wins over paranoid mode", paranoid: true, insecure: true},
 	} {
@@ -302,9 +302,8 @@ func TestHandleUnanalyzed(t *testing.T) {
 			mock := &mockAnalyzer{err: status.Error(codes.DeadlineExceeded, "context deadline exceeded")}
 			base := newTestBaseInterceptor(mock)
 			var reported []*packagev1.PackageVersion
-			base.execContext.OnAnalysisFailure = func(pkg *packagev1.PackageVersion, err error, blocked bool) {
+			base.execContext.OnNoVerdictBlocked = func(pkg *packagev1.PackageVersion, err error) {
 				assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
-				assert.Equal(t, tc.blocked, blocked)
 				reported = append(reported, pkg)
 			}
 			ctx := newTestRequestContext()
@@ -317,14 +316,14 @@ func TestHandleUnanalyzed(t *testing.T) {
 				resp = base.handleUnanalyzed(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "flaky", "1.0.0", err)
 			}
 
-			require.Len(t, reported, 2)
-			assert.Equal(t, "flaky", reported[0].GetPackage().GetName())
-			assert.Equal(t, packagev1.Ecosystem_ECOSYSTEM_NPM, reported[0].GetPackage().GetEcosystem())
 			unanalyzed, more := base.statsCollector.GetUnanalyzedPackages()
-			assert.Equal(t, reported[:1], unanalyzed)
+			require.Len(t, unanalyzed, 1)
+			assert.Equal(t, "flaky", unanalyzed[0].GetPackage().GetName())
+			assert.Equal(t, packagev1.Ecosystem_ECOSYSTEM_NPM, unanalyzed[0].GetPackage().GetEcosystem())
 			assert.Zero(t, more)
 
 			if !tc.blocked {
+				assert.Empty(t, reported)
 				assert.Equal(t, proxy.ActionAllow, resp.Action)
 				blocks, _ := base.statsCollector.GetNoVerdictBlocks()
 				assert.Empty(t, blocks)

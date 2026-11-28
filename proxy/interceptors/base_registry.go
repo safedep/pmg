@@ -296,8 +296,8 @@ func (b *baseRegistryInterceptor) execute(ctx context.Context,
 	}
 }
 
-// handleUnanalyzed reports the failure through the stats collector and
-// OnAnalysisFailure, because the logger is off without --debug.
+// handleUnanalyzed reports a paranoid block through OnNoVerdictBlocked,
+// because the logger is off without --debug.
 func (b *baseRegistryInterceptor) handleUnanalyzed(
 	ctx *proxy.RequestContext,
 	ecosystem packagev1.Ecosystem,
@@ -314,10 +314,6 @@ func (b *baseRegistryInterceptor) handleUnanalyzed(
 	if b.statsCollector != nil {
 		b.statsCollector.RecordUnanalyzed(pkgVersion)
 	}
-	if b.execContext.OnAnalysisFailure != nil {
-		b.execContext.OnAnalysisFailure(pkgVersion, err, failClosed)
-	}
-
 	if !failClosed {
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}
 	}
@@ -328,6 +324,9 @@ func (b *baseRegistryInterceptor) handleUnanalyzed(
 		b.statsCollector.RecordNoVerdictBlocked(block)
 	}
 	audit.LogNoVerdictBlocked(pkgVersion, err)
+	if b.execContext.OnNoVerdictBlocked != nil {
+		b.execContext.OnNoVerdictBlocked(pkgVersion, err)
+	}
 
 	// 503 and not 403, because an outage and not a policy refused the package.
 	return &proxy.InterceptorResponse{
